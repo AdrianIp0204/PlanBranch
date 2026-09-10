@@ -220,6 +220,9 @@ test(
       h.initial.content.variables.find((v) => v.name === "record").id,
     );
     await p
+      .locator('.inspector details[data-section="links"] > summary')
+      .click();
+    await p
       .locator(".inspector")
       .getByRole("button", { name: "future_total", exact: true })
       .click();
@@ -500,13 +503,11 @@ test(
     );
     await save(h);
     const portable = await h.api(`/projects/${id}/export/json`);
-    await p
-      .locator('input[type="file"]')
-      .setInputFiles({
-        name: "catalogue-portable.json",
-        mimeType: "application/json",
-        buffer: Buffer.from(JSON.stringify(portable)),
-      });
+    await p.locator('input[type="file"]').setInputFiles({
+      name: "catalogue-portable.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(JSON.stringify(portable)),
+    });
     let imported;
     await until(async () => {
       imported = (await h.api("/projects")).projects.find(
@@ -563,6 +564,9 @@ test(
     await detail(p)
       .getByLabel("Link a detected symbol", { exact: true })
       .selectOption(fresh.id);
+    await detail(p)
+      .getByRole("button", { name: "Confirm match", exact: true })
+      .click();
     await save(h);
     importedEnvelope = await h.api("/projects/" + imported.id);
     const old = importedEnvelope.content.matches.find(

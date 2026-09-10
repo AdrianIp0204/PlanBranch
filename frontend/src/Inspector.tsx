@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { symbolDescription } from "./catalogue";
 import { useProject } from "./store";
-import { Field, StatusMark } from "./ui";
+import { Field } from "./ui";
+import "./inspector.css";
 import {
   nodeKinds,
   statuses,
@@ -24,7 +25,7 @@ export default function Inspector({
   selected: string | null;
   symbols: DetectedSymbol[];
   onSelect: (id: string | null) => void;
-  onVariable: (id: string) => void;
+  onVariable: (id: string | null) => void;
 }) {
   const { session, change, commit } = useProject();
   const content = session.content;
@@ -81,8 +82,8 @@ export default function Inspector({
   };
   if (!node && !edge)
     return (
-      <aside className="inspector">
-        <div className="section-heading">Project notes</div>
+      <aside className="inspector" aria-label="Project details">
+        <div className="section-heading">Project details</div>
         <p className="muted">Select a node or connection to inspect it.</p>
         <Field label="Project name">
           <input
@@ -118,18 +119,11 @@ export default function Inspector({
             onBlur={commit}
           />
         </Field>
-        <div className="inspector-tip">
-          <strong>Your plan, at your pace.</strong>
-          <p>
-            Notes and task status are yours to record. Code scans keep their
-            observations separate.
-          </p>
-        </div>
       </aside>
     );
   if (edge)
     return (
-      <aside className="inspector">
+      <aside className="inspector" aria-label="Connection details">
         <div className="section-heading">Connection</div>
         <Field label="Branch label">
           <input
@@ -191,26 +185,12 @@ export default function Inspector({
     </Field>
   );
   return (
-    <aside className="inspector">
+    <aside className="inspector" aria-label="Node details">
       <div className="section-heading">
         Node details <span>{nodeKinds[n.type]}</span>
       </div>
       {textField("Title", "title")}
       <div className="field-row">
-        <Field label="Shape">
-          <select
-            value={n.type}
-            onChange={(e) =>
-              editNode("type", e.target.value as NodeKind, false)
-            }
-          >
-            {Object.entries(nodeKinds).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </Field>
         <Field label="Status">
           <select
             value={n.status}
@@ -225,17 +205,33 @@ export default function Inspector({
             ))}
           </select>
         </Field>
+        <Field label="Shape">
+          <select
+            value={n.type}
+            onChange={(e) =>
+              editNode("type", e.target.value as NodeKind, false)
+            }
+          >
+            {Object.entries(nodeKinds).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </Field>
       </div>
       {n.status === "blocked" &&
         textField("What is blocking this?", "blocker", true)}
       {textField("Description", "description", true)}
-      <div className="inspector-section">
-        <div className="section-heading">
-          Checklist{" "}
-          <span>
-            {n.checklist.filter((i) => i.checked).length}/{n.checklist.length}
-          </span>
-        </div>
+      <InspectorSection
+        name="checklist"
+        title="Checklist"
+        indicator={`${n.checklist.filter((i) => i.checked).length} / ${n.checklist.length}`}
+        hasContent={n.checklist.length > 0}
+      >
+        {n.checklist.length === 0 && (
+          <p className="inspector-helper">Break this task into small checks.</p>
+        )}
         {n.checklist.map((item) => (
           <div className="checklist-item" key={item.id}>
             <input
@@ -294,21 +290,47 @@ export default function Inspector({
           + Add checklist item
         </button>
         <small>Checking items does not change task status.</small>
-      </div>
-      {textField("Notes", "notes", true)}
-      {textField("Pseudocode", "pseudocode", true, true)}
+      </InspectorSection>
+      <InspectorSection name="notes" title="Notes" hasContent={!!n.notes}>
+        {textField("Notes", "notes", true)}
+      </InspectorSection>
+      <InspectorSection
+        name="pseudocode"
+        title="Pseudocode"
+        hasContent={!!n.pseudocode}
+      >
+        {textField("Pseudocode", "pseudocode", true, true)}
+      </InspectorSection>
+      <InspectorSection
+        name="targets"
+        title="Implementation targets"
+        indicator={`${[n.targetFile, n.targetScope].filter(Boolean).length} / 2 set`}
+        hasContent={!!(n.targetFile || n.targetScope)}
+      >
+        {textField("Target file", "targetFile", false, true)}
+        {textField("Function / scope", "targetScope", false, true)}
+      </InspectorSection>
       {n.type === "decision" && (
-        <>
+        <InspectorSection
+          name="reasoning"
+          title="Decision reasoning"
+          hasContent={!!(n.why || n.alternatives)}
+        >
           {textField("Why this choice?", "why", true)}
           {textField("Alternatives considered", "alternatives", true)}
-        </>
+        </InspectorSection>
       )}
-      {textField("Target file", "targetFile", false, true)}
-      {textField("Function / scope", "targetScope", false, true)}
-      <div className="inspector-section">
-        <div className="section-heading">
-          Linked variables <span>{links.length}</span>
-        </div>
+      <InspectorSection
+        name="links"
+        title="Linked variables"
+        indicator={String(links.length)}
+        hasContent={links.length > 0}
+      >
+        {links.length === 0 && (
+          <p className="inspector-helper">
+            Link a plan or a detected symbol to this node.
+          </p>
+        )}
         {links.map((link) => {
           const variable =
             link.origin === "planned"
@@ -317,12 +339,16 @@ export default function Inspector({
           return (
             <div className="linked-variable" key={link.id}>
               <button
-                className="quiet mono"
+                className="quiet mono linked-variable-name"
                 onClick={() => onVariable(link.variableId)}
               >
                 {variable?.name ?? "Unavailable symbol"}
               </button>
-              <small>{link.origin}</small>
+              <small>
+                {link.origin === "planned"
+                  ? "Planned variable"
+                  : "Detected symbol"}
+              </small>
               <select
                 aria-label={`Relationship for ${variable?.name}`}
                 value={link.relationship}
@@ -359,7 +385,7 @@ export default function Inspector({
             </div>
           );
         })}
-        <div className="field-row">
+        <div className="field-row variable-link-picker">
           <select
             aria-label="Variable to link"
             value={linkChoice}
@@ -410,7 +436,13 @@ export default function Inspector({
           </button>
         </div>
         <small>Relationships are user-authored plans.</small>
-      </div>
+        <button
+          className="quiet open-catalogue"
+          onClick={() => onVariable(null)}
+        >
+          Open catalogue
+        </button>
+      </InspectorSection>
       <div className="inspector-actions">
         <button
           onClick={() => {
@@ -448,5 +480,33 @@ export default function Inspector({
         </button>
       </div>
     </aside>
+  );
+}
+
+function InspectorSection({
+  name,
+  title,
+  indicator,
+  hasContent,
+  children,
+}: {
+  name: string;
+  title: string;
+  indicator?: string;
+  hasContent: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <details className="inspector-section" data-section={name}>
+      <summary>
+        <span>{title}</span>
+        <span
+          className={`section-indicator ${hasContent ? "has-content" : ""}`}
+        >
+          {indicator ?? (hasContent ? "Has content" : "Empty")}
+        </span>
+      </summary>
+      <div className="inspector-section-body">{children}</div>
+    </details>
   );
 }

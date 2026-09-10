@@ -53,6 +53,10 @@ Create a project or explicitly load the removable example. A project contains mu
 
 The inspector holds description, notes, pseudocode, target file/scope, a checklist, status, blocker details, and decision reasoning. Notes are plain text, rendered without HTML execution. Completion checkboxes update status; checklist items do not. Task totals exclude note nodes.
 
+Use the navigation button beside FlowDesk to hide or show projects and diagrams. Add nodes from the palette or the **Add node** menu above the canvas. The **Inspector** button shows or hides details. Title, status, description, and blockers stay at the top; expand the named sections for checklists, notes, pseudocode, targets, decisions, and links. Section indicators show existing content and checklist counts.
+
+Drag the divider beside the inspector or above the catalogue to resize it. A focused divider also supports arrow keys, Shift for larger steps, Home/End for size limits, and Enter to collapse the panel. Reopen it with the panel button. **Layout → Restore default layout** resets panel sizes and visibility. Preferences stay in this browser, outside project content and undo history. In narrow windows or at high browser zoom, panels stack below the canvas and the page scrolls so essential actions remain available.
+
 The variable panel supports plans for files that do not exist yet. A planned variable's type, scope, expression, purpose, notes, and status are yours to edit. Expressions are text and never evaluated. Linking a variable to a node records a user-authored reads/writes/creates relationship; it does not prove program data flow.
 
 ## Saving and durable undo
@@ -102,6 +106,8 @@ Scans update evidence, never your descriptions, intended types, notes, or comple
 
 Search and filter plans and detected symbols in the variable panel. A variable can link to nodes in several diagrams; use its node links to navigate to a diagram, or a node's inspector to open the linked variable. Comparison states use confirmed matches: proven absence takes precedence, while stale, ambiguous, and imported evidence requires review. Ambiguous bindings show their scope and line to help you choose. Renamed bindings and fresh scans of imported projects require explicit relinking.
 
+The catalogue shows the result count and a clear-filters action. Use arrow keys or Home/End on variable names to browse the list, then use the detail links to jump to node relationships or code review. **Back to variable** returns from a linked node to its variable details. Choosing an exact detected binding only selects it; **Confirm match** records your decision. On smaller panels, **Back to list** returns from details to the results.
+
 Example Python files are in `examples/python`. Explicitly attach that folder to try the sample scanner workflow. The example contains independent scopes and loop logic and can be removed without affecting your own projects.
 
 ## Exports and imports
@@ -118,7 +124,7 @@ Portable JSON is limited to 20,000 evidence records and 10 MiB of UTF-8 JSON, in
 
 Python owns validation, persistence, scanning, reconciliation, and portable exports. The frontend owns interactive draft state, checkpoint grouping, save scheduling, and diagram image rendering.
 
-The next proposed UI/UX work is described in [UI_UX_Improvement_Prompt.md](docs/UI_UX_Improvement_Prompt.md). It is a ready-to-use implementation prompt; those interface changes have not been implemented yet.
+The UI/UX pass follows [UI_UX_Improvement_Prompt.md](docs/UI_UX_Improvement_Prompt.md). The observed issues, interaction decisions, and before/after review are recorded in [UI_UX_Review.md](docs/UI_UX_Review.md).
 
 - `flowdesk/app.py`: protected local API and assets.
 - `flowdesk/storage.py`, `validation.py`, `migrations/`: transactions, numbered upgrades, normalized records, and durable checkpoints.

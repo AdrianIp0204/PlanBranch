@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { ReactFlowInstance } from "@xyflow/react";
 import { api, bootstrap, download, post } from "./api";
 import { ProjectProvider, useProject } from "./store";
@@ -21,6 +27,22 @@ import Canvas, { type FlowNode } from "./Canvas";
 import Inspector from "./Inspector";
 import VariablePanel from "./VariablePanel";
 import { Dialog, Empty, ErrorMessage, Field, StatusMark } from "./ui";
+import { useLayout, ResizeHandle, clamp, focusAfterLayout } from "./layout";
+import type {
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  SetStateAction,
+} from "react";
+
+function preserveDisclosureKeys(event: ReactKeyboardEvent<HTMLDivElement>) {
+  // React Flow listens for Space on document; let native summaries activate first.
+  if (
+    event.key === " " &&
+    event.target instanceof Element &&
+    event.target.closest("summary")
+  )
+    event.stopPropagation();
+}
 
 export default function App() {
   const [transition, setTransition] = useState(false);
@@ -181,8 +203,8 @@ export default function App() {
             <span className="local-label">LOCAL WORKSPACE</span>
           </header>
           <main>
-            <div className="welcome-kicker">YOUR PROGRAM, BEFORE THE CODE</div>
-            <h1>A little room to think.</h1>
+            <div className="welcome-kicker">LOCAL PROGRAMMING PLANNER</div>
+            <h1>Create your first project</h1>
             <p>
               Map the logic. Keep your decisions, notes, and variables together.
             </p>
@@ -278,8 +300,13 @@ function Workbench({
   const content = session.content;
   const [active, setActive] = useState(content.diagrams[0]?.id ?? "");
   const [selected, setSelected] = useState<string | null>(null);
-  const [inspector, setInspector] = useState(true);
-  const [variables, setVariables] = useState(false);
+  const { layout, preference, reset, windowSize } = useLayout();
+  const inspector = layout.inspectorOpen;
+  const variables = layout.catalogueOpen;
+  const setInspector = (value: SetStateAction<boolean>) =>
+    preference("inspectorOpen", value);
+  const setVariables = (value: SetStateAction<boolean>) =>
+    preference("catalogueOpen", value);
   const [variableFocus, setVariableFocus] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
   const [connecting, setConnecting] = useState(false);
@@ -308,8 +335,71 @@ function Workbench({
   const sourceInputGeneration = useRef(0);
   const [scanError, setScanError] = useState("");
   const instance = useRef<ReactFlowInstance<FlowNode> | null>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const [panelLimit, setPanelLimit] = useState(340);
+  const stacked = windowSize.width <= 900 || windowSize.height <= 650;
+  const inspectorMax = Math.max(
+    280,
+    Math.min(520, windowSize.width - (layout.navigationOpen ? 224 : 0) - 380),
+  );
+  const catalogueMin = stacked ? 420 : 230;
+  const catalogueMax = Math.max(
+    catalogueMin,
+    Math.min(600, stacked ? windowSize.height * 0.65 : panelLimit),
+  );
+  const inspectorWidth = clamp(layout.inspectorWidth, 280, inspectorMax);
+  const catalogueHeight = clamp(
+    layout.catalogueHeight,
+    catalogueMin,
+    catalogueMax,
+  );
+  const closeCatalogue = () => {
+    setVariables(false);
+    focusAfterLayout("open-catalogue");
+  };
+  const closeInspector = () => {
+    setInspector(false);
+    focusAfterLayout("toggle-inspector");
+  };
+  const openSource = () => {
+    setScanDialog(true);
+    void refreshEvidence(true);
+  };
   const diagram =
     content.diagrams.find((d) => d.id === active) ?? content.diagrams[0];
+  useLayoutEffect(() => {
+    const main = mainRef.current;
+    if (!main || stacked) return;
+    const measure = () => {
+      const chrome = Array.from(main.children).filter(
+        (element) =>
+          !element.matches(".editor-row,.catalogue-pane,.drawer-toggle"),
+      );
+      const used = chrome.reduce(
+        (height, element) => height + element.getBoundingClientRect().height,
+        0,
+      );
+      setPanelLimit(Math.floor(main.clientHeight - used - 240));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(main);
+    Array.from(main.children).forEach((element) => {
+      if (!element.matches(".editor-row,.catalogue-pane,.drawer-toggle"))
+        observer.observe(element);
+    });
+    return () => observer.disconnect();
+  }, [
+    stacked,
+    layout.navigationOpen,
+    diagram.name,
+    saveStatus,
+    saveError,
+    error,
+    notice,
+    scan?.status,
+  ]);
   useEffect(() => {
     if (!content.diagrams.some((d) => d.id === active))
       setActive(content.diagrams[0]?.id ?? "");
@@ -410,6 +500,17 @@ function Workbench({
   const historyIndex = session.history.findIndex(
     (h) => h.id === session.cursor,
   );
+  useEffect(() => {
+    const dismiss = (event: PointerEvent) => {
+      document
+        .querySelectorAll<HTMLDetailsElement>("details[data-popup][open]")
+        .forEach((menu) => {
+          if (!menu.contains(event.target as Node)) menu.open = false;
+        });
+    };
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, []);
   const historyMove = (direction: "undo" | "redo") => {
     commit();
     const step =
@@ -444,13 +545,14 @@ function Workbench({
   });
   const addNode = (kind: NodeKind) => {
     if (!diagram) return;
-    const pos = instance.current?.screenToFlowPosition({
-      x: window.innerWidth / 2,
-      y: window.innerHeight / 2 - 80,
-    }) ?? { x: 100, y: 100 };
+    const canvas = canvasRef.current?.getBoundingClientRect();
+    const center = instance.current?.screenToFlowPosition({
+      x: canvas ? canvas.x + canvas.width / 2 : window.innerWidth / 2,
+      y: canvas ? canvas.y + canvas.height / 2 : window.innerHeight / 2,
+    }) ?? { x: 210, y: 156 };
     const n = createNode(kind, {
-      x: Math.round(pos.x / 10) * 10,
-      y: Math.round(pos.y / 10) * 10,
+      x: Math.round((center.x - 110) / 10) * 10,
+      y: Math.round((center.y - (kind === "decision" ? 71 : 56)) / 10) * 10,
     });
     change(
       (c) => {
@@ -482,7 +584,10 @@ function Workbench({
             nodes: [{ id: nodeId }],
             maxZoom: 1.2,
             padding: 0.5,
-            duration: 250,
+            duration: window.matchMedia("(prefers-reduced-motion: reduce)")
+              .matches
+              ? 0
+              : 180,
           }),
         100,
       );
@@ -521,14 +626,48 @@ function Workbench({
     setBusy(false);
   };
   return (
-    <div className={`workspace ${inspector ? "" : "inspector-closed"}`}>
+    <div
+      className={`workspace ${layout.navigationOpen ? "" : "navigation-closed"} ${inspector ? "" : "inspector-closed"}`}
+      onKeyDown={preserveDisclosureKeys}
+      onKeyUp={preserveDisclosureKeys}
+      style={
+        {
+          "--inspector-width": `${inspectorWidth}px`,
+          "--catalogue-height": `${catalogueHeight}px`,
+        } as CSSProperties
+      }
+    >
+      <span className="sr-only" id="resize-help">
+        Use arrow keys to resize, Shift for larger steps, Home or End for
+        limits, and Enter to collapse. Use the panel button to reopen.
+      </span>
       <header className="topbar">
+        <button
+          id="toggle-navigation"
+          className="icon-button navigation-toggle"
+          aria-label="Toggle navigation"
+          title="Projects and diagrams"
+          aria-expanded={layout.navigationOpen}
+          aria-controls="workspace-navigation"
+          onClick={() => preference("navigationOpen", (value) => !value)}
+        >
+          ☰
+        </button>
         <div className="brand">
           <Brand />
           FlowDesk
         </div>
-        <div className="breadcrumb">
-          <strong>{content.name}</strong>
+        <div className="breadcrumb" aria-label="Current project and diagram">
+          <button
+            className="quiet"
+            onClick={() => {
+              select(null);
+              setInspector(true);
+            }}
+            aria-label={`Project details: ${content.name}`}
+          >
+            {content.name}
+          </button>
           <span>/</span>
           <span>{diagram?.name}</span>
         </div>
@@ -543,7 +682,14 @@ function Workbench({
           }
         >
           <span className={saved ? "saved-dot" : "dirty-dot"} />
-          {statusText}
+          <span>
+            {statusText}
+            <small>
+              {session.savedAt
+                ? `Last saved ${new Date(session.savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                : "No saved changes yet"}
+            </small>
+          </span>
         </div>
         <div className="history-buttons">
           <button
@@ -573,19 +719,39 @@ function Workbench({
         <button className="quiet" onClick={() => void flush()}>
           Save
         </button>
-        <button
-          onClick={() => {
-            setScanDialog(true);
-            void refreshEvidence(true);
-          }}
-        >
+        <button onClick={openSource}>
           {scanRunning ? "Scanning…" : "Scan Python"}
         </button>
-        <details className="export-menu">
+        <details
+          className="export-menu popup-menu"
+          data-popup
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.currentTarget.open = false;
+              event.currentTarget.querySelector("summary")?.focus();
+            }
+          }}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget))
+              event.currentTarget.open = false;
+          }}
+        >
           <summary className="button">
             {busy ? "Exporting…" : "Export ↓"}
           </summary>
-          <div className="menu-popover">
+          <div
+            className="menu-popover"
+            onClick={(event) => {
+              if ((event.target as HTMLElement).closest("button")) {
+                const menu = event.currentTarget.closest("details");
+                if (menu) {
+                  menu.open = false;
+                  menu.querySelector("summary")?.focus();
+                }
+              }
+            }}
+          >
             <button disabled={busy} onClick={() => void exportFile("json")}>
               Project JSON
             </button>
@@ -610,130 +776,192 @@ function Workbench({
             </button>
           </div>
         </details>
+        <details
+          className="layout-menu popup-menu"
+          data-popup
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.currentTarget.open = false;
+              event.currentTarget.querySelector("summary")?.focus();
+            }
+          }}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget))
+              event.currentTarget.open = false;
+          }}
+        >
+          <summary className="button">Layout</summary>
+          <div className="menu-popover">
+            <p>Panel sizes stay in this browser.</p>
+            <button
+              onClick={(event) => {
+                reset();
+                const menu = event.currentTarget.closest("details");
+                if (menu) {
+                  menu.open = false;
+                  menu.querySelector("summary")?.focus();
+                }
+              }}
+            >
+              Restore default layout
+            </button>
+          </div>
+        </details>
       </header>
-      <aside className="sidebar">
-        <div className="sidebar-heading">
-          PROJECTS
-          <button
-            className="icon-button"
-            aria-label="New project"
-            title="New project"
-            onClick={() => void perform(onNew)}
-          >
-            +
-          </button>
-        </div>
-        <nav className="project-list" aria-label="Projects">
-          {projects.map((p) => (
+      {layout.navigationOpen && (
+        <aside
+          className="sidebar"
+          id="workspace-navigation"
+          aria-label="Workspace navigation"
+        >
+          <div className="sidebar-heading">
+            PROJECTS
             <button
-              key={p.id}
-              className={p.id === session.id ? "active" : ""}
-              onClick={() => {
-                if (p.id !== session.id) void perform(() => onOpen(p.id));
-              }}
+              className="icon-button"
+              aria-label="New project"
+              title="New project"
+              onClick={() => void perform(onNew)}
             >
-              <span className="project-icon">▤</span>
-              <span>{p.id === session.id ? content.name : p.name}</span>
+              +
             </button>
-          ))}
-        </nav>
-        <div className="sidebar-heading diagram-heading">
-          DIAGRAMS
-          <button
-            className="icon-button"
-            aria-label="New diagram"
-            onClick={() => {
-              setDiagramDialog("new");
-              setDiagramName("");
-            }}
-          >
-            +
-          </button>
-        </div>
-        <nav className="diagram-list" aria-label="Diagrams">
-          {content.diagrams.map((d, i) => (
-            <button
-              key={d.id}
-              className={d.id === diagram?.id ? "active" : ""}
-              onClick={() => {
-                commit();
-                setActive(d.id);
-                setSelected(null);
-              }}
-            >
-              <span className="diagram-number">
-                {String(i + 1).padStart(2, "0")}
-              </span>
-              <span>{d.name}</span>
-            </button>
-          ))}
-        </nav>
-        <div className="palette">
-          <div className="sidebar-heading">ADD A NODE</div>
-          {(Object.entries(nodeKinds) as [NodeKind, string][]).map(
-            ([kind, label]) => (
+          </div>
+          <nav className="project-list" aria-label="Projects">
+            {projects.map((p) => (
               <button
-                key={kind}
-                aria-label={`Add ${label}`}
-                onClick={() => addNode(kind)}
+                key={p.id}
+                className={p.id === session.id ? "active" : ""}
+                onClick={() => {
+                  if (p.id !== session.id) void perform(() => onOpen(p.id));
+                }}
               >
-                <span className={`palette-icon palette-${kind}`}>
-                  {kind === "decision"
-                    ? "◇"
-                    : kind === "note"
-                      ? "≡"
-                      : kind === "io"
-                        ? "▱"
-                        : kind === "start" || kind === "end"
-                          ? "◯"
-                          : "▭"}
-                </span>
-                {label}
-                <span className="palette-plus">+</span>
+                <span className="project-icon">▤</span>
+                <span>{p.id === session.id ? content.name : p.name}</span>
               </button>
-            ),
-          )}
-          <p>Drag between handles to connect steps.</p>
-        </div>
-        <div className="sidebar-bottom">
-          <button className="quiet" onClick={() => void perform(onImport)}>
-            ↥ Import JSON
-          </button>
-          <button className="quiet" onClick={() => void perform(onExample)}>
-            ◇ Load example
-          </button>
-          <details className="project-options">
-            <summary>Project options</summary>
+            ))}
+          </nav>
+          <div className="sidebar-heading diagram-heading">
+            DIAGRAMS
             <button
-              className="danger quiet"
+              className="icon-button"
+              aria-label="New diagram"
               onClick={() => {
-                if (
-                  window.confirm(
-                    `Delete project “${content.name}”? Its attached source files will stay in place.`,
-                  )
-                )
-                  void perform(async () => {
-                    await api(`/projects/${session.id}`, {
-                      method: "DELETE",
-                      body: JSON.stringify({
-                        revision: session.revision,
-                        confirmed: true,
-                      }),
-                    });
-                    await onDeleted();
-                  }, false);
+                setDiagramDialog("new");
+                setDiagramName("");
               }}
             >
-              Delete project
+              +
             </button>
-          </details>
-          <span className="local-label">
-            <span />
-            LOCAL · PRIVATE
-          </span>
-        </div>
-      </aside>
-      <main className="main-workspace">
+          </div>
+          <nav className="diagram-list" aria-label="Diagrams">
+            {content.diagrams.map((d, i) => (
+              <button
+                key={d.id}
+                className={d.id === diagram?.id ? "active" : ""}
+                onClick={() => {
+                  commit();
+                  setActive(d.id);
+                  setSelected(null);
+                }}
+              >
+                <span className="diagram-number">
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <span>{d.name}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="palette">
+            <div className="sidebar-heading">ADD A NODE</div>
+            {(Object.entries(nodeKinds) as [NodeKind, string][]).map(
+              ([kind, label]) => (
+                <button
+                  key={kind}
+                  aria-label={`Add ${label}`}
+                  onClick={() => addNode(kind)}
+                >
+                  <span className={`palette-icon palette-${kind}`}>
+                    {kind === "decision"
+                      ? "◇"
+                      : kind === "note"
+                        ? "≡"
+                        : kind === "io"
+                          ? "▱"
+                          : kind === "start" || kind === "end"
+                            ? "◯"
+                            : "▭"}
+                  </span>
+                  {label}
+                  <span className="palette-plus">+</span>
+                </button>
+              ),
+            )}
+            <p>Drag between handles to connect steps.</p>
+          </div>
+          <div className="sidebar-bottom">
+            <button className="quiet" onClick={() => void perform(onImport)}>
+              ↥ Import JSON
+            </button>
+            <button className="quiet" onClick={() => void perform(onExample)}>
+              ◇ Load example
+            </button>
+            <details className="project-options">
+              <summary>Project options</summary>
+              <button
+                className="danger quiet"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Delete project “${content.name}”? Its attached source files will stay in place.`,
+                    )
+                  )
+                    void perform(async () => {
+                      await api(`/projects/${session.id}`, {
+                        method: "DELETE",
+                        body: JSON.stringify({
+                          revision: session.revision,
+                          confirmed: true,
+                        }),
+                      });
+                      await onDeleted();
+                    }, false);
+                }}
+              >
+                Delete project
+              </button>
+            </details>
+            <span className="local-label">
+              <span />
+              LOCAL · PRIVATE
+            </span>
+          </div>
+        </aside>
+      )}
+      <main className="main-workspace" ref={mainRef}>
+        {scanRunning && (
+          <div className="scan-progress" role="status">
+            <span className="scan-activity" aria-hidden="true" />
+            <span>
+              Scanning Python · {scan?.files?.length ?? 0} files checked
+            </span>
+            <button className="quiet" onClick={openSource}>
+              View progress
+            </button>
+            <button
+              className="quiet"
+              onClick={() =>
+                void perform(async () => {
+                  if (scan)
+                    await post(
+                      `/projects/${session.id}/scans/${scan.id}/cancel`,
+                    );
+                }, false)
+              }
+            >
+              Cancel scan
+            </button>
+          </div>
+        )}
         {(saveStatus === "failed" || saveStatus === "conflict") && (
           <div className="save-banner" role="alert">
             <strong>{statusText}.</strong> {saveError}
@@ -794,7 +1022,7 @@ function Workbench({
           <div>
             <span className="eyebrow">DIAGRAM</span>
             <h1>
-              {diagram?.name ?? "No diagram"}
+              <span>{diagram?.name ?? "No diagram"}</span>
               <button
                 className="icon-button"
                 aria-label="Rename diagram"
@@ -808,9 +1036,50 @@ function Workbench({
             </h1>
           </div>
           <div className="toolbar-actions">
+            <details
+              className="add-menu popup-menu"
+              data-popup
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  event.currentTarget.open = false;
+                  event.currentTarget.querySelector("summary")?.focus();
+                }
+              }}
+              onBlur={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget))
+                  event.currentTarget.open = false;
+              }}
+            >
+              <summary className="button">+ Add node</summary>
+              <div className="menu-popover">
+                {(Object.entries(nodeKinds) as [NodeKind, string][]).map(
+                  ([kind, label]) => (
+                    <button
+                      key={kind}
+                      onClick={(event) => {
+                        addNode(kind);
+                        const menu = event.currentTarget.closest("details");
+                        if (menu) {
+                          menu.open = false;
+                          menu.querySelector("summary")?.focus();
+                        }
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ),
+                )}
+              </div>
+            </details>
             <button
               className="quiet"
               disabled={!diagram?.nodes.length}
+              title={
+                !diagram?.nodes.length
+                  ? "Add nodes before connecting them"
+                  : "Choose nodes and a branch label"
+              }
               onClick={() => setConnecting(true)}
             >
               ↗ Connect
@@ -825,9 +1094,14 @@ function Workbench({
               <option value="unfinished">Unfinished</option>
             </select>
             <button
+              id="toggle-inspector"
               className={inspector ? "quiet active" : "quiet"}
               aria-label="Toggle inspector"
-              onClick={() => setInspector((v) => !v)}
+              aria-expanded={inspector}
+              aria-controls="inspector-pane"
+              onClick={() =>
+                inspector ? closeInspector() : setInspector(true)
+              }
             >
               ☷ Inspector
             </button>
@@ -852,7 +1126,11 @@ function Workbench({
           )}
         </div>
         <div className="editor-row">
-          <div className="canvas-column" data-testid="diagram-canvas">
+          <div
+            className="canvas-column"
+            data-testid="diagram-canvas"
+            ref={canvasRef}
+          >
             {diagram ? (
               <Canvas
                 diagram={diagram}
@@ -864,6 +1142,7 @@ function Workbench({
                 }}
                 connectRequest={connecting}
                 onConnected={() => setConnecting(false)}
+                onAddNode={() => addNode("process")}
               />
             ) : (
               <Empty title="Add a diagram">
@@ -872,32 +1151,77 @@ function Workbench({
             )}
           </div>
           {inspector && diagram && (
-            <Inspector
-              diagram={diagram}
-              selected={selected}
-              symbols={symbols}
-              onSelect={select}
-              onVariable={(id) => {
-                setVariables(true);
-                setVariableFocus(id);
-              }}
-            />
+            <>
+              <ResizeHandle
+                label="Resize inspector"
+                controls="inspector-pane"
+                orientation="vertical"
+                value={inspectorWidth}
+                min={280}
+                max={inspectorMax}
+                onChange={(value) => preference("inspectorWidth", value)}
+                onCollapse={closeInspector}
+              />
+              <div className="inspector-pane" id="inspector-pane">
+                {variableFocus && (
+                  <button
+                    className="back-to-variable quiet"
+                    onClick={() => {
+                      setVariables(true);
+                      focusAfterLayout("variable-detail-heading");
+                    }}
+                  >
+                    ← Back to variable
+                  </button>
+                )}
+                <Inspector
+                  diagram={diagram}
+                  selected={selected}
+                  symbols={symbols}
+                  onSelect={select}
+                  onVariable={(id) => {
+                    setVariables(true);
+                    setVariableFocus(id);
+                    focusAfterLayout(
+                      id ? "variable-detail-heading" : "catalogue-search",
+                    );
+                  }}
+                />
+              </div>
+            </>
           )}
         </div>
         {variables ? (
-          <VariablePanel
-            symbols={symbols}
-            focus={variableFocus}
-            setFocus={setVariableFocus}
-            onReveal={reveal}
-            onClose={() => setVariables(false)}
-            reconciliation={reconciliation}
-          />
+          <div className="catalogue-pane">
+            <ResizeHandle
+              label="Resize variable catalogue"
+              controls="variable-catalogue"
+              orientation="horizontal"
+              value={catalogueHeight}
+              min={catalogueMin}
+              max={catalogueMax}
+              onChange={(value) => preference("catalogueHeight", value)}
+              onCollapse={closeCatalogue}
+            />
+            <VariablePanel
+              symbols={symbols}
+              focus={variableFocus}
+              setFocus={setVariableFocus}
+              onReveal={reveal}
+              onClose={closeCatalogue}
+              reconciliation={reconciliation}
+              onAttachSource={openSource}
+            />
+          </div>
         ) : (
           <button
             className="drawer-toggle"
+            id="open-catalogue"
+            aria-expanded={false}
+            aria-controls="variable-catalogue"
             onClick={() => {
               setVariables(true);
+              focusAfterLayout("catalogue-search");
               void refreshEvidence();
             }}
           >

@@ -16,11 +16,62 @@ export function Dialog({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  // Capture before a child control's React autoFocus moves focus into the dialog.
+  const returnFocus = useRef(
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  );
+  const backdropPress = useRef(false);
   useEffect(() => {
-    ref.current?.showModal();
+    const dialog = ref.current;
+    if (!dialog) return;
+    const requestedFocus = dialog.contains(document.activeElement)
+      ? (document.activeElement as HTMLElement)
+      : dialog.querySelector<HTMLElement>(
+          '[autofocus], input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([disabled]), textarea:not([disabled]), select:not([disabled])',
+        );
+    if (!dialog.open) dialog.showModal();
+    // React autoFocus may run while the native dialog is still closed.
+    // Focus its editable field only after showModal makes it focusable.
+    requestedFocus?.focus({ preventScroll: true });
+    return () => {
+      if (dialog.open) dialog.close();
+      if (returnFocus.current?.isConnected)
+        returnFocus.current.focus({ preventScroll: true });
+    };
   }, []);
   return (
-    <dialog ref={ref} aria-label={title} onCancel={onClose}>
+    <dialog
+      ref={ref}
+      aria-label={title}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+      onPointerDown={(event) => {
+        const bounds = event.currentTarget.getBoundingClientRect();
+        backdropPress.current =
+          event.target === event.currentTarget &&
+          (event.clientX < bounds.left ||
+            event.clientX > bounds.right ||
+            event.clientY < bounds.top ||
+            event.clientY > bounds.bottom);
+      }}
+      onClick={(event) => {
+        const bounds = event.currentTarget.getBoundingClientRect();
+        if (
+          backdropPress.current &&
+          event.target === event.currentTarget &&
+          (event.clientX < bounds.left ||
+            event.clientX > bounds.right ||
+            event.clientY < bounds.top ||
+            event.clientY > bounds.bottom)
+        )
+          onClose();
+        backdropPress.current = false;
+      }}
+    >
       <div className="dialog-title">
         <h2>{title}</h2>
         <button

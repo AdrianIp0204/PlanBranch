@@ -15,6 +15,7 @@ test('FlowDesk built application acceptance', {timeout: 240000}, async t => {
     const node=page.locator(`.react-flow__node[data-id="${nodeId}"]`);
     await node.dblclick();
     await page.getByLabel('Title',{exact:true}).fill('Store record - tested');
+    await page.locator('.inspector details[data-section="notes"] > summary').click();
     await page.getByLabel('Notes',{exact:true}).fill('<img src=x onerror=alert(1)> inert notes');
     await page.getByRole('button',{name:'Save',exact:true}).click();
     await saved();
@@ -61,6 +62,7 @@ test('FlowDesk built application acceptance', {timeout: 240000}, async t => {
     await page.getByRole('button',{name:'Create diagram',exact:true}).click();
     await page.getByRole('button',{name:'Add Process',exact:true}).click();
     await page.getByLabel('Title',{exact:true}).fill('Retry safely');
+    await page.locator('.inspector details[data-section="checklist"] > summary').click();
     await page.getByRole('button',{name:'+ Add checklist item',exact:true}).click();
     await page.getByLabel('Checklist text',{exact:true}).fill('Preserve the original input');
     await page.getByLabel('Complete Preserve the original input',{exact:true}).check();
@@ -72,6 +74,7 @@ test('FlowDesk built application acceptance', {timeout: 240000}, async t => {
     await stop();await start();await page.reload();await page.getByTestId('diagram-canvas').waitFor();
     await page.getByRole('navigation',{name:'Diagrams'}).getByRole('button',{name:/Recovery path/}).click();
     await page.locator(`.react-flow__node[data-id="${recovery.nodes[0].id}"]`).dblclick();
+    await page.locator('.inspector details[data-section="checklist"] > summary').click();
     assert.equal(await page.getByLabel('Title',{exact:true}).inputValue(),'Retry safely');
     assert.equal(await page.getByLabel('Complete Preserve the original input',{exact:true}).isChecked(),true);
     assert.deepEqual((await api('/projects/'+projectId)).content.diagrams,savedProject.content.diagrams);

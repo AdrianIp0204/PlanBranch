@@ -165,6 +165,7 @@ export default function Canvas({
   onInstance,
   connectRequest,
   onConnected,
+  onAddNode,
 }: {
   diagram: Diagram;
   selected: string | null;
@@ -173,6 +174,7 @@ export default function Canvas({
   onInstance: (i: ReactFlowInstance<FlowNode>) => void;
   connectRequest: boolean;
   onConnected: () => void;
+  onAddNode?: () => void;
 }) {
   const { session, change, commit, setView } = useProject();
   const [nodes, setNodes] = useState<FlowNode[]>([]);
@@ -402,9 +404,13 @@ export default function Canvas({
       {!diagram.nodes.length && (
         <div className="canvas-empty">
           <div className="empty-symbol">◇</div>
-          <h2>Start with one step.</h2>
-          <p>Add a node from the palette to map out your program.</p>
-          <span>Connect ideas. Keep the details close.</span>
+          <h2>Add your first step</h2>
+          <p>Add a process, then connect it to the next step.</p>
+          {onAddNode && (
+            <button className="primary" onClick={onAddNode}>
+              Add a process
+            </button>
+          )}
         </div>
       )}
       {connectRequest && (

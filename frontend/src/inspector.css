@@ -1,0 +1,149 @@
+.inspector .inspector-section {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: 1px solid var(--line);
+}
+
+.inspector-section > summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 46px;
+  padding: 10px 0;
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.inspector-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.inspector-section > summary::before {
+  content: "›";
+  flex: none;
+  width: 9px;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  transition: transform 120ms ease;
+}
+
+.inspector-section[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.inspector-section > summary > span:first-of-type {
+  min-width: 0;
+}
+
+.inspector .section-indicator {
+  margin-left: auto;
+  flex: none;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.inspector .section-indicator.has-content {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.inspector-section-body {
+  padding: 0 0 16px;
+}
+
+.inspector .inspector-section-body > .field:first-child {
+  margin-top: 0;
+}
+
+.inspector-helper,
+.inspector .inspector-section-body > small {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.inspector .linked-variable {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  gap: 6px 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.inspector .linked-variable > .linked-variable-name {
+  grid-column: 1;
+  max-width: none;
+  padding: 3px 0;
+  justify-self: start;
+  text-align: left;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.inspector .linked-variable > small {
+  grid-column: 1;
+  margin-left: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.inspector .linked-variable > select {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  width: 100%;
+  font-size: 13px;
+}
+
+.inspector .linked-variable > .icon-button {
+  grid-column: 2;
+  grid-row: 1;
+  width: 32px;
+  height: 32px;
+  font-size: 18px;
+}
+
+.inspector .variable-link-picker {
+  align-items: center;
+  margin: 14px 0 10px;
+}
+
+.inspector .variable-link-picker > button {
+  flex: none;
+}
+
+.inspector .open-catalogue {
+  display: block;
+  margin-top: 8px;
+  padding-left: 0;
+  font-size: 13px;
+}
+
+.inspector .inspector-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 16px;
+  margin-top: 0;
+}
+
+.inspector .inspector-actions > button {
+  font-size: 13px;
+}
+
+.inspector > .muted,
+.inspector .section-heading {
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inspector-section > summary::before {
+    transition: none;
+  }
+}

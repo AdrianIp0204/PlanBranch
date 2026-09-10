@@ -80,7 +80,9 @@ async function setupBrowser(t, {name = 'acceptance', seed = {sample:true}, viewp
   async function saved(target = page) {
     await until(async () => {
       const text = await target.getByTestId('save-state').innerText();
-      return /saved/i.test(text) && !/unsaved/i.test(text);
+      // The readable timestamp also contains "Last saved" while a new save is
+      // pending. Only the leading status acknowledges current durability.
+      return /^saved\b/i.test(text.trim());
     });
   }
   async function restart({reload = true} = {}) {
