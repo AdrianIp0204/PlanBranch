@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flowdesk"
+version = "0.1.0"
+description = "A local-first programming planner"
+requires-python = ">=3.14"
+dependencies = ["Flask==3.1.3", "waitress==3.0.2"]
+
+[project.optional-dependencies]
+test = ["pytest==9.1.1"]
+
+[project.scripts]
+flowdesk = "flowdesk.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["flowdesk*"]
+
+[tool.setuptools.package-data]
+flowdesk = ["static/**/*", "migrations/*.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
