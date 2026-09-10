@@ -6,6 +6,13 @@ A local programming planner: diagram the logic, record intended variables, write
 
 Use Python 3.14 and Node 24. Installation downloads dependencies; ordinary use after building is offline.
 
+Clone the repository first:
+
+```sh
+git clone https://github.com/AdrianIp0204/FlowDesk.git
+cd FlowDesk
+```
+
 Windows PowerShell, from this folder:
 
 ```powershell
@@ -110,6 +117,8 @@ Portable JSON is limited to 20,000 evidence records and 10 MiB of UTF-8 JSON, in
 ## Development and tests
 
 Python owns validation, persistence, scanning, reconciliation, and portable exports. The frontend owns interactive draft state, checkpoint grouping, save scheduling, and diagram image rendering.
+
+The next proposed UI/UX work is described in [UI_UX_Improvement_Prompt.md](docs/UI_UX_Improvement_Prompt.md). It is a ready-to-use implementation prompt; those interface changes have not been implemented yet.
 
 - `flowdesk/app.py`: protected local API and assets.
 - `flowdesk/storage.py`, `validation.py`, `migrations/`: transactions, numbered upgrades, normalized records, and durable checkpoints.
