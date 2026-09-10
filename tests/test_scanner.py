@@ -14,20 +14,17 @@ import pytest
 from flowdesk.reconciliation import reconcile
 from flowdesk.scanner import UnsupportedSyntax, analyze_source
 from flowdesk.scans import ScanService, safe_path
+from flowdesk.storage import Store, empty_content, now
 
 
-class ScannerStore:
+class ScannerStore(Store):
     def __init__(self, path):
-        self.db_path = path
+        super().__init__(path)
         with closing(self.connect()) as db, db:
-            db.execute("CREATE TABLE projects(id TEXT PRIMARY KEY)")
-            db.execute("INSERT INTO projects VALUES('project')")
-
-    def connect(self):
-        db = sqlite3.connect(self.db_path, timeout=15)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA foreign_keys=ON")
-        return db
+            content = empty_content("Scanner fixture")
+            db.execute("INSERT INTO projects VALUES(?,?,?,?,?,?)", ("project", content["name"], "", 0, now(), "baseline"))
+            self._write_history(db, "project", [{"id": "baseline", "label": "Fixture created", "content": content}])
+            self._write_current(db, "project", content)
 
 
 @pytest.fixture

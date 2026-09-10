@@ -20,7 +20,7 @@ export function Dialog({
     ref.current?.showModal();
   }, []);
   return (
-    <dialog ref={ref} onCancel={onClose}>
+    <dialog ref={ref} aria-label={title} onCancel={onClose}>
       <div className="dialog-title">
         <h2>{title}</h2>
         <button

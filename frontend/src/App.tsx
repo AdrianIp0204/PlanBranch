@@ -305,6 +305,7 @@ function Workbench({
   const [sourcePath, setSourcePath] = useState("");
   const [ignoreText, setIgnoreText] = useState("");
   const [allowRead, setAllowRead] = useState(false);
+  const sourceInputGeneration = useRef(0);
   const [scanError, setScanError] = useState("");
   const instance = useRef<ReactFlowInstance<FlowNode> | null>(null);
   const diagram =
@@ -313,30 +314,56 @@ function Workbench({
     if (!content.diagrams.some((d) => d.id === active))
       setActive(content.diagrams[0]?.id ?? "");
   }, [content.diagrams, active]);
-  const refreshEvidence = useCallback(async () => {
-    try {
-      const [s, v, r] = await Promise.all([
-        api<Source>(`/projects/${session.id}/source`),
-        api<{ symbols: DetectedSymbol[] }>(`/projects/${session.id}/symbols`),
-        api<Reconciliation>(`/projects/${session.id}/reconciliation`),
-      ]);
-      setSource(s);
-      if (s.latestScan) setScan(s.latestScan);
-      setSymbols(v.symbols);
-      setReconciliation(r);
-      setSourcePath(s.root ?? "");
-      setIgnoreText(s.ignores.join("\n"));
-    } catch (e) {
-      setScanError((e as Error).message);
-    }
-  }, [session.id]);
+  const evidenceRequest = useRef(0);
+  const reconciliationRequest = useRef(0);
+  const refreshEvidence = useCallback(
+    async (syncSourceInputs = false) => {
+      const request = ++evidenceRequest.current;
+      const comparison = ++reconciliationRequest.current;
+      const inputGeneration = sourceInputGeneration.current;
+      try {
+        const [s, v, r] = await Promise.all([
+          api<Source>(`/projects/${session.id}/source`),
+          api<{ symbols: DetectedSymbol[] }>(`/projects/${session.id}/symbols`),
+          api<Reconciliation>(`/projects/${session.id}/reconciliation`),
+        ]);
+        if (request !== evidenceRequest.current) return;
+        setSource(s);
+        if (s.latestScan) setScan(s.latestScan);
+        setSymbols(v.symbols);
+        if (comparison === reconciliationRequest.current) setReconciliation(r);
+        if (
+          syncSourceInputs &&
+          inputGeneration === sourceInputGeneration.current
+        ) {
+          setSourcePath(s.root ?? "");
+          setIgnoreText(s.ignores.join("\n"));
+        }
+      } catch (e) {
+        setScanError((e as Error).message);
+      }
+    },
+    [session.id],
+  );
   useEffect(() => {
-    void refreshEvidence();
+    void refreshEvidence(true);
+    return () => {
+      evidenceRequest.current += 1;
+      reconciliationRequest.current += 1;
+    };
   }, [refreshEvidence]);
   useEffect(() => {
+    const request = ++reconciliationRequest.current;
+    let active = true;
     void api<Reconciliation>(`/projects/${session.id}/reconciliation`)
-      .then(setReconciliation)
+      .then((result) => {
+        if (active && request === reconciliationRequest.current)
+          setReconciliation(result);
+      })
       .catch(() => {});
+    return () => {
+      active = false;
+    };
   }, [session.id, session.revision]);
   const scanRunning =
     !!scan &&
@@ -445,6 +472,7 @@ function Workbench({
       d.nodes.some((n) => n.id === nodeId),
     );
     if (d) {
+      commit();
       setActive(d.id);
       setSelected(nodeId);
       setInspector(true);
@@ -548,7 +576,7 @@ function Workbench({
         <button
           onClick={() => {
             setScanDialog(true);
-            void refreshEvidence();
+            void refreshEvidence(true);
           }}
         >
           {scanRunning ? "Scanning…" : "Scan Python"}
@@ -990,7 +1018,7 @@ function Workbench({
                 });
                 setSource(s);
                 setAllowRead(false);
-                await refreshEvidence();
+                await refreshEvidence(true);
               } catch (err) {
                 setScanError((err as Error).message);
               }
@@ -1000,7 +1028,10 @@ function Workbench({
               <input
                 className="mono"
                 value={sourcePath}
-                onChange={(e) => setSourcePath(e.target.value)}
+                onChange={(e) => {
+                  sourceInputGeneration.current += 1;
+                  setSourcePath(e.target.value);
+                }}
                 placeholder="C:\\projects\\my-program or /home/me/my-program"
                 required
               />
@@ -1012,7 +1043,10 @@ function Workbench({
               <textarea
                 className="mono"
                 value={ignoreText}
-                onChange={(e) => setIgnoreText(e.target.value)}
+                onChange={(e) => {
+                  sourceInputGeneration.current += 1;
+                  setIgnoreText(e.target.value);
+                }}
                 placeholder="generated/**"
               />
             </Field>

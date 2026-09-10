@@ -1,31 +1,37 @@
 # FlowDesk validation
 
-Verification date: 10 September 2026. Local environment: Windows, Python 3.14.3, Node 24.14.0, npm 11.9.0. Dependency versions are pinned in the Python lockfile and frontend package lockfile.
+Verification date: 10 September 2026. Tested on Windows and Ubuntu 24.04 under WSL2, using Python 3.14.3, Node 24.14.0, and npm 11.9.0 on both. Windows browser: installed Edge 152.0.4191.66. Linux browser: Playwright Chromium 153.0.8010.12. Dependency versions are pinned in the Python lockfile and frontend package lockfile.
 
 ## Executed checks
 
-| Check | Result |
-| --- | --- |
-| Backend: `.venv/Scripts/python.exe -m pytest -q` | 78 passed, 2 skipped |
-| Frontend: `npm test` from `frontend` | 17 passed |
-| Production assets: `npm run build` | Passed TypeScript checks and Vite build |
-| Release: `.venv/Scripts/python.exe scripts/build_release.py` | Built an installable wheel containing Python and browser assets |
-| Installed-package browser acceptance: `node --test tests/browser.test.cjs` | 9 scenarios passed (10 runner results including the parent), no failures |
+| Check | Windows | Linux (WSL2) |
+| --- | --- | --- |
+| Backend: `python -m pytest -q -rs` | 94 passed, 2 skipped | 95 passed, 1 skipped |
+| Frontend: `npm test` | 23 passed | 23 passed |
+| Production assets: `npm run build` | TypeScript and Vite passed | TypeScript and Vite passed |
+| Release: `python scripts/build_release.py` | Wheel built and installed | Wheel built and installed |
+| Installed-package browser acceptance: `npm run test:e2e` | 16 scenarios passed | 16 scenarios passed |
 
-For the final browser run, the wheel was installed with `pip install --no-deps --no-index --target output/wheel-install-final dist/flowdesk-0.1.0-py3-none-any.whl`. `FLOWDESK_APP_ROOT` pointed at that installation, and the test started `python -m flowdesk` from there using the verified Python environment. This confirmed the application and scanner worker run from the installed package, with its own bundled assets and no frontend server. External HTTP requests were blocked; none were attempted.
+Each browser run used a freshly built wheel installed with `pip install --no-deps --no-index --target ... dist/flowdesk-0.1.0-py3-none-any.whl`. Windows used `output/reliability-wheel-windows`; Linux used `output/wheel-linux` in the disposable Linux checkout. `FLOWDESK_APP_ROOT` pointed at the installation, and the harness started `python -m flowdesk` from there. The application and scanner worker ran from the installed package with bundled assets and no frontend server. All external browser HTTP requests were blocked; none were attempted. There were no browser runtime errors. The three browser suites report 18 passing runner results including two parent tests, representing 16 scenarios.
 
-The browser scenarios covered node metadata and text safety; real drag grouping and undo/save/Python restart/redo; a second diagram and independent checklist status across restart; a planned variable for a nonexistent file and its node link; real source scans and freshness; delayed save responses; conflicting tabs; failed saves blocking project switches; and full-diagram PNG export with no runtime errors. The final PNG was 9,080 × 1,760 pixels. Pixel checks verified diagram ink, a distant node, its connection, and padding; visual inspection confirmed readable labels and arrowheads. Browser artifacts are in `output/playwright/` and are excluded from Git.
+Browser coverage includes node metadata and inert text; mouse and keyboard movement; multi-selection and selection-box dragging; save/Python restart/undo/redo with stable IDs and positions; native text and checkbox key behavior; independent checklist status; cross-diagram variable links and navigation; search and filtering; delete/save/restart/undo restoration; real source scans; confirm/reject/relink decisions; stale, missing, ambiguous, and imported evidence; delayed source/preview/save responses; conflicting tabs; failed saves blocking project switches; and full-diagram PNG export. The final Windows PNG was 9,080 × 1,760 pixels. Pixel checks on both platforms verified diagram ink, a distant node, its connection, and padding. The Windows workspace was visually inspected for readable labels and arrowheads.
 
-The two skipped tests require creating symbolic links, which this Windows account does not permit. The separate Windows junction test ran and passed. Linux instructions and a Windows/Linux CI matrix are included, but Linux and remote CI have not been run in this workspace.
+Final Windows artifacts are in `output/playwright/acceptance-5XvXMv`, `movement-asHBDU`, and `catalogue-{links-mNVDLS,relink-WBWEpw,trust-McVz6N}`. Linux logs are in `output/linux-verification/linux-results/` and browser artifacts in `output/linux-verification/browser-artifacts.tar`. These generated files are excluded from Git.
+
+The Windows skips require symbolic-link creation permission; both ran and passed on Linux. The Linux skip is the Windows junction test, which ran and passed on Windows. WSL verification used isolated runtimes, dependencies, and source/database fixtures under `/var/tmp`; missing Chromium libraries were extracted locally without installing system packages. Remote CI, a native Linux desktop session, other browsers, and other Python/Node versions were not tested. The CI workflow now builds and installs a wheel before running these same browser suites on Windows and Ubuntu.
+
+The rebuilt wheel includes `flowdesk/migrations/__init__.py`, `001_initial.sql`, and `002_scanner.sql`. Its Python/SQL files and frontend assets match the working sources and the tested Windows installation byte for byte. A database created by the installed application has migration ledger entries 1 and 2 and passes integrity and foreign-key checks. Release checksum and PNG dimensions are recorded in `output/release-verification.json`.
 
 ## Acceptance coverage
 
 1. **Persisted planning editor:** relational graph restoration, all node categories, branches and loops, metadata/checklists, multiple diagrams, saved viewports, restart-safe undo/redo, history grouping/branching/retention, preserved IDs and relationships, transaction rollback on injected failure, idempotent retries, stale revision rejection, and valid SQLite backup restoration. Frontend tests cover save ordering, failure recovery, draft retention, and safe history navigation.
-2. **Manual variable catalogue:** incomplete plans and nonexistent target files, inert expression text, node relationships, validation and cross-project ownership, deletion/undo restoration, and separation of manual state from detected observations.
+2. **Manual variable catalogue:** incomplete plans and nonexistent target files, inert expression text, filtering, multiple node relationships across diagrams, navigation in both directions, validation and cross-project ownership, deletion/save/restart/undo restoration, and separation of manual state from detected observations. UI comparison state precedence agrees with backend results for missing, stale, ambiguous, and imported evidence. Delayed responses cannot overwrite a newly selected preview or an attachment path being typed.
 3. **Python scanning:** distinct same-named bindings, parameters/imports/classes, nested global/nonlocal declarations, comprehension scopes, attribute heuristics, stable identities after line insertion, renamed/removed bindings, ambiguous identities, syntax/encoding failures, stale evidence, limits/cancellation/interruption, ignored paths, path escapes, junctions, unchanged source bytes, preview hash checks, and match suggestions/confirmed/rejected decisions.
 4. **Portable export:** JSON round-trip and ID remapping, graph/checklist/variable relationships, atomic corrupt-import rejection, historical imported evidence without source permissions, removal of machine metadata, Markdown escaping, and consistent evidence-count/UTF-8 byte limits. PNG is checked through the browser against actual image pixels, including a distant node and its connection.
 
 Security checks reject invalid hosts, origins, tokens, graph references, and ownership. Hostile-looking notes remain inert. Package staging tests verify stale assets are replaced, existing source is preserved, and failed staging does not destroy the previous release.
+
+Numbered migration regressions cover fresh databases, version-1 databases with and without the old runtime-created scanner tables, normalization of every retained checkpoint, preserved redo cursor/IDs/metadata/links/source permissions, verified pre-upgrade backups, committed live-WAL data, backup failure/corruption, invalid redo content, concurrent writes during backup, future schema rejection, and rollback of schema/current/history/attachment writes after an injected later-migration failure. The original brief's SHA-256 remains `A45D6A4ACAE38EB65981322D700D8365EC7499EE0B631163C029C8F79063027E`; the existing `.local-data` database was not used or upgraded during verification.
 
 ## Practical limits
 

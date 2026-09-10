@@ -97,25 +97,6 @@ class ScanService:
         if self.data_dir is not None:
             self.data_dir = Path(self.data_dir).resolve()
         with self._connect() as db:
-            db.executescript("""
-                CREATE TABLE IF NOT EXISTS source_attachments (
-                    project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
-                    root TEXT NOT NULL, ignores TEXT NOT NULL, generation TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS source_files (
-                    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-                    path TEXT NOT NULL, data TEXT NOT NULL,
-                    PRIMARY KEY(project_id,path)
-                );
-                CREATE TABLE IF NOT EXISTS scan_runs (
-                    id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-                    data TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS detected_symbols (
-                    id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-                    data TEXT NOT NULL
-                );
-            """)
             for row in db.execute("SELECT id,project_id,data FROM scan_runs"):
                 run = json.loads(row["data"])
                 if run["status"] in ("queued", "running"):

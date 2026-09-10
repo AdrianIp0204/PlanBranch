@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
+import { evidenceState, planState, symbolDescription } from "./catalogue";
+export { planState } from "./catalogue";
 import { useProject } from "./store";
 import { Field, StatusMark, ErrorMessage } from "./ui";
 import {
@@ -10,26 +12,6 @@ import {
   type NodeLink,
   type Reconciliation,
 } from "./types";
-export function planState(
-  v: PlannedVariable,
-  matches: { plannedId: string; symbolId: string; decision: string }[],
-  symbols: DetectedSymbol[],
-) {
-  const linked = matches.filter(
-    (m) => m.plannedId === v.id && m.decision === "confirmed",
-  );
-  if (!linked.length) return "Planned only";
-  const found = linked.map((m) => symbols.find((s) => s.id === m.symbolId));
-  if (
-    found.some(
-      (s) => !s || ["stale", "unverified", "historical"].includes(s.state),
-    )
-  )
-    return "Stale scan";
-  if (found.some((s) => s?.state === "not_detected"))
-    return "Linked, not detected";
-  return "Linked and detected";
-}
 export default function VariablePanel({
   symbols,
   focus,
@@ -59,13 +41,16 @@ export default function VariablePanel({
   } | null>(null);
   const [error, setError] = useState("");
   const [linkNode, setLinkNode] = useState("");
+  const previewRequest = useRef(0);
   const plan = c.variables.find((v) => v.id === focus);
   const symbol = symbols.find((v) => v.id === focus);
   const record = plan ?? symbol;
   useEffect(() => {
+    previewRequest.current += 1;
     setPreview(null);
     setError("");
-  }, [focus]);
+    setLinkNode("");
+  }, [focus, symbol?.hash, symbol?.state]);
   const rows = useMemo(
     () =>
       [
@@ -86,7 +71,7 @@ export default function VariablePanel({
           scope: v.scope,
           origin: "detected",
           status: v.state,
-          state: v.state.replaceAll("_", " "),
+          state: evidenceState(v),
           type: v.annotation || "unknown",
         })),
       ].filter(
@@ -97,6 +82,7 @@ export default function VariablePanel({
             c.nodeLinks.some(
               (l) =>
                 l.variableId === v.id &&
+                l.origin === v.origin &&
                 c.diagrams
                   .find((d) => d.id === linked)
                   ?.nodes.some((n) => n.id === l.nodeId),
@@ -107,6 +93,15 @@ export default function VariablePanel({
       ),
     [c, symbols, origin, status, linked, search],
   );
+  useEffect(() => {
+    // A node inspector can reveal a variable hidden by a previous filter.
+    if (focus && (plan || symbol) && !rows.some((row) => row.id === focus)) {
+      setSearch("");
+      setOrigin("all");
+      setStatus("all");
+      setLinked("all");
+    }
+  }, [focus]);
   const edit = (key: keyof PlannedVariable, value: string, group = true) =>
     change(
       (d) => {
@@ -152,7 +147,10 @@ export default function VariablePanel({
       )}
     </Field>
   );
-  const links = c.nodeLinks.filter((l) => l.variableId === focus);
+  const links = c.nodeLinks.filter(
+    (l) =>
+      l.variableId === focus && l.origin === (plan ? "planned" : "detected"),
+  );
   const proposals = reconciliation.suggestions
     .filter((s) => s.plannedId === focus || s.symbolId === focus)
     .filter(
@@ -279,6 +277,8 @@ export default function VariablePanel({
               <tbody>
                 {rows.map((v) => (
                   <tr
+                    data-variable-id={v.id}
+                    data-origin={v.origin}
                     key={v.id}
                     className={focus === v.id ? "selected" : ""}
                     onClick={() => {
@@ -435,22 +435,45 @@ export default function VariablePanel({
                   </dd>
                   <dt>Evidence</dt>
                   <dd>
-                    {symbol!.state.replaceAll("_", " ")} ·{" "}
+                    {evidenceState(symbol!)} ·{" "}
                     {symbol!.scanTime
                       ? new Date(symbol!.scanTime).toLocaleString()
                       : "Imported"}
                   </dd>
+                  {symbol!.ambiguousIdentity && (
+                    <>
+                      <dt>Identity review</dt>
+                      <dd>
+                        {symbol!.identityNote ||
+                          "Repeated or anonymous scope. Inspect the source line before confirming a match."}
+                      </dd>
+                    </>
+                  )}
+                  {symbol!.freshnessReason && (
+                    <>
+                      <dt>Freshness</dt>
+                      <dd>{symbol!.freshnessReason}</dd>
+                    </>
+                  )}
                 </dl>
                 <button
                   onClick={async () => {
+                    const request = ++previewRequest.current;
+                    setError("");
                     try {
-                      setPreview(
-                        await api(
-                          `/projects/${session.id}/symbols/${symbol!.id}/preview`,
-                        ),
+                      const result = await api<{
+                        text: string;
+                        stale: boolean;
+                        file: string;
+                        line: number;
+                      }>(
+                        `/projects/${session.id}/symbols/${symbol!.id}/preview`,
                       );
+                      if (request === previewRequest.current)
+                        setPreview(result);
                     } catch (e) {
-                      setError((e as Error).message);
+                      if (request === previewRequest.current)
+                        setError((e as Error).message);
                     }
                   }}
                 >
@@ -560,7 +583,7 @@ export default function VariablePanel({
               {c.matches
                 .filter((m) => m.plannedId === focus || m.symbolId === focus)
                 .map((m) => (
-                  <div className="match-row" key={m.id}>
+                  <div className="match-row" key={m.id} data-match-id={m.id}>
                     <strong className="mono">
                       {plan
                         ? (symbols.find((s) => s.id === m.symbolId)?.name ??
@@ -568,6 +591,16 @@ export default function VariablePanel({
                         : (c.variables.find((p) => p.id === m.plannedId)
                             ?.name ?? "Missing plan")}
                     </strong>
+                    <small>
+                      {(() => {
+                        const evidence = symbols.find(
+                          (item) => item.id === m.symbolId,
+                        );
+                        return evidence
+                          ? symbolDescription(evidence)
+                          : "Missing observation";
+                      })()}
+                    </small>
                     <span>{m.decision}</span>
                     <button
                       className="quiet"
@@ -582,12 +615,26 @@ export default function VariablePanel({
                   </div>
                 ))}
               {proposals.map((p) => (
-                <div className="match-row" key={`${p.plannedId}:${p.symbolId}`}>
+                <div
+                  className="match-row"
+                  key={`${p.plannedId}:${p.symbolId}`}
+                  data-symbol-id={p.symbolId}
+                >
                   <strong className="mono">
                     {plan
                       ? symbols.find((s) => s.id === p.symbolId)?.name
                       : c.variables.find((v) => v.id === p.plannedId)?.name}
                   </strong>
+                  <small>
+                    {(() => {
+                      const evidence = symbols.find(
+                        (item) => item.id === p.symbolId,
+                      );
+                      return evidence
+                        ? symbolDescription(evidence)
+                        : "Missing observation";
+                    })()}
+                  </small>
                   <small>{p.reasons.join(" · ")}</small>
                   <button
                     onClick={() => decide(p.plannedId, p.symbolId, "confirmed")}
@@ -614,7 +661,7 @@ export default function VariablePanel({
                     <option value="">Choose exact binding…</option>
                     {symbols.map((s) => (
                       <option key={s.id} value={s.id}>
-                        {s.name} · {s.file} · {s.scope || "module"}
+                        {symbolDescription(s)}
                       </option>
                     ))}
                   </select>

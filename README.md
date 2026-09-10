@@ -52,7 +52,7 @@ The variable panel supports plans for files that do not exist yet. A planned var
 
 SQLite is the durable source of truth. Saves are debounced by about 600 ms. The top bar shows unsaved, saving, saved, or failed state and the most recent successful save time. Save also flushes pending text edits.
 
-Undo/redo is chronological across the entire project, including diagrams, notes, checklists, variable plans, and manual links. It survives restarting the browser and Python process. The latest 100 actions plus their baseline are retained. A completed drag is one action; text is grouped into typing bursts. A new edit after Undo discards the redo branch. Selection and viewport changes do not consume undo actions. Scanner observations and source-folder permission are outside this history.
+Undo/redo is chronological across the entire project, including diagrams, notes, checklists, variable plans, and manual links. It survives restarting the browser and Python process. The latest 100 actions plus their baseline are retained. A completed mouse drag, including a multi-node drag, is one action. With a node focused, arrow keys move the selected nodes; repeated movements are grouped until about 600 ms of inactivity. Text is grouped into typing bursts. Arrow keys and text undo inside fields retain their native behavior. A new edit after Undo discards the redo branch. Selection and viewport changes do not consume undo actions. Scanner observations and source-folder permission are outside this history.
 
 Saved content and the history cursor commit together. A request retry cannot append the same history twice. Only one save is sent at a time. Another tab's changes produce a visible conflict: keep the draft as a new project, or explicitly discard it and reload. There is no automatic merge. Do not close a tab with pending/failed edits; the browser warns, but unsaved changes are not guaranteed to survive forced termination.
 
@@ -71,7 +71,9 @@ Use the Backup action or the command below for a consistent SQLite backup. Backu
 .\.venv\Scripts\python.exe -m flowdesk backup
 ```
 
-To restore, stop FlowDesk, keep a copy of the existing data directory, then put the backup **inside a new data directory as `flowdesk.sqlite3`** and launch with `--data-dir` pointing there. This avoids mixing a restored database with an old SQLite WAL file. Backups include local source attachment settings; portable JSON exports do not. Future destructive schema upgrades must create a backup before migration; an unknown newer schema is rejected.
+To restore, stop FlowDesk, keep a copy of the existing data directory, then put the backup **inside a new data directory as `flowdesk.sqlite3`** and launch with `--data-dir` pointing there. This avoids mixing a restored database with an old SQLite WAL file. Backups include local source attachment settings; portable JSON exports do not.
+
+Startup applies numbered database migrations. Database version 2 adopts existing version-1 scanner tables and normalizes current content and every retained undo/redo checkpoint together. Manual content and portable JSON remain at schema version 1. Before an upgrade that rewrites existing data, FlowDesk creates and verifies a SQLite backup, including committed data still in the WAL. Backup failure stops the upgrade. A migration failure rolls back schema, content, and history together. IDs, redo position, links, and source attachment settings are preserved. Stop other FlowDesk servers before upgrading; if the database changes during backup, startup stops and asks you to retry. An unknown newer schema is rejected.
 
 ## Read-only Python scanning
 
@@ -91,6 +93,8 @@ Files that fail, are skipped, or are not checked completely leave previous evide
 
 Scans update evidence, never your descriptions, intended types, notes, or completion decisions. Suggested matches need corroborating file/scope information and must be confirmed or rejected. A name coincidence never creates an automatic link. Rejections persist. The comparison view reports unmatched plans and reviewable name/file/scope/annotation differences. Detection does not establish correctness or completion.
 
+Search and filter plans and detected symbols in the variable panel. A variable can link to nodes in several diagrams; use its node links to navigate to a diagram, or a node's inspector to open the linked variable. Comparison states use confirmed matches: proven absence takes precedence, while stale, ambiguous, and imported evidence requires review. Ambiguous bindings show their scope and line to help you choose. Renamed bindings and fresh scans of imported projects require explicit relinking.
+
 Example Python files are in `examples/python`. Explicitly attach that folder to try the sample scanner workflow. The example contains independent scopes and loop logic and can be removed without affecting your own projects.
 
 ## Exports and imports
@@ -108,7 +112,7 @@ Portable JSON is limited to 20,000 evidence records and 10 MiB of UTF-8 JSON, in
 Python owns validation, persistence, scanning, reconciliation, and portable exports. The frontend owns interactive draft state, checkpoint grouping, save scheduling, and diagram image rendering.
 
 - `flowdesk/app.py`: protected local API and assets.
-- `flowdesk/storage.py`, `validation.py`: transactions, schema versioning, normalized records, and durable checkpoints.
+- `flowdesk/storage.py`, `validation.py`, `migrations/`: transactions, numbered upgrades, normalized records, and durable checkpoints.
 - `flowdesk/scanner.py`, `scans.py`, `reconciliation.py`: pure static analysis, supervised jobs/freshness, and suggested matches.
 - `flowdesk/exports.py`: portable schema, import remapping, and Markdown.
 - `frontend/src`: editor, inspector, variable catalogue, history reducer, save queue, and PNG export.
@@ -128,7 +132,7 @@ npm test
 npm run build
 ```
 
-Browser acceptance tests use Playwright and a disposable database, not your normal FlowDesk data. Install its browser once, then run the test command:
+Browser acceptance tests use Playwright with uniquely named disposable databases and source fixtures. They cover the editor, mouse/keyboard movement, and catalogue workflows. All external browser HTTP requests are blocked and checked. Artifacts are saved in `output/playwright/<suite>-<unique-id>/`. Install its browser once, then run the test command:
 
 ```sh
 cd frontend
@@ -148,4 +152,4 @@ After building the frontend, create a wheel containing the Python application an
 
 Install `dist/flowdesk-0.1.0-py3-none-any.whl` in a Python 3.14 environment with `python -m pip install path/to/flowdesk-0.1.0-py3-none-any.whl`, then run `python -m flowdesk`. Node and the source checkout are unnecessary for this installed application. Installing Python dependencies requires internet access unless you provide a local package cache; using the installed application does not.
 
-Dependency versions are recorded in `requirements.lock`, `pyproject.toml`, and `frontend/package-lock.json`. Runtime/test results and platform limitations are recorded in [VALIDATION.md](VALIDATION.md). A Windows/Linux CI workflow is included; local verification on Windows does not establish Linux compatibility.
+Dependency versions are recorded in `requirements.lock`, `pyproject.toml`, and `frontend/package-lock.json`. Runtime/test results and platform limitations are recorded in [VALIDATION.md](VALIDATION.md). The Windows/Linux CI workflow builds a wheel and runs the browser suites against that installed package.

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { symbolDescription } from "./catalogue";
 import { useProject } from "./store";
 import { Field, StatusMark } from "./ui";
 import {
@@ -30,6 +31,7 @@ export default function Inspector({
   const node = diagram.nodes.find((n) => n.id === selected);
   const edge = diagram.edges.find((e) => e.id === selected);
   const [linkChoice, setLinkChoice] = useState("");
+  useEffect(() => setLinkChoice(""), [selected]);
   const editNode = (key: keyof TaskNode, value: unknown, group = true) => {
     if (node)
       change(
@@ -374,7 +376,7 @@ export default function Inspector({
             <optgroup label="Detected">
               {symbols.map((v) => (
                 <option key={v.id} value={`detected:${v.id}`}>
-                  {v.name} · {v.scope || "module"}
+                  {symbolDescription(v)}
                 </option>
               ))}
             </optgroup>

@@ -1,96 +1,15 @@
 /* Browser acceptance against built assets and an isolated, disposable SQLite DB. */
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {createRequire} = require('node:module');
 const path = require('node:path');
 const fs = require('node:fs');
-const {spawn} = require('node:child_process');
-const net = require('node:net');
-const root = path.resolve(__dirname, '..');
-const {chromium} = createRequire(path.join(root, 'frontend', 'package.json'))('playwright');
-const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-async function until(check, timeout = 15000) {
-  const end = Date.now() + timeout;
-  let last;
-  while (Date.now() < end) {
-    try { const result = await check(); if (result) return result; } catch (e) { last = e; }
-    await wait(100);
-  }
-  throw last || new Error('Timed out waiting for condition');
-}
-async function freePort() {
-  const socket = net.createServer();
-  await new Promise(resolve => socket.listen(0, '127.0.0.1', resolve));
-  const port = socket.address().port;
-  await new Promise(resolve => socket.close(resolve));
-  return port;
-}
+const {setupBrowser, until} = require('./browser-harness.cjs');
 
 test('FlowDesk built application acceptance', {timeout: 240000}, async t => {
-  const output = path.join(root, 'output', 'playwright');
-  fs.mkdirSync(output, {recursive:true});
-  const dataDir = fs.mkdtempSync(path.join(output, 'acceptance-'));
-  const sourceDir = path.join(dataDir, 'source');
-  const dbDir = path.join(dataDir, 'data');
-  fs.mkdirSync(sourceDir);
-  const port = await freePort();
-  const base = `http://127.0.0.1:${port}`;
-  const python = process.env.FLOWDESK_PYTHON || path.join(root, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
-  let server, token, browser, page;
-  let serverOutput = '';
-  async function start() {
-    server = spawn(python, ['-m','flowdesk','--port',String(port),'--data-dir',dbDir], {cwd:process.env.FLOWDESK_APP_ROOT || root,windowsHide:true,stdio:['ignore','pipe','pipe']});
-    server.stdout.on('data', b => {serverOutput += b;});
-    server.stderr.on('data', b => {serverOutput += b;});
-    await until(async () => {const r=await fetch(base+'/api/bootstrap');if(r.ok){token=(await r.json()).token;return true;}});
-  }
-  async function stop() {
-    if (!server || server.exitCode !== null) return;
-    const exited = new Promise(resolve => server.once('exit', resolve));
-    server.kill();
-    await exited;
-  }
-  async function api(url, method='GET', body) {
-    const r = await fetch(base+'/api'+url,{method,headers:{'X-FlowDesk-Token':token,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
-    const value = await r.json();
-    assert.ok(r.ok, `${method} ${url}: ${r.status} ${JSON.stringify(value)}`);
-    return value;
-  }
-  async function saved() {
-    await until(async()=>{const text=await page.getByTestId('save-state').innerText();return /saved/i.test(text)&&!/unsaved/i.test(text);});
-  }
-  t.after(async()=>{
-    if(page) await page.screenshot({path:path.join(output,'workspace.png'),fullPage:true}).catch(()=>{});
-    await browser?.close();
-    await stop();
-    fs.writeFileSync(path.join(output,'server.log'),serverOutput);
-  });
-  await start();
-  const initial = await api('/projects','POST',{sample:true});
+  const {page, context, base, api, initial, output, sourceDir, start, stop, saved, errors, externalRequests} = await setupBrowser(t);
   const projectId = initial.id;
   const diagramId = initial.content.diagrams[0].id;
   const nodeId = initial.content.diagrams[0].nodes.find(n=>n.type==='process').id;
-  const browserOptions = {headless:true};
-  if(process.env.FLOWDESK_BROWSER_CHANNEL) browserOptions.channel=process.env.FLOWDESK_BROWSER_CHANNEL;
-  else if(!fs.existsSync(chromium.executablePath()) && process.platform==='win32') browserOptions.channel='msedge';
-  browser = await chromium.launch(browserOptions);
-  const context=await browser.newContext({viewport:{width:1600,height:1000},acceptDownloads:true});
-  const externalRequests=[];
-  await context.route('**/*',route=>{
-    const url=route.request().url();
-    if(/^https?:/.test(url) && new URL(url).origin!==base){
-      externalRequests.push(url);
-      return route.abort();
-    }
-    return route.continue();
-  });
-  page=await context.newPage();
-  const errors=[];
-  page.on('pageerror',e=>errors.push(e.message));
-  page.on('dialog',dialog=>dialog.accept());
-  await page.goto(base);
-  await page.getByTestId('diagram-canvas').waitFor();
 
   await t.test('diagram metadata, text safety, and durable history',async()=>{
     const node=page.locator(`.react-flow__node[data-id="${nodeId}"]`);
@@ -214,7 +133,7 @@ test('FlowDesk built application acceptance', {timeout: 240000}, async t => {
   });
 
   await t.test('conflicting tabs preserve the second draft',async()=>{
-    const other=await context.newPage();other.on('dialog',d=>d.accept());
+    const other=await context.newPage();
     await other.goto(base);await other.getByTestId('diagram-canvas').waitFor();
     await page.getByLabel('Notes',{exact:true}).fill('First tab wins');
     await page.getByRole('button',{name:'Save',exact:true}).click();await saved();
@@ -229,11 +148,19 @@ test('FlowDesk built application acceptance', {timeout: 240000}, async t => {
   });
 
   await t.test('save failure retains edits and blocks project switching',async()=>{
-    await page.route(`**/api/projects/${projectId}`,route=>route.request().method()==='PUT'?route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Injected disk failure'})}):route.continue());
+    let failedSaves = 0;
+    await page.route(`**/api/projects/${projectId}`,async route=>{
+      if(route.request().method()!=='PUT')return route.continue();
+      await route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Injected disk failure'})});
+      failedSaves++;
+    });
     await page.getByLabel('Notes',{exact:true}).fill('Retained through save failure');
     await page.getByRole('button',{name:'Save',exact:true}).click();
     await page.getByRole('button',{name:'Retry save',exact:true}).waitFor();
     await page.getByRole('button',{name:'New project',exact:true}).click();
+    // Navigation flushes again. Keep the fault active until that attempt has
+    // finished, otherwise unroute can accidentally turn it into a successful save.
+    await until(async()=>failedSaves>=2 && /failed/i.test(await page.getByTestId('save-state').innerText()));
     assert.equal(await page.getByRole('dialog').count(),0);
     assert.equal(await page.getByLabel('Notes',{exact:true}).inputValue(),'Retained through save failure');
     await page.unroute(`**/api/projects/${projectId}`);

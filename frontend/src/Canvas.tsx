@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -14,6 +14,7 @@ import {
   applyNodeChanges,
   type Node,
   type NodeProps,
+  type NodeChange,
   type ReactFlowInstance,
   type Connection,
   type Edge,
@@ -173,44 +174,113 @@ export default function Canvas({
   connectRequest: boolean;
   onConnected: () => void;
 }) {
-  const { session, change, setView } = useProject();
+  const { session, change, commit, setView } = useProject();
   const [nodes, setNodes] = useState<FlowNode[]>([]);
+  const nodesRef = useRef<FlowNode[]>([]);
+  const mouseDragging = useRef(false);
+  const canvasSelection = useRef<string | null | undefined>(undefined);
+  const previousSelection = useRef<{
+    diagramId: string;
+    selected: string | null;
+  } | null>(null);
+  const updateNodes = (next: FlowNode[]) => {
+    nodesRef.current = next;
+    setNodes(next);
+  };
   const [source, setSource] = useState("");
   const [target, setTarget] = useState("");
   const [branch, setBranch] = useState("");
-  useEffect(
-    () =>
-      setNodes(
-        flowNodes(diagram).map((n) => ({
-          ...n,
-          selected: n.id === selected,
-          style: {
-            opacity:
-              (filter === "blocked" && n.data.task.status !== "blocked") ||
-              (filter === "unfinished" &&
-                (n.data.task.status === "done" || n.data.task.type === "note"))
-                ? 0.24
-                : 1,
-          },
-          data: {
-            ...n.data,
-            toggle: () =>
-              change(
-                (c) => {
-                  const target = c.diagrams
-                    .find((d) => d.id === diagram.id)!
-                    .nodes.find((x) => x.id === n.id)!;
-                  target.status =
-                    target.status === "done" ? "not_started" : "done";
-                },
-                `Change ${n.data.task.title} status`,
-                diagram.id,
-              ),
-          },
-        })),
-      ),
-    [diagram.nodes, selected, filter],
-  );
+  useEffect(() => {
+    const last = previousSelection.current;
+    const changedDiagram = last?.diagramId !== diagram.id;
+    const changedSelection = changedDiagram || last?.selected !== selected;
+    let selectedIds = new Set(
+      nodesRef.current.filter((n) => n.selected).map((n) => n.id),
+    );
+    // Canvas selection is owned by React Flow (including multi-selection). An
+    // inspector/catalogue selection is an explicit request to focus one node.
+    if (
+      changedDiagram ||
+      (changedSelection && canvasSelection.current !== selected)
+    ) {
+      selectedIds = new Set(selected ? [selected] : []);
+    }
+    previousSelection.current = { diagramId: diagram.id, selected };
+    canvasSelection.current = undefined;
+    updateNodes(
+      flowNodes(diagram).map((n) => ({
+        ...n,
+        selected: selectedIds.has(n.id),
+        style: {
+          opacity:
+            (filter === "blocked" && n.data.task.status !== "blocked") ||
+            (filter === "unfinished" &&
+              (n.data.task.status === "done" || n.data.task.type === "note"))
+              ? 0.24
+              : 1,
+        },
+        data: {
+          ...n.data,
+          toggle: () =>
+            change(
+              (c) => {
+                const target = c.diagrams
+                  .find((d) => d.id === diagram.id)!
+                  .nodes.find((x) => x.id === n.id)!;
+                target.status =
+                  target.status === "done" ? "not_started" : "done";
+              },
+              `Change ${n.data.task.title} status`,
+              diagram.id,
+            ),
+        },
+      })),
+    );
+  }, [diagram.id, diagram.nodes, selected, filter]);
+
+  const persistPositions = (
+    moved: { id: string; position: TaskNode["position"] }[],
+    group: boolean,
+  ) => {
+    change(
+      (c) => {
+        const d = c.diagrams.find((item) => item.id === diagram.id)!;
+        for (const movedNode of moved) {
+          const target = d.nodes.find((n) => n.id === movedNode.id);
+          if (target) target.position = { ...movedNode.position };
+        }
+      },
+      "Move nodes",
+      diagram.id,
+      group,
+    );
+  };
+  const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
+    updateNodes(applyNodeChanges(changes, nodesRef.current));
+    // Arrow keys emit completed position changes without drag callbacks. Store
+    // those immediately, grouping repeated nudges with the normal 600 ms idle
+    // checkpoint. Pointer drags remain transient until their completion event.
+    if (!mouseDragging.current) {
+      const moved = changes.flatMap((item) =>
+        item.type === "position" && item.position && !item.dragging
+          ? [{ id: item.id, position: item.position }]
+          : [],
+      );
+      if (moved.length) persistPositions(moved, true);
+    }
+  };
+  const startDragging = () => {
+    commit();
+    mouseDragging.current = true;
+  };
+  const finishDragging = (moved: FlowNode[]) => {
+    persistPositions(moved, false);
+    mouseDragging.current = false;
+  };
+  const selectFromCanvas = (id: string | null) => {
+    canvasSelection.current = id;
+    onSelect(id);
+  };
   const connect = (connection: Connection, label = "") =>
     change(
       (c) => {
@@ -282,22 +352,12 @@ export default function Canvas({
         edgeTypes={edgeTypes}
         onInit={onInstance}
         defaultViewport={session.views[diagram.id] ?? { x: 80, y: 60, zoom: 1 }}
-        onNodesChange={(changes) =>
-          setNodes((n) => applyNodeChanges(changes, n))
-        }
-        onNodeDragStop={(_, __, moved) =>
-          change(
-            (c) => {
-              const d = c.diagrams.find((d) => d.id === diagram.id)!;
-              for (const n of moved) {
-                const target = d.nodes.find((x) => x.id === n.id);
-                if (target) target.position = n.position;
-              }
-            },
-            "Move nodes",
-            diagram.id,
-          )
-        }
+        onNodesChange={onNodesChange}
+        onNodeDragStart={startDragging}
+        onNodeDragStop={(_, __, moved) => finishDragging(moved)}
+        onSelectionDragStart={startDragging}
+        onSelectionDragStop={(_, moved) => finishDragging(moved)}
+        onSelectionStart={() => commit()}
         onConnect={(connection) => connect(connection)}
         onReconnect={(edge, connection) =>
           change(
@@ -311,10 +371,10 @@ export default function Canvas({
             diagram.id,
           )
         }
-        onNodeClick={(_, n) => onSelect(n.id)}
-        onNodeDoubleClick={(_, n) => onSelect(n.id)}
+        onNodeClick={(_, n) => selectFromCanvas(n.id)}
+        onNodeDoubleClick={(_, n) => selectFromCanvas(n.id)}
         onEdgeClick={(_, e) => onSelect(e.id)}
-        onPaneClick={() => onSelect(null)}
+        onPaneClick={() => selectFromCanvas(null)}
         onMoveEnd={(_, viewport) => setView(diagram.id, viewport)}
         deleteKeyCode={null}
         minZoom={0.1}

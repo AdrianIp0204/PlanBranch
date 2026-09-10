@@ -25,12 +25,15 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
+      - run: python scripts/build_release.py
+      - run: python -m pip install --no-deps --no-index --target output/wheel-ci dist/flowdesk-0.1.0-py3-none-any.whl
       - run: npx playwright install --with-deps chromium
         working-directory: frontend
       - run: npm run test:e2e
         working-directory: frontend
         env:
           FLOWDESK_PYTHON: python
+          FLOWDESK_APP_ROOT: ${{ github.workspace }}/output/wheel-ci
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

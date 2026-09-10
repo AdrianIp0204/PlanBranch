@@ -101,6 +101,9 @@ export type DetectedSymbol = {
   scanTime: string;
   hash: string;
   heuristic?: boolean;
+  ambiguousIdentity?: boolean;
+  identityNote?: string;
+  freshnessReason?: string;
 };
 export type Source = {
   root: string | null;
