@@ -20,12 +20,14 @@ export default function Inspector({
   symbols,
   onSelect,
   onVariable,
+  onDiscuss,
 }: {
   diagram: Diagram;
   selected: string | null;
   symbols: DetectedSymbol[];
   onSelect: (id: string | null) => void;
   onVariable: (id: string | null) => void;
+  onDiscuss?: () => void;
 }) {
   const { session, change, commit } = useProject();
   const content = session.content;
@@ -444,6 +446,9 @@ export default function Inspector({
         </button>
       </InspectorSection>
       <div className="inspector-actions">
+        {node && onDiscuss && (
+          <button onClick={onDiscuss}>Discuss this node</button>
+        )}
         <button
           onClick={() => {
             const duplicate = structuredClone(n);

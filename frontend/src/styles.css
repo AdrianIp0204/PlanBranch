@@ -2259,3 +2259,11 @@ dialog {
     scroll-behavior: auto !important;
   }
 }
+
+/* Keep a conversation mounted while preserving drafts when the panel closes. */
+.planning-pane[hidden] { display: none; }
+.planning-pane { overflow: hidden; }
+
+@media (max-width: 900px), (max-height: 650px) {
+  .inspector-pane.planning-pane { height: 650px; min-height: 650px; max-height: none; }
+}

@@ -1,5 +1,35 @@
 # FlowDesk validation
 
+## Planning collaboration — 20 September 2026
+
+Current verification covers the Codex planning conversation, node comments, explicit proposal acceptance/rejection, and approval of an exact saved snapshot. All fixtures used new disposable databases and random ports. The user's running application and data directory were not used.
+
+Both platforms used Python 3.14.3 and Node 24.14.0. Windows browser: Edge 153.0.4234.32; Linux: Playwright Chromium under Ubuntu 24.04/WSL2. No runtime dependencies were added.
+
+| Check | Windows | Linux (WSL2) |
+| --- | --- | --- |
+| Backend | 149 passed, 2 skipped | 149 passed, 2 skipped |
+| Frontend | 50 passed | 50 passed |
+| Production assets and release wheel | Passed | Passed |
+| Fresh offline package installation | Passed | Passed |
+| Installed-package browser acceptance | 25 scenarios passed across the full run and focused UX rerun | 25 scenarios passed (28 runner results) |
+
+The Windows full run passed all new planning scenarios and the editor/scanner/export regressions. An existing UX setup helper tried to double-click an offscreen node after returning from another diagram; this also prevented the next scenario from finding its inspector. The helper now uses the real Fit view control before selecting the fixture. All six UX scenarios then passed against the same unchanged installed application. The final helper was also rerun on Linux. No browser interaction was forced or bypassed.
+
+Final Windows installation: `output/planning-wheel-windows`. Logs: `output/planning-verification/windows-browser.log` and `windows-ux-final.log`; package/source byte checks: `windows-release.json`. Planning screenshots and records are in `output/playwright/planning-review-k0YdhI`, `planning-stale-KEEYni`, `planning-layout-Ih5f3L`, and `planning-visual-cXFUsZ`; the final UX run is `ux-after-2wcYcO`. The browser records report zero external browser HTTP requests and zero runtime errors. The live Codex smoke is separate from those blocked-network browser fixtures.
+
+Linux evidence, source hashes, wheel, logs, and browser archive: `output/planning-linux-verification/flowdesk-planning.ZCGCZh`. Linux ran from a new isolated checkout and wheel installation, reusing only previously verified runtimes and dependency bytes. The Windows skips require symlink creation permission; Linux skips the Windows junction and npm-shim-layout tests. Live Codex authentication/generation was verified only on Windows; Linux connector behavior was checked through subprocess/unit tests. Native Linux desktop, screen readers, touch devices, other engines, and other Python/Node versions remain unverified.
+
+Screenshots cover 1280 × 800 and 1440 × 900, populated proposal review, and the catalogue-open compact layout with Send reachable by scrolling. Browser checks also cover reduced motion, narrow access, the existing actual 200% zoom workflow, readable controls, and full-diagram PNG output. The final asset rebuild was byte-identical to the tested Windows wheel. All three SQL migrations are present in the package. No application data was imported into tests, and no publishing or pushing was performed.
+
+The live connector smoke used Codex CLI 0.144.1 and the existing ChatGPT sign-in, sending only a disposable request for a two-step tea-making plan. It returned two nodes and one edge in 19.52 seconds; the response passed normal graph validation. No user project, attached source file, or credential was read by FlowDesk. Separate offline provider probes verified that command/integration tools are disabled and a synthetic file patch is rejected by the read-only sandbox. The CLI retains an image-reading helper, so this is not a blanket filesystem-read guarantee.
+
+Browser tests inject a deterministic test-only provider into the real Flask application; production has no simulated assistant fallback. These tests exercise inert replies, node comments, explicit rejection/acceptance, retry after a lost committed response, durable history and approval, outdated proposals, save failure recovery, keyboard navigation, resizing and per-project composer drafts. The connector has separate real-subprocess tests for time/output limits and cancellation cleanup.
+
+New schema version 3 stores planning records independently of graph projection and undo history. Tests cover version-2 migration, backups, atomic rollback, stable IDs, source-context exclusion, project ownership, conflicting saves, repeated approval/reopen, stale worker results after restart, bounded context, and export separation.
+
+## Previous UI/UX verification — 10 September 2026
+
 Verification date: 10 September 2026, following the UI/UX pass. Tested on Windows and Ubuntu 24.04 under WSL2, using Python 3.14.3, Node 24.14.0, and npm 11.9.0 on both. Windows browser: installed Edge 152.0.4191.66. Linux browser: Playwright Chromium 153.0.8010.12. Dependencies remain pinned; this pass adds no runtime dependency or backend/schema change.
 
 ## Executed checks

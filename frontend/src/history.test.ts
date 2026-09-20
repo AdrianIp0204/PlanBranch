@@ -319,3 +319,158 @@ describe("serialized autosave", () => {
     expect(h.get().content.notes).toBe("keep me");
   });
 });
+
+describe("reviewed server checkpoints", () => {
+  function proposed(state: ReturnType<typeof fromEnvelope>): Envelope {
+    const content = copy(state.content);
+    content.notes = "Accepted agent proposal";
+    const checkpoint = {
+      id: "proposal-checkpoint",
+      label: "Accept proposal",
+      content,
+    };
+    return {
+      id: state.id,
+      revision: state.revision + 1,
+      savedAt: "2026-09-20T00:00:00Z",
+      content,
+      history: [...state.history, checkpoint],
+      cursor: checkpoint.id,
+      views: state.views,
+    };
+  }
+  it("flushes earlier edits and continues normal undo and autosave from the accepted revision", async () => {
+    const h = harness();
+    const report = vi.fn();
+    const saved = server();
+    const request = vi.fn(async (_id: string, body: SaveBody) => saved(body));
+    const queue = new SaveQueue(
+      h.get,
+      h.dispatch,
+      request,
+      report,
+      ["baseline"],
+      1,
+    );
+    h.edit("My saved instructions");
+    const apply = vi.fn(async (snapshot) => proposed(snapshot));
+    await queue.synchronize(apply);
+    expect(apply.mock.calls[0][0].content.notes).toBe("My saved instructions");
+    expect(apply.mock.calls[0][0].revision).toBe(2);
+    expect(h.get().content.notes).toBe("Accepted agent proposal");
+    h.dispatch({ type: "undo" });
+    expect(h.get().content.notes).toBe("My saved instructions");
+    await queue.flush();
+    const body = request.mock.calls.at(-1)![1];
+    expect(body.baseRevision).toBe(3);
+    expect(body.anchorId).toBe("proposal-checkpoint");
+    expect(body.append).toEqual([]);
+  });
+  it("preserves newer local edits when an acceptance response arrives late", async () => {
+    const h = harness();
+    const report = vi.fn();
+    const response = defer<Envelope>();
+    const request = vi.fn();
+    const queue = new SaveQueue(
+      h.get,
+      h.dispatch,
+      request,
+      report,
+      ["baseline"],
+      1,
+    );
+    const started = defer<void>();
+    const applied = queue.synchronize(async () => {
+      started.resolve();
+      return response.promise;
+    });
+    await started.promise;
+    const accepted = proposed(h.get());
+    h.edit("Newer local correction");
+    const autosave = queue.flush();
+    response.resolve(accepted);
+    await expect(applied).rejects.toThrow("local draft is preserved");
+    expect(await autosave).toBe(false);
+    expect(h.get().content.notes).toBe("Newer local correction");
+    expect(queue.conflict).toBe(true);
+    expect(request).not.toHaveBeenCalled();
+    expect(report).toHaveBeenCalledWith(
+      "conflict",
+      expect.stringContaining("Keep the draft"),
+    );
+  });
+  it("recovers a lost acceptance reply by retrying its receipt without another checkpoint", async () => {
+    const h = harness();
+    const request = vi.fn(
+      async (_id: string, body: SaveBody): Promise<SaveAck> => ({
+        revision: body.baseRevision + 1,
+        savedAt: "2026-09-20T00:01:00Z",
+        historyIds: [...h.get().history.map((item) => item.id)],
+      }),
+    );
+    const queue = new SaveQueue(
+      h.get,
+      h.dispatch,
+      request,
+      vi.fn(),
+      ["baseline"],
+      1,
+    );
+    let stored: Envelope | undefined;
+    let receipt: { mutationId: string; baseRevision: number } | undefined;
+    let checkpointWrites = 0;
+    const apply = vi.fn(async (snapshot: ReturnType<typeof fromEnvelope>) => {
+      const body = {
+        mutationId: "accept-once",
+        baseRevision: snapshot.revision,
+      };
+      if (!receipt) {
+        receipt = body;
+        stored = proposed(snapshot);
+        checkpointWrites++;
+        throw new Error("Connection closed after acceptance committed");
+      }
+      expect(body).toEqual(receipt);
+      return copy(stored!);
+    });
+
+    await expect(queue.synchronize(apply)).rejects.toThrow("Connection closed");
+    expect(h.get().content.notes).toBe("");
+    expect(h.get().revision).toBe(1);
+    expect(h.get().history).toHaveLength(1);
+    expect(request).not.toHaveBeenCalled();
+
+    await queue.synchronize(apply);
+    expect(apply).toHaveBeenCalledTimes(2);
+    expect(checkpointWrites).toBe(1);
+    expect(h.get().content.notes).toBe("Accepted agent proposal");
+    expect(h.get().revision).toBe(2);
+    expect(h.get().history).toHaveLength(2);
+    expect(
+      h.get().history.filter((item) => item.id === "proposal-checkpoint"),
+    ).toHaveLength(1);
+
+    h.edit("A correction after recovering the reply");
+    expect(await queue.flush()).toBe(true);
+    expect(request.mock.calls[0][1].baseRevision).toBe(2);
+    expect(request.mock.calls[0][1].anchorId).toBe("proposal-checkpoint");
+  });
+  it("does not apply or silently retry after the prerequisite save fails", async () => {
+    const h = harness();
+    h.edit("Unsaved instructions");
+    const request = vi.fn().mockRejectedValue(new Error("Disk full"));
+    const queue = new SaveQueue(
+      h.get,
+      h.dispatch,
+      request,
+      vi.fn(),
+      ["baseline"],
+      1,
+    );
+    const apply = vi.fn();
+    await expect(queue.synchronize(apply)).rejects.toThrow("Save or recover");
+    expect(apply).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(h.get().content.notes).toBe("Unsaved instructions");
+  });
+});

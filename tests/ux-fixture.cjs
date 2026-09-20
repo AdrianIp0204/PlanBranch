@@ -170,6 +170,9 @@ async function openUxPanels(h, fixture) {
       .filter({ hasText: fixture.envelope.content.diagrams[0].name })
       .click();
   }
+  // Returning from another diagram restores its saved viewport. Bring the
+  // fixture into view before selecting it, just as a user can with Fit view.
+  await p.locator(".react-flow__controls-fitview").click();
   await p
     .locator(`.react-flow__node[data-id="${fixture.decision.id}"]`)
     .dblclick();

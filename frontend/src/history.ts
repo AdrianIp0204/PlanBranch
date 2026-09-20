@@ -189,6 +189,7 @@ export function makeBatch(
 /** Single immutable request in flight. Failed requests remain intact for safe retries. */
 export class SaveQueue {
   private running: Promise<boolean> | null = null;
+  private external: Promise<Envelope> | null = null;
   private batch: { body: SaveBody; generation: number } | null = null;
   public conflict = false;
   private rejected = false;
@@ -203,7 +204,59 @@ export class SaveQueue {
     private ackIds: string[],
     private revision: number,
   ) {}
+  /** Serialize a server-authored checkpoint with autosave; never replace a newer draft. */
+  synchronize(
+    request: (snapshot: Session) => Promise<Envelope>,
+  ): Promise<Envelope> {
+    if (this.external)
+      return Promise.reject(
+        new Error("A plan change is already being reviewed."),
+      );
+    const ready = this.flush();
+    let startedGeneration: number | undefined;
+    const operation = (async () => {
+      if (!(await ready))
+        throw new Error(
+          "Save or recover your draft before applying a proposal.",
+        );
+      const snapshot = copy(this.get());
+      startedGeneration = snapshot.generation;
+      const envelope = await request(snapshot);
+      if (envelope.id !== snapshot.id)
+        throw new Error("The proposal returned a different project.");
+      if (this.get().generation !== snapshot.generation) {
+        this.conflict = true;
+        const message =
+          "The proposal was saved, but you also made new edits. Your local draft is preserved. Keep the draft as a new project or discard it to load the accepted plan.";
+        this.report("conflict", message);
+        throw new Error(message);
+      }
+      this.ackIds = envelope.history.map((item) => item.id);
+      this.revision = envelope.revision;
+      this.batch = null;
+      this.rejected = false;
+      this.dispatch({ type: "load", envelope });
+      this.report("saved");
+      return envelope;
+    })();
+    this.external = operation.finally(() => {
+      this.external = null;
+      if (
+        startedGeneration !== undefined &&
+        !this.conflict &&
+        this.get().generation !== startedGeneration &&
+        this.get().generation !== this.get().savedGeneration
+      )
+        void this.flush();
+    });
+    return this.external;
+  }
   flush(): Promise<boolean> {
+    if (this.external)
+      return this.external.then(
+        () => true,
+        () => false,
+      );
     if (this.conflict) return Promise.resolve(false);
     if (this.running) return this.running;
     this.running = this.run().finally(() => {

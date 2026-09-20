@@ -1,0 +1,364 @@
+.planning-panel {
+  min-width: 0;
+  height: 100%;
+  min-height: 600px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface, #fff);
+  color: var(--ink, #263c30);
+  font-size: 14px;
+}
+.inspector-pane.planning-pane {
+  overflow: auto;
+}
+.planning-panel [hidden] {
+  display: none !important;
+}
+.planning-panel button,
+.planning-panel textarea,
+.planning-panel select {
+  font-size: 13px;
+}
+.planning-panel h2,
+.planning-panel h3,
+.planning-panel h4,
+.planning-panel p {
+  margin: 0;
+}
+.planning-panel button {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.planning-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line, #dbe5df);
+}
+.planning-heading h2 {
+  font-size: 17px;
+  line-height: 1.4;
+}
+.planning-heading p,
+.planning-panel time,
+.planning-proposal-context,
+.planning-comment-meta {
+  color: #52675a;
+  font-size: 13px;
+}
+.planning-heading p {
+  margin-top: 3px;
+}
+.planning-approval {
+  padding: 12px 16px;
+  background: #f3f6f3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--line, #dbe5df);
+}
+.planning-approval > div {
+  flex: 1 1 170px;
+}
+.planning-approval strong {
+  font-size: 14px;
+}
+.planning-approval p {
+  font-size: 13px;
+  line-height: 1.45;
+  margin-top: 4px;
+}
+.planning-approval.is-approved {
+  background: #eaf4ed;
+}
+.planning-approval .planning-approval-reason {
+  flex-basis: 100%;
+  color: #5d5140;
+}
+.planning-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px 0;
+  border-bottom: 1px solid var(--line, #dbe5df);
+}
+.planning-tabs button {
+  flex: 1;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 3px 3px 0 0;
+  background: transparent;
+  padding: 8px 4px;
+  min-width: 0;
+}
+.planning-tabs button[aria-selected="true"] {
+  color: #245c3f;
+  border-bottom-color: #3f7855;
+  background: #f1f6f2;
+  font-weight: 650;
+}
+.planning-tab-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.planning-scroll {
+  flex: 1;
+  min-height: 80px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.planning-loading,
+.planning-comment-hint {
+  padding: 16px;
+  line-height: 1.5;
+}
+.planning-empty {
+  padding: 20px 16px;
+  line-height: 1.6;
+  color: #52675a;
+}
+.planning-empty h3 {
+  color: #263c30;
+  font-size: 15px;
+  margin-bottom: 7px;
+}
+.planning-empty button {
+  margin-top: 12px;
+}
+.planning-messages,
+.planning-comments,
+.planning-change-details ol {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.planning-message,
+.planning-comments > li,
+.planning-proposal {
+  padding: 16px;
+  border-bottom: 1px solid var(--line, #dbe5df);
+  overflow-wrap: anywhere;
+}
+.planning-message.user {
+  background: #f7f9f6;
+}
+.planning-message-byline,
+.planning-proposal-byline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 9px;
+  flex-wrap: wrap;
+}
+.planning-prose {
+  white-space: pre-wrap;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.planning-message > button {
+  margin-top: 10px;
+}
+.planning-panel .planning-context-link {
+  display: block;
+  text-align: left;
+  font-size: 13px;
+  color: #245c3f;
+  max-width: 100%;
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.planning-context-link small,
+.planning-missing-node small {
+  display: block;
+  font-size: 13px;
+  color: #52675a;
+  text-decoration: none;
+  margin-top: 3px;
+}
+.planning-run-status {
+  padding: 14px 16px;
+  background: #f2f6f1;
+  line-height: 1.5;
+}
+.planning-feedback {
+  margin: 10px;
+  padding: 10px 12px;
+  border-left: 3px solid #947641;
+  background: #fcf7eb;
+  color: #594922;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.planning-feedback p {
+  margin-top: 5px;
+}
+.planning-feedback button {
+  margin-top: 8px;
+}
+.planning-composer {
+  flex-shrink: 0;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line, #dbe5df);
+  background: #fff;
+}
+.planning-composer > label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 6px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.planning-composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 72px;
+  max-height: 160px;
+  resize: vertical;
+  line-height: 1.5;
+}
+.planning-composer > p {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #52675a;
+  margin: 8px 0;
+}
+.planning-panel .planning-check {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: normal;
+  margin: 9px 0;
+  line-height: 1.4;
+}
+.planning-check input {
+  flex-shrink: 0;
+}
+.planning-check span {
+  overflow-wrap: anywhere;
+}
+.planning-compose-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.planning-compose-actions span {
+  font-size: 12px;
+  color: #52675a;
+}
+.planning-comment-filters {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line, #dbe5df);
+}
+.planning-comment-filters > label:first-child {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 13px;
+}
+.planning-comment-filters select {
+  flex: 1;
+  min-width: 0;
+}
+.planning-comment-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 10px 0;
+}
+.planning-missing-node {
+  padding: 5px 0 9px;
+}
+.planning-proposal h3 {
+  font-size: 15px;
+  line-height: 1.5;
+  margin-bottom: 7px;
+}
+.planning-proposal-context {
+  margin-top: 8px !important;
+  line-height: 1.5;
+}
+.planning-proposal-state {
+  font-size: 13px;
+  font-weight: 650;
+}
+.planning-proposal-state.accepted {
+  color: #245c3f;
+}
+.planning-proposal-state.stale {
+  color: #795b22;
+}
+.planning-change-details {
+  margin: 12px 0;
+}
+.planning-change-details summary {
+  cursor: pointer;
+  padding: 7px 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.planning-change {
+  padding: 12px 0;
+  border-top: 1px solid var(--line, #dbe5df);
+}
+.planning-change h4 {
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+.planning-change-field {
+  font-weight: normal;
+  color: #52675a;
+}
+.planning-diff {
+  display: grid;
+  gap: 10px;
+}
+.planning-diff > div {
+  border-left: 2px solid #d0d9d2;
+  padding-left: 8px;
+}
+.planning-diff > div:last-child {
+  border-left-color: #719279;
+}
+.planning-diff strong {
+  font-size: 12px;
+  color: #52675a;
+}
+.planning-diff pre {
+  font:
+    13px/1.55 ui-monospace,
+    Consolas,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 4px 0 0;
+}
+.planning-proposal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+@media (max-width: 900px), (max-height: 650px) {
+  .planning-panel {
+    min-height: 600px;
+  }
+  .planning-scroll {
+    min-height: 160px;
+  }
+  .planning-composer {
+    padding: 10px 16px;
+  }
+}

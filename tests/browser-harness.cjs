@@ -27,7 +27,7 @@ async function freePort() {
   return port;
 }
 
-async function setupBrowser(t, {name = 'acceptance', seed = {sample:true}, viewport = {width:1600,height:1000}} = {}) {
+async function setupBrowser(t, {name = 'acceptance', seed = {sample:true}, viewport = {width:1600,height:1000}, planningFixture = false} = {}) {
   const artifacts = path.join(root, 'output', 'playwright');
   fs.mkdirSync(artifacts, {recursive:true});
   const output = fs.mkdtempSync(path.join(artifacts, name.replace(/[^a-z0-9-]/gi, '-') + '-'));
@@ -44,7 +44,10 @@ async function setupBrowser(t, {name = 'acceptance', seed = {sample:true}, viewp
   async function start() {
     assert.ok(!server || server.exitCode !== null || server.signalCode !== null, 'Previous fixture server must stop before restart');
     spawnError = null;
-    server = spawn(python, ['-m','flowdesk','--port',String(port),'--data-dir',dbDir], {
+    const launcher = planningFixture
+      ? ['-c', 'import runpy,sys; runpy.run_path(sys.argv.pop(1), run_name="__main__")', path.join(root, 'tests', 'planning-fixture-server.py')]
+      : ['-m', 'flowdesk'];
+    server = spawn(python, [...launcher,'--port',String(port),'--data-dir',dbDir], {
       cwd:process.env.FLOWDESK_APP_ROOT || root, windowsHide:true, stdio:['ignore','pipe','pipe'],
     });
     server.once('error', error => {spawnError = error;});

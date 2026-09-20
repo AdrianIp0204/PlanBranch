@@ -11,6 +11,7 @@ export type Layout = {
   navigationOpen: boolean;
   inspectorOpen: boolean;
   catalogueOpen: boolean;
+  sidePanel: "inspector" | "planning";
   inspectorWidth: number;
   catalogueHeight: number;
 };
@@ -21,6 +22,7 @@ export function defaultLayout(width = window.innerWidth): Layout {
     navigationOpen: width > 1050,
     inspectorOpen: true,
     catalogueOpen: false,
+    sidePanel: "inspector",
     inspectorWidth: 340,
     catalogueHeight: 300,
   };
@@ -30,6 +32,8 @@ export function readLayout(): Layout {
   try {
     const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? "null");
     if (!saved || typeof saved !== "object") return defaults;
+    if (saved.sidePanel === "planning" || saved.sidePanel === "inspector")
+      defaults.sidePanel = saved.sidePanel;
     for (const key of [
       "navigationOpen",
       "inspectorOpen",

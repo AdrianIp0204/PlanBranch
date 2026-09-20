@@ -11,7 +11,7 @@ from typing import Callable
 from ..validation import ValidationError, validate_checkpoint
 
 
-DATABASE_VERSION = 2
+DATABASE_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -52,9 +52,14 @@ def managed_scanner_and_snapshots(connection, store):
         store._write_current(connection, project_id, current["content"])
 
 
+def planning_workspace(connection, store):
+    apply_sql(connection, "003_planning.sql")
+
+
 MIGRATIONS = (
     Migration(1, "Initial project storage", False, initial_schema),
     Migration(2, "Managed scanner schema and canonical snapshots", True, managed_scanner_and_snapshots),
+    Migration(3, "Planning chat, reviews and approvals", False, planning_workspace),
 )
 
 

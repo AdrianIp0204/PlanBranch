@@ -62,6 +62,7 @@ describe("local layout preferences", () => {
       navigationOpen: false,
       inspectorOpen: false,
       catalogueOpen: true,
+      sidePanel: "inspector",
       inspectorWidth: 520,
       catalogueHeight: 230,
     });

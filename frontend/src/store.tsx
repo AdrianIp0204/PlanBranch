@@ -31,6 +31,10 @@ type Store = {
   redo: () => void;
   setView: (id: string, v: Viewport) => void;
   flush: () => Promise<boolean>;
+  getSnapshot: () => Session;
+  synchronize: (
+    request: (snapshot: Session) => Promise<Envelope>,
+  ) => Promise<Envelope>;
   saveStatus: string;
   saveError: string;
 };
@@ -110,6 +114,8 @@ export function ProjectProvider({
       redo: () => send({ type: "redo" }),
       setView: (diagramId, view) => send({ type: "view", diagramId, view }),
       flush: () => queue.flush(),
+      getSnapshot: () => ref.current,
+      synchronize: (request) => queue.synchronize(request),
       saveStatus,
       saveError,
     }),

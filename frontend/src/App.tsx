@@ -25,6 +25,7 @@ import {
 } from "./types";
 import Canvas, { type FlowNode } from "./Canvas";
 import Inspector from "./Inspector";
+import PlanningPanel from "./PlanningPanel";
 import VariablePanel from "./VariablePanel";
 import { Dialog, Empty, ErrorMessage, Field, StatusMark } from "./ui";
 import { useLayout, ResizeHandle, clamp, focusAfterLayout } from "./layout";
@@ -295,14 +296,26 @@ function Workbench({
   onCopy: (c: Content) => Promise<void>;
   onDeleted: () => Promise<void>;
 }) {
-  const { session, change, commit, undo, redo, flush, saveStatus, saveError } =
-    useProject();
+  const {
+    session,
+    change,
+    commit,
+    undo,
+    redo,
+    flush,
+    synchronize,
+    saveStatus,
+    saveError,
+  } = useProject();
   const content = session.content;
   const [active, setActive] = useState(content.diagrams[0]?.id ?? "");
   const [selected, setSelected] = useState<string | null>(null);
   const { layout, preference, reset, windowSize } = useLayout();
   const inspector = layout.inspectorOpen;
   const variables = layout.catalogueOpen;
+  const planning = layout.sidePanel === "planning";
+  const [planningVisited, setPlanningVisited] = useState(planning);
+  const [commentFocus, setCommentFocus] = useState(0);
   const setInspector = (value: SetStateAction<boolean>) =>
     preference("inspectorOpen", value);
   const setVariables = (value: SetStateAction<boolean>) =>
@@ -360,7 +373,24 @@ function Workbench({
   };
   const closeInspector = () => {
     setInspector(false);
-    focusAfterLayout("toggle-inspector");
+    focusAfterLayout(planning ? "toggle-planning" : "toggle-inspector");
+  };
+  const openPlanning = (comments = false) => {
+    if (!planningVisited)
+      preference("inspectorWidth", Math.max(400, layout.inspectorWidth));
+    setPlanningVisited(true);
+    preference("sidePanel", "planning");
+    setInspector(true);
+    if (comments) setCommentFocus((value) => value + 1);
+  };
+  const acceptProposal = async (proposalId: string, mutationId: string) => {
+    await synchronize(async (snapshot) => {
+      const result = await post<{ project: Envelope }>(
+        `/projects/${snapshot.id}/planning/proposals/${proposalId}/accept`,
+        { baseRevision: snapshot.revision, mutationId },
+      );
+      return result.project;
+    });
   };
   const openSource = () => {
     setScanDialog(true);
@@ -932,7 +962,7 @@ function Workbench({
             </details>
             <span className="local-label">
               <span />
-              LOCAL · PRIVATE
+              STORED LOCALLY
             </span>
           </div>
         </aside>
@@ -1095,15 +1125,31 @@ function Workbench({
             </select>
             <button
               id="toggle-inspector"
-              className={inspector ? "quiet active" : "quiet"}
+              className={inspector && !planning ? "quiet active" : "quiet"}
               aria-label="Toggle inspector"
-              aria-expanded={inspector}
+              aria-expanded={inspector && !planning}
               aria-controls="inspector-pane"
-              onClick={() =>
-                inspector ? closeInspector() : setInspector(true)
-              }
+              onClick={() => {
+                if (inspector && !planning) closeInspector();
+                else {
+                  preference("sidePanel", "inspector");
+                  setInspector(true);
+                }
+              }}
             >
               ☷ Inspector
+            </button>
+            <button
+              id="toggle-planning"
+              className={inspector && planning ? "quiet active" : "quiet"}
+              aria-label="Toggle planning chat"
+              aria-expanded={inspector && planning}
+              aria-controls="planning-pane"
+              onClick={() =>
+                inspector && planning ? closeInspector() : openPlanning()
+              }
+            >
+              Planning chat
             </button>
           </div>
         </div>
@@ -1153,8 +1199,8 @@ function Workbench({
           {inspector && diagram && (
             <>
               <ResizeHandle
-                label="Resize inspector"
-                controls="inspector-pane"
+                label={planning ? "Resize planning chat" : "Resize inspector"}
+                controls={planning ? "planning-pane" : "inspector-pane"}
                 orientation="vertical"
                 value={inspectorWidth}
                 min={280}
@@ -1162,33 +1208,57 @@ function Workbench({
                 onChange={(value) => preference("inspectorWidth", value)}
                 onCollapse={closeInspector}
               />
-              <div className="inspector-pane" id="inspector-pane">
-                {variableFocus && (
-                  <button
-                    className="back-to-variable quiet"
-                    onClick={() => {
+              {!planning && (
+                <div className="inspector-pane" id="inspector-pane">
+                  {variableFocus && (
+                    <button
+                      className="back-to-variable quiet"
+                      onClick={() => {
+                        setVariables(true);
+                        focusAfterLayout("variable-detail-heading");
+                      }}
+                    >
+                      ← Back to variable
+                    </button>
+                  )}
+                  <Inspector
+                    diagram={diagram}
+                    selected={selected}
+                    symbols={symbols}
+                    onSelect={select}
+                    onDiscuss={() => openPlanning(true)}
+                    onVariable={(id) => {
                       setVariables(true);
-                      focusAfterLayout("variable-detail-heading");
+                      setVariableFocus(id);
+                      focusAfterLayout(
+                        id ? "variable-detail-heading" : "catalogue-search",
+                      );
                     }}
-                  >
-                    ← Back to variable
-                  </button>
-                )}
-                <Inspector
-                  diagram={diagram}
-                  selected={selected}
-                  symbols={symbols}
-                  onSelect={select}
-                  onVariable={(id) => {
-                    setVariables(true);
-                    setVariableFocus(id);
-                    focusAfterLayout(
-                      id ? "variable-detail-heading" : "catalogue-search",
-                    );
-                  }}
-                />
-              </div>
+                  />
+                </div>
+              )}
             </>
+          )}
+          {planningVisited && diagram && (
+            <div
+              className="inspector-pane planning-pane"
+              id="planning-pane"
+              hidden={!inspector || !planning}
+            >
+              <PlanningPanel
+                diagramId={diagram.id}
+                nodeId={
+                  diagram.nodes.some((node) => node.id === selected)
+                    ? selected
+                    : null
+                }
+                active={inspector && planning}
+                focusComments={commentFocus}
+                onReveal={reveal}
+                onApply={acceptProposal}
+                onClose={closeInspector}
+              />
+            </div>
           )}
         </div>
         {variables ? (

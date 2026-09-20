@@ -13,9 +13,10 @@ from .storage import Store, ConflictError, NotFoundError
 from .validation import ValidationError, validate_content
 from .scans import ScanService
 from .reconciliation import reconcile
+from .planning import PlanningService
 
 
-def create_app(data_dir=None, *, testing=False):
+def create_app(data_dir=None, *, testing=False, planner=None):
     from .__main__ import default_data_dir
     data_dir = Path(data_dir or default_data_dir()).resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -25,7 +26,8 @@ def create_app(data_dir=None, *, testing=False):
     token = secrets.token_urlsafe(32)
     store = Store(data_dir / "flowdesk.sqlite3")
     scans = ScanService(store)
-    app.extensions.update(flowdesk_store=store, flowdesk_scans=scans)
+    planning = PlanningService(store, planner)
+    app.extensions.update(flowdesk_store=store, flowdesk_scans=scans, flowdesk_planning=planning)
 
     @app.before_request
     def protect_local_api():
@@ -140,6 +142,43 @@ def create_app(data_dir=None, *, testing=False):
     def backup():
         filename = Path(store.backup()).name
         return jsonify(filename=filename)
+
+    def planning_body():
+        if len(request.get_data(cache=True)) > 65536:
+            raise ValidationError("Planning requests must be smaller than 64 KB.")
+        return body()
+
+    @app.get("/api/projects/<project_id>/planning")
+    def get_planning(project_id):
+        return jsonify(planning.state(project_id))
+
+    @app.post("/api/projects/<project_id>/planning/messages")
+    def planning_message(project_id):
+        return jsonify(planning.send_message(project_id, planning_body())), 202
+
+    @app.post("/api/projects/<project_id>/planning/comments")
+    def planning_comment(project_id):
+        return jsonify(planning.add_comment(project_id, planning_body())), 201
+
+    @app.patch("/api/projects/<project_id>/planning/comments/<comment_id>")
+    def planning_comment_resolution(project_id, comment_id):
+        return jsonify(planning.resolve_comment(project_id, comment_id, planning_body()))
+
+    @app.post("/api/projects/<project_id>/planning/proposals/<proposal_id>/accept")
+    def accept_planning_proposal(project_id, proposal_id):
+        return jsonify(planning.accept(project_id, proposal_id, planning_body()))
+
+    @app.post("/api/projects/<project_id>/planning/proposals/<proposal_id>/reject")
+    def reject_planning_proposal(project_id, proposal_id):
+        return jsonify(planning.reject(project_id, proposal_id, planning_body()))
+
+    @app.post("/api/projects/<project_id>/planning/approve")
+    def approve_plan(project_id):
+        return jsonify(planning.approve(project_id, planning_body()))
+
+    @app.post("/api/projects/<project_id>/planning/reopen")
+    def reopen_plan(project_id):
+        return jsonify(planning.reopen(project_id, planning_body()))
 
     @app.get("/api/projects/<project_id>/source")
     def source(project_id):

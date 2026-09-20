@@ -1,10 +1,10 @@
 # FlowDesk
 
-A local programming planner: diagram the logic, record intended variables, write code in your own editor, then compare the plan with a read-only Python scan. Everything stays on this computer. There are no accounts, API keys, telemetry, or cloud dependencies.
+A local programming planner: diagram the logic, record intended variables, write code in your own editor, then compare the plan with a read-only Python scan. Projects are stored locally. The editor, scans, and exports work offline. Optional planning chat uses your existing Codex CLI ChatGPT sign-in and sends the manual plan and discussion to Codex; FlowDesk does not require or store an API key.
 
 ## Initial setup
 
-Use Python 3.14 and Node 24. Installation downloads dependencies; ordinary use after building is offline.
+Use Python 3.14 and Node 24. Installation downloads dependencies; editing, scanning, and exports work offline after building. Planning chat requires a separately installed, signed-in Codex CLI and internet access.
 
 Clone the repository first:
 
@@ -59,11 +59,27 @@ Drag the divider beside the inspector or above the catalogue to resize it. A foc
 
 The variable panel supports plans for files that do not exist yet. A planned variable's type, scope, expression, purpose, notes, and status are yours to edit. Expressions are text and never evaluated. Linking a variable to a node records a user-authored reads/writes/creates relationship; it does not prove program data flow.
 
+## Plan with Codex
+
+Open **Planning chat** above the canvas. It shares the resizable right pane with the inspector; switching panels keeps your selection, view, and edits. Describe a goal or correction and press **Send** (Ctrl/Cmd+Enter). The agent can discuss the goal or propose changes to the active diagram. You can continue editing while it replies.
+
+- **Node comments:** select a node and open **Comments**, or choose **Discuss this node** in the inspector. Comments keep their original node identity across renaming and undo. If a node is deleted, its discussion remains visible with an unavailable-node label. Resolve comments when addressed; sending a chat message asks Codex to consider them.
+- **Review:** inspect each proposed addition, removal, and field change before **Accept changes** or **Reject changes**. Acceptance is one normal undoable edit, with stable IDs and existing variable links preserved except links to explicitly removed nodes. Proposals based on a different plan cannot overwrite later edits; request an updated proposal instead.
+- **Approval:** resolve open comments and review pending proposals, then choose **Approve plan**. Approval records an exact saved snapshot. Content changes need review again; viewport or layout changes do not. **Reopen plan** explicitly withdraws approval. Approval does not start execution; running project steps is outside this release.
+
+Install Codex CLI separately using [OpenAI's CLI instructions](https://developers.openai.com/codex/cli/), sign in with `codex login`, then restart FlowDesk if it was already running. FlowDesk checks availability when opening chat. Missing login, limits, failed requests, and interrupted replies are shown with retry actions. Retry reuses the request identity to avoid duplicate messages or history. This integration was verified with Codex CLI 0.144.1; older versions lacking the isolation flags are rejected with an update message. FlowDesk does not read, copy, or modify your credentials.
+
+**What is shared:** manual project content (including authored notes, variable plans and target paths), the active diagram, recent conversation, and node comments. Scanner observations, source-folder permissions, and attached source files are excluded. Keep sensitive information out of authored text you send. The connector prioritizes the full manual plan and open comments within a 500 KB context budget, removing older conversation/resolved comments when needed; oversized plans are rejected with an explanation. Replies have a three-minute deadline. A failed request retains its original context for retry; send a new message to use a changed plan.
+
+Requests run in a disposable working directory with command execution, integrations, plugins, web search, and agent delegation disabled. The CLI uses a read-only sandbox with approvals disabled; it cannot execute plan steps or apply diagram changes itself. This is not a guarantee against every filesystem read: Codex 0.144.1 retains a built-in image-reading helper, although the planning instruction forbids tool use and no source root is provided. No project execution controls are included.
+
+Conversation, comments, proposals, and approval records live outside diagram undo history. They survive restarts and are included in SQLite backups, but are intentionally omitted from portable JSON and Markdown exports. Accepted edits become ordinary content and are exported normally. Unsent composer drafts are kept best-effort in this tab's session storage; they are not database-backed messages and are removed when sent.
+
 ## Saving and durable undo
 
 SQLite is the durable source of truth. Saves are debounced by about 600 ms. The top bar shows unsaved, saving, saved, or failed state and the most recent successful save time. Save also flushes pending text edits.
 
-Undo/redo is chronological across the entire project, including diagrams, notes, checklists, variable plans, and manual links. It survives restarting the browser and Python process. The latest 100 actions plus their baseline are retained. A completed mouse drag, including a multi-node drag, is one action. With a node focused, arrow keys move the selected nodes; repeated movements are grouped until about 600 ms of inactivity. Text is grouped into typing bursts. Arrow keys and text undo inside fields retain their native behavior. A new edit after Undo discards the redo branch. Selection and viewport changes do not consume undo actions. Scanner observations and source-folder permission are outside this history.
+Undo/redo is chronological across the entire project, including diagrams, notes, checklists, variable plans, and manual links. It survives restarting the browser and Python process. The latest 100 actions plus their baseline are retained. A completed mouse drag, including a multi-node drag, is one action. With a node focused, arrow keys move the selected nodes; repeated movements are grouped until about 600 ms of inactivity. Text is grouped into typing bursts. Arrow keys and text undo inside fields retain their native behavior. A new edit after Undo discards the redo branch. Selection and viewport changes do not consume undo actions. Scanner observations, source-folder permission, and planning discussion/approval records are outside this history.
 
 Saved content and the history cursor commit together. A request retry cannot append the same history twice. Only one save is sent at a time. Another tab's changes produce a visible conflict: keep the draft as a new project, or explicitly discard it and reload. There is no automatic merge. Do not close a tab with pending/failed edits; the browser warns, but unsaved changes are not guaranteed to survive forced termination.
 
@@ -84,7 +100,7 @@ Use the Backup action or the command below for a consistent SQLite backup. Backu
 
 To restore, stop FlowDesk, keep a copy of the existing data directory, then put the backup **inside a new data directory as `flowdesk.sqlite3`** and launch with `--data-dir` pointing there. This avoids mixing a restored database with an old SQLite WAL file. Backups include local source attachment settings; portable JSON exports do not.
 
-Startup applies numbered database migrations. Database version 2 adopts existing version-1 scanner tables and normalizes current content and every retained undo/redo checkpoint together. Manual content and portable JSON remain at schema version 1. Before an upgrade that rewrites existing data, FlowDesk creates and verifies a SQLite backup, including committed data still in the WAL. Backup failure stops the upgrade. A migration failure rolls back schema, content, and history together. IDs, redo position, links, and source attachment settings are preserved. Stop other FlowDesk servers before upgrading; if the database changes during backup, startup stops and asks you to retry. An unknown newer schema is rejected.
+Startup applies numbered database migrations. Database version 2 adopts existing version-1 scanner tables and normalizes current content and every retained undo/redo checkpoint together. Database version 3 adds the separate planning conversation, comments, proposal, approval, and retry tables. Manual content and portable JSON remain at schema version 1. Before an upgrade that rewrites existing data, FlowDesk creates and verifies a SQLite backup, including committed data still in the WAL. Backup failure stops the upgrade. A migration failure rolls back schema, content, and history together. IDs, redo position, links, and source attachment settings are preserved. Stop other FlowDesk servers before upgrading; if the database changes during backup, startup stops and asks you to retry. An unknown newer schema is rejected.
 
 ## Read-only Python scanning
 
@@ -130,6 +146,7 @@ The UI/UX pass follows [UI_UX_Improvement_Prompt.md](docs/UI_UX_Improvement_Prom
 - `flowdesk/storage.py`, `validation.py`, `migrations/`: transactions, numbered upgrades, normalized records, and durable checkpoints.
 - `flowdesk/scanner.py`, `scans.py`, `reconciliation.py`: pure static analysis, supervised jobs/freshness, and suggested matches.
 - `flowdesk/exports.py`: portable schema, import remapping, and Markdown.
+- `flowdesk/planning.py`, `codex_planner.py`: durable planning review and the restricted Codex CLI connector.
 - `frontend/src`: editor, inspector, variable catalogue, history reducer, save queue, and PNG export.
 - `tests`: backend, scanner, import/security, and browser acceptance tests.
 
@@ -147,7 +164,7 @@ npm test
 npm run build
 ```
 
-Browser acceptance tests use Playwright with uniquely named disposable databases and source fixtures. They cover the editor, mouse/keyboard movement, and catalogue workflows. All external browser HTTP requests are blocked and checked. Artifacts are saved in `output/playwright/<suite>-<unique-id>/`. Install its browser once, then run the test command:
+Browser acceptance tests use Playwright with uniquely named disposable databases and source fixtures. They cover the editor, mouse/keyboard movement, catalogue, and planning review workflows. Planning browser tests inject a deterministic test-only provider into the real API; they never invoke Codex or use personal data. The production connector is separately covered by subprocess tests and a synthetic live smoke check. All external browser HTTP requests are blocked and checked. Artifacts are saved in `output/playwright/<suite>-<unique-id>/`. Install its browser once, then run the test command:
 
 ```sh
 cd frontend
