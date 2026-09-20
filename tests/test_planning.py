@@ -476,7 +476,7 @@ def test_upgrade_from_v2_preserves_history_links_cursor_and_views(tmp_path):
     upgraded = Store(old.db_path)
     assert upgraded.get_project(project["id"]) == expected
     with closing(upgraded.connect()) as db:
-        assert migrations.applied_versions(db) == (1, 2, 3)
+        assert migrations.applied_versions(db) == (1, 2, 3, 4)
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []
     assert PlanningService(upgraded, FakePlanner()).state(project["id"])["messages"] == []
 

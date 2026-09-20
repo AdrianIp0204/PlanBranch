@@ -19,7 +19,7 @@ flowdesk = "flowdesk.__main__:main"
 include = ["flowdesk*"]
 
 [tool.setuptools.package-data]
-flowdesk = ["static/**/*", "migrations/*.sql"]
+flowdesk = ["static/**/*", "migrations/*.sql", "prompts/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "test": "vitest run",
-    "test:e2e": "node --test --test-concurrency=1 ../tests/browser.test.cjs ../tests/browser.movement.test.cjs ../tests/browser.catalogue.test.cjs ../tests/browser.ux.test.cjs ../tests/browser.planning.test.cjs"
+    "test:e2e": "node --test --test-concurrency=1 ../tests/browser.test.cjs ../tests/browser.movement.test.cjs ../tests/browser.catalogue.test.cjs ../tests/browser.ux.test.cjs ../tests/browser.planning.test.cjs ../tests/browser.agent-workspace.test.cjs"
   },
   "dependencies": {
     "@xyflow/react": "12.11.6",

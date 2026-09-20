@@ -1,9 +1,21 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type CSSProperties,
+} from "react";
+import { ResizeHandle, clamp } from "./layout";
+import { Dialog } from "./ui";
+import ModelControls, { useModelSelection } from "./ModelControls";
+import QuestionCard from "./QuestionCard";
 import { api } from "./api";
 import { useProject } from "./store";
 import { uid } from "./types";
 import {
   samePlan,
+  selectionLabel,
   readPlanningDrafts,
   writePlanningDrafts,
   reviewFieldLabel,
@@ -12,15 +24,19 @@ import {
   type PlanningState,
   type PlanningPrompt,
   type ProposedChange,
+  type QuestionDrafts,
+  type AnswerSubmission,
+  type QuestionAnswer,
+  type QuestionSet,
 } from "./planning";
 import "./planning.css";
 
 type Tab = "conversation" | "comments" | "review";
 const tabs: Tab[] = ["conversation", "comments", "review"];
 const tabNames = {
-  conversation: "Conversation",
+  conversation: "Chat",
   comments: "Comments",
-  review: "Review",
+  review: "Changes",
 };
 const time = (value: string) =>
   new Date(value).toLocaleString(undefined, {
@@ -85,6 +101,8 @@ export default function PlanningPanel({
   onClose,
   active = true,
   focusComments = 0,
+  composerHeight = 150,
+  onComposerResize,
 }: {
   diagramId: string;
   nodeId: string | null;
@@ -93,8 +111,11 @@ export default function PlanningPanel({
   onClose: () => void;
   active?: boolean;
   focusComments?: number;
+  composerHeight?: number;
+  onComposerResize?: (height: number) => void;
 }) {
   const { session, flush, getSnapshot } = useProject();
+  const modelSettings = useModelSelection(active);
   const [recoveredDrafts] = useState(() => readPlanningDrafts(session.id));
   const [state, setState] = useState<PlanningState | null>(null);
   const [tab, setTab] = useState<Tab>("conversation");
@@ -111,7 +132,51 @@ export default function PlanningPanel({
   const [failedPrompt, setFailedPrompt] = useState<PlanningPrompt | null>(
     recoveredDrafts.failedPrompt,
   );
+  const [questionDrafts, setQuestionDrafts] = useState<QuestionDrafts>(
+    recoveredDrafts.questionDrafts ?? {},
+  );
+  const [failedAnswer, setFailedAnswer] = useState<AnswerSubmission | null>(
+    recoveredDrafts.failedAnswer ?? null,
+  );
   const [announcement, setAnnouncement] = useState("");
+  const [help, setHelp] = useState<
+    "sharing" | "approval" | "node" | "settings" | null
+  >(null);
+  const [showSharing, setShowSharing] = useState(() => {
+    try {
+      return localStorage.getItem("flowdesk.planning-sharing.v1") !== "seen";
+    } catch {
+      return true;
+    }
+  });
+  const [showJump, setShowJump] = useState(false);
+  const [availableHeight, setAvailableHeight] = useState(550);
+  const [localComposerHeight, setLocalComposerHeight] =
+    useState(composerHeight);
+  const conversationView = useRef<HTMLElement>(null);
+  const usableHeight = Math.max(0, availableHeight - 9);
+  const composerMax = Math.max(
+    0,
+    Math.floor(usableHeight - Math.min(160, usableHeight * 0.45)),
+  );
+  const composerMin = Math.min(132, composerMax);
+  const currentComposerHeight = clamp(
+    onComposerResize ? composerHeight : localComposerHeight,
+    composerMin,
+    composerMax,
+  );
+  const resizeComposer = (height: number) => {
+    if (onComposerResize) onComposerResize(height);
+    else setLocalComposerHeight(height);
+  };
+  const dismissSharing = () => {
+    setShowSharing(false);
+    try {
+      localStorage.setItem("flowdesk.planning-sharing.v1", "seen");
+    } catch {
+      /* Still dismiss for this session. */
+    }
+  };
   const requestSequence = useRef(0);
   const mounted = useRef(true);
   const composer = useRef<HTMLTextAreaElement>(null);
@@ -119,6 +184,7 @@ export default function PlanningPanel({
   const conversationScroll = useRef<HTMLDivElement>(null);
   const followConversation = useRef(true);
   const operation = useRef(false);
+  const focusInteraction = useRef(0);
   const uncertainAcceptance = useRef<string | null>(null);
   const mutationIds = useRef(new Map<string, string>());
   function stableMutationId(key: string) {
@@ -132,6 +198,10 @@ export default function PlanningPanel({
   function focusAfterAction(id: string) {
     if (active)
       requestAnimationFrame(() => document.getElementById(id)?.focus());
+  }
+  function restoreComposerFocus(interaction: number) {
+    if (active && mounted.current && focusInteraction.current === interaction)
+      composer.current?.focus({ preventScroll: true });
   }
   const failedComment = useRef<{
     mutationId: string;
@@ -156,22 +226,34 @@ export default function PlanningPanel({
   const hasNodes = session.content.diagrams.some((item) =>
     item.nodes.some((candidate) => candidate.type !== "note"),
   );
-  const commentDraft = node ? (commentDrafts[node.id] ?? "") : "";
+  const commentDraft =
+    node && Object.hasOwn(commentDrafts, node.id) ? commentDrafts[node.id] : "";
   const shownComments =
     state?.comments.filter(
       (comment) =>
         (showResolved || !comment.resolved) &&
         (commentScope === "all" || comment.nodeId === node?.id),
     ) ?? [];
-  const approvalReason = running
-    ? "Wait for the agent to finish before approving."
-    : pending.length
-      ? "Accept or reject pending changes before approving."
-      : unresolved.length
-        ? "Resolve the open node comments before approving."
-        : !hasNodes
-          ? "Add at least one task or flow node before approving a plan."
-          : "";
+  const questionSets = state?.questionSets ?? [];
+  const pendingQuestions = questionSets.find(
+    (set) => set.state === "open" || set.state === "stale",
+  );
+  const questionOutdated = (set: QuestionSet) =>
+    set.state === "stale" ||
+    Boolean(set.baseSnapshot && !samePlan(set.baseSnapshot, session.content));
+  const applicableQuestions =
+    pendingQuestions && !questionOutdated(pendingQuestions);
+  const approvalReason = applicableQuestions
+    ? "Answer the open questions or change direction before approving."
+    : running
+      ? "Wait for the agent to finish before approving."
+      : pending.length
+        ? "Accept or reject pending changes before approving."
+        : unresolved.length
+          ? "Resolve the open node comments before approving."
+          : !hasNodes
+            ? "Add at least one task or flow node before approving a plan."
+            : "";
 
   async function refresh(force = false) {
     if ((operation.current || uncertainAcceptance.current) && !force) return;
@@ -189,11 +271,23 @@ export default function PlanningPanel({
   }
   useEffect(() => {
     mounted.current = true;
+    // A response may arrive after the user has moved to a menu, node, or field.
+    // Only the interaction that started the request may restore composer focus.
+    const moved = () => {
+      focusInteraction.current++;
+    };
+    const events = ["focusin", "pointerdown", "keydown"] as const;
+    for (const event of events) document.addEventListener(event, moved, true);
     return () => {
       mounted.current = false;
       requestSequence.current++;
+      for (const event of events)
+        document.removeEventListener(event, moved, true);
     };
   }, []);
+  useLayoutEffect(() => {
+    focusInteraction.current++;
+  }, [active, tab]);
   useEffect(() => {
     if (active) void refresh();
     const onFocus = () => {
@@ -207,8 +301,17 @@ export default function PlanningPanel({
       message: draft,
       comments: commentDrafts,
       failedPrompt,
+      questionDrafts,
+      failedAnswer,
     });
-  }, [session.id, draft, commentDrafts, failedPrompt]);
+  }, [
+    session.id,
+    draft,
+    commentDrafts,
+    failedPrompt,
+    questionDrafts,
+    failedAnswer,
+  ]);
   useEffect(() => {
     if (!running) return;
     const timer = setInterval(() => void refresh(), 1200);
@@ -228,10 +331,30 @@ export default function PlanningPanel({
       return;
     const frame = requestAnimationFrame(() => {
       const element = conversationScroll.current;
-      if (element) element.scrollTop = element.scrollHeight;
+      if (element && followConversation.current)
+        element.scrollTop = element.scrollHeight;
     });
     return () => cancelAnimationFrame(frame);
-  }, [state?.messages.length, running, active, tab]);
+  }, [
+    state?.messages.length,
+    state?.questionSets?.length,
+    running,
+    active,
+    tab,
+  ]);
+
+  useLayoutEffect(() => {
+    const element = conversationView.current;
+    if (!element || !active || tab !== "conversation") return;
+    const measure = () => {
+      if (element.clientHeight) setAvailableHeight(element.clientHeight);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [active, tab]);
 
   async function work(label: string, action: () => Promise<void>) {
     if (operation.current) return;
@@ -273,45 +396,187 @@ export default function PlanningPanel({
       setLoadingError("");
     }
   }
-  async function send(prompt?: PlanningPrompt) {
+  async function send(prompt?: PlanningPrompt, forceNew = false) {
     const captured: PlanningPrompt = prompt ?? {
       mutationId: uid(),
       text: draft.trim(),
       diagramId,
       nodeId: aboutNode ? (node?.id ?? null) : null,
+      selection: modelSettings.selection,
     };
     if (!captured.text) return;
     // An uncertain delivery is retried with its original identifier and payload.
     const body =
       !prompt &&
+      !forceNew &&
       failedPrompt &&
       captured.text === failedPrompt.text &&
       captured.diagramId === failedPrompt.diagramId &&
       captured.nodeId === failedPrompt.nodeId
         ? failedPrompt
         : captured;
+    if (body === captured && !prompt && modelSettings.problem) {
+      setError(modelSettings.problem);
+      return;
+    }
+    const interaction = focusInteraction.current;
     await work("Sending", async () => {
       await saved();
       setFailedPrompt(body);
       followConversation.current = true;
       await mutate("/messages", body);
       setFailedPrompt(null);
+      setFailedAnswer(null);
       setDraft((current) => (current.trim() === body.text ? "" : current));
       setAnnouncement("Message sent. The agent is preparing a reply.");
-      if (active) composer.current?.focus();
+      restoreComposerFocus(interaction);
     });
   }
-  const failedRequest =
+  const failedRequest: PlanningPrompt | null =
     state?.request?.status === "failed" &&
     state.request.text &&
     state.request.diagramId
-      ? {
-          mutationId: state.request.id,
-          text: state.request.text,
-          diagramId: state.request.diagramId,
-          nodeId: state.request.nodeId ?? null,
-        }
+      ? state.request.payload
+        ? { ...state.request.payload, mutationId: state.request.id }
+        : {
+            mutationId: state.request.id,
+            text: state.request.text,
+            diagramId: state.request.diagramId,
+            nodeId: state.request.nodeId ?? null,
+            ...(state.request.selection
+              ? { selection: state.request.selection }
+              : {}),
+          }
       : null;
+  const retriesDraft = Boolean(
+    failedPrompt &&
+    draft.trim() === failedPrompt.text &&
+    diagramId === failedPrompt.diagramId &&
+    (aboutNode ? (node?.id ?? null) : null) === failedPrompt.nodeId,
+  );
+  function startNewFromFailure() {
+    if (!failedRequest) return;
+    setDraft((current) => (current.trim() ? current : failedRequest.text));
+    setFailedPrompt(null);
+    if (!draft.trim())
+      setAboutNode(failedRequest.nodeId === node?.id && Boolean(node));
+    setTab("conversation");
+    setAnnouncement(
+      "Review the message and current model settings, then send a new request.",
+    );
+    requestAnimationFrame(() => composer.current?.focus());
+  }
+  async function answerQuestions(
+    set: QuestionSet,
+    answers: QuestionAnswer[],
+    replay?: AnswerSubmission,
+  ) {
+    if (!replay && (questionOutdated(set) || modelSettings.problem)) {
+      setError(
+        questionOutdated(set)
+          ? "The plan changed. Ask again using this plan."
+          : modelSettings.problem,
+      );
+      return;
+    }
+    const interaction = focusInteraction.current;
+    await work("Submitting answers", async () => {
+      const latest = replay ? getSnapshot() : await saved();
+      if (
+        !replay &&
+        set.baseSnapshot &&
+        !samePlan(set.baseSnapshot, latest.content)
+      )
+        throw new Error("The plan changed. Ask again using this plan.");
+      const submission: AnswerSubmission = replay ?? {
+        setId: set.id,
+        mutationId: uid(),
+        baseRevision: latest.revision,
+        answers,
+        selection: modelSettings.selection,
+      };
+      setFailedAnswer(submission);
+      const { setId, ...body } = submission;
+      followConversation.current = true;
+      try {
+        await mutate(`/questions/${setId}/answers`, body);
+      } catch (error) {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "status" in error &&
+          [400, 409, 422].includes(Number(error.status))
+        ) {
+          setFailedAnswer(null);
+          await refresh(true);
+        }
+        throw error;
+      }
+      setFailedAnswer(null);
+      setAnnouncement("Answers submitted. Codex is continuing the plan.");
+      restoreComposerFocus(interaction);
+    });
+  }
+  function revealQuestions() {
+    if (!pendingQuestions) return;
+    setTab("conversation");
+    requestAnimationFrame(() => {
+      const card = document.getElementById(
+        `question-set-${pendingQuestions.id}`,
+      );
+      const target = card?.querySelector<HTMLElement>("[tabindex='-1']");
+      target?.scrollIntoView({ block: "start" });
+      target?.focus({ preventScroll: true });
+    });
+  }
+  async function askAgain(set: QuestionSet) {
+    if (modelSettings.problem) {
+      setError(modelSettings.problem);
+      return;
+    }
+    await send({
+      mutationId: uid(),
+      text: "Please revisit the unanswered questions using the current saved plan. Keep the requirements and answers already confirmed; ask only what is still needed.",
+      diagramId: session.content.diagrams.some(
+        (item) => item.id === set.diagramId,
+      )
+        ? set.diagramId
+        : diagramId,
+      nodeId:
+        set.nodeId &&
+        session.content.diagrams.some((item) =>
+          item.nodes.some((candidate) => candidate.id === set.nodeId),
+        )
+          ? set.nodeId
+          : null,
+      selection: modelSettings.selection,
+    });
+  }
+  function renderQuestions(set: QuestionSet) {
+    return (
+      <QuestionCard
+        key={set.id}
+        set={set}
+        drafts={
+          Object.hasOwn(questionDrafts, set.id) ? questionDrafts[set.id] : {}
+        }
+        stale={questionOutdated(set)}
+        busy={Boolean(busy || running || failedAnswer?.setId === set.id)}
+        blocked={modelSettings.problem}
+        onDraft={(questionId, value) =>
+          setQuestionDrafts((current) => ({
+            ...current,
+            [set.id]: {
+              ...(Object.hasOwn(current, set.id) ? current[set.id] : {}),
+              [questionId]: value,
+            },
+          }))
+        }
+        onSubmit={(answers) => void answerQuestions(set, answers)}
+        onAskAgain={() => void askAgain(set)}
+      />
+    );
+  }
   function selectTab(next: Tab) {
     setTab(next);
     if (active)
@@ -340,40 +605,19 @@ export default function PlanningPanel({
   return (
     <aside className="planning-panel" aria-label="Planning conversation">
       <header className="planning-heading">
-        <div>
-          <h2>Plan with Codex</h2>
-          <p>Discuss, review, then approve.</p>
-        </div>
+        <h2>Codex</h2>
         <button
-          className="icon-button"
-          aria-label="Close planning conversation"
-          onClick={onClose}
+          id="planning-approval-status"
+          className={`planning-status ${approvalCurrent ? "is-approved" : ""}`}
+          aria-label="Plan status"
+          onClick={() => setHelp("approval")}
         >
-          ×
+          {approvalCurrent
+            ? "Approved"
+            : state?.approval
+              ? "Needs review"
+              : "Draft"}
         </button>
-      </header>
-      <section
-        id="planning-approval-status"
-        tabIndex={-1}
-        className={`planning-approval ${approvalCurrent ? "is-approved" : ""}`}
-        aria-label="Plan approval"
-      >
-        <div>
-          <strong>
-            {approvalCurrent
-              ? "Plan approved"
-              : state?.approval
-                ? "Plan needs review"
-                : "Draft plan"}
-          </strong>
-          <p>
-            {approvalCurrent
-              ? `Approved ${time(state!.approval!.createdAt)}. Execution has not started.`
-              : state?.approval
-                ? "The current plan needs a new approval."
-                : "Your approval records the saved plan. It does not run any steps."}
-          </p>
-        </div>
         {approvalCurrent ? (
           <button
             disabled={Boolean(busy)}
@@ -391,7 +635,7 @@ export default function PlanningPanel({
           </button>
         ) : (
           <button
-            className="primary"
+            className="quiet"
             disabled={Boolean(busy || approvalReason || !state)}
             aria-describedby={
               approvalReason ? "planning-approval-reason" : undefined
@@ -413,12 +657,17 @@ export default function PlanningPanel({
             Approve plan
           </button>
         )}
-        {!approvalCurrent && approvalReason && (
-          <p id="planning-approval-reason" className="planning-approval-reason">
-            {approvalReason}
-          </p>
-        )}
-      </section>
+        <button
+          className="icon-button"
+          aria-label="Close planning conversation"
+          onClick={onClose}
+        >
+          ×
+        </button>
+      </header>
+      <span id="planning-approval-reason" className="sr-only">
+        {approvalReason}
+      </span>
       <div className="planning-tabs" role="tablist" aria-label="Planning views">
         {tabs.map((item) => (
           <button
@@ -461,22 +710,103 @@ export default function PlanningPanel({
       )}
 
       <section
+        ref={conversationView}
         id="planning-view-conversation"
         role="tabpanel"
         aria-labelledby="planning-tab-conversation"
         className="planning-tab-content"
+        style={
+          { "--composer-height": `${currentComposerHeight}px` } as CSSProperties
+        }
         hidden={tab !== "conversation"}
       >
         <div
           className="planning-scroll"
+          tabIndex={-1}
+          aria-label="Chat history"
           ref={conversationScroll}
           onScroll={(event) => {
             const element = event.currentTarget;
             followConversation.current =
               element.scrollHeight - element.clientHeight - element.scrollTop <
               60;
+            setShowJump(!followConversation.current);
           }}
         >
+          {failedAnswer && (
+            <div className="planning-feedback" role="status">
+              <p>
+                Answer delivery is unconfirmed. Retry keeps the submitted
+                answers and model settings.
+              </p>
+              <button
+                disabled={Boolean(busy || !state?.agent.available)}
+                onClick={() => {
+                  const set = questionSets.find(
+                    (item) => item.id === failedAnswer.setId,
+                  );
+                  if (set)
+                    void answerQuestions(
+                      set,
+                      failedAnswer.answers,
+                      failedAnswer,
+                    );
+                  else
+                    setError(
+                      "Reload the conversation to recover these questions before retrying.",
+                    );
+                }}
+              >
+                Retry answers
+              </button>
+            </div>
+          )}
+          {modelSettings.problem && (
+            <div
+              className="planning-feedback"
+              id="planning-model-problem"
+              role="status"
+            >
+              <p>{modelSettings.problem}</p>
+              <button onClick={() => setHelp("settings")}>
+                Model settings
+              </button>
+            </div>
+          )}
+          {failedPrompt && !busy && (
+            <div className="planning-feedback" role="status">
+              <p>
+                Retry keeps the original settings:{" "}
+                {selectionLabel(failedPrompt.selection)}.
+              </p>
+              <button
+                disabled={Boolean(
+                  busy ||
+                  running ||
+                  modelSettings.problem ||
+                  !draft.trim() ||
+                  !state?.agent.available,
+                )}
+                onClick={() => void send(undefined, true)}
+              >
+                Send as new request
+              </button>
+            </div>
+          )}
+          {showSharing && (
+            <div className="planning-first-use">
+              <p>
+                Messages share your plan and discussion with Codex. Attached
+                source files stay local.
+              </p>
+              <button className="quiet" onClick={dismissSharing}>
+                Got it
+              </button>
+              <button className="quiet" onClick={() => setHelp("sharing")}>
+                Details
+              </button>
+            </div>
+          )}
           {state && !state.agent.available && (
             <div className="planning-feedback">
               <strong>Codex is unavailable</strong>
@@ -493,8 +823,7 @@ export default function PlanningPanel({
             <div className="planning-empty">
               <h3>What should this plan accomplish?</h3>
               <p>
-                Describe the goal, constraints, or a change to the diagram.
-                Codex will propose edits for you to review.
+                Describe a goal or a change. Review edits before applying them.
               </p>
             </div>
           )}
@@ -531,7 +860,12 @@ export default function PlanningPanel({
                     About: {message.nodeTitle || "Selected node"}
                   </button>
                 )}
-                <p className="planning-prose">{message.text}</p>
+                {message.text && (
+                  <p className="planning-prose">{message.text}</p>
+                )}
+                {questionSets
+                  .filter((set) => set.messageId === message.id)
+                  .map(renderQuestions)}
                 {message.proposalId && (
                   <button
                     onClick={() => {
@@ -549,9 +883,17 @@ export default function PlanningPanel({
               </li>
             ))}
           </ol>
+          {questionSets
+            .filter(
+              (set) =>
+                !state?.messages.some(
+                  (message) => message.id === set.messageId,
+                ),
+            )
+            .map(renderQuestions)}
           {running && (
             <p className="planning-run-status" role="status">
-              Codex is preparing a reply. You can keep planning in the diagram.
+              Codex is thinking…
             </p>
           )}
           {state?.request?.status === "failed" && (
@@ -562,6 +904,9 @@ export default function PlanningPanel({
                   "The request failed. Your message is retained."}
               </p>
               {failedRequest && (
+                <p>Retry uses {selectionLabel(failedRequest.selection)}.</p>
+              )}
+              {failedRequest && (
                 <button
                   disabled={Boolean(busy || !state.agent.available)}
                   onClick={() => void send(failedRequest)}
@@ -569,60 +914,150 @@ export default function PlanningPanel({
                   Retry agent reply
                 </button>
               )}
+              {failedRequest && (
+                <button
+                  disabled={Boolean(busy || running)}
+                  onClick={startNewFromFailure}
+                >
+                  Try with another model
+                </button>
+              )}
+              {state.request.generation && (
+                <button onClick={() => setHelp("settings")}>
+                  Request details
+                </button>
+              )}
             </div>
           )}
         </div>
+        {pendingQuestions && showJump && (
+          <button
+            className="planning-question-indicator"
+            onClick={revealQuestions}
+          >
+            {questionOutdated(pendingQuestions)
+              ? "Questions need updating"
+              : "Questions waiting"}
+          </button>
+        )}
+        {showJump && (
+          <button
+            className="planning-jump"
+            onClick={() => {
+              followConversation.current = true;
+              setShowJump(false);
+              const element = conversationScroll.current;
+              if (element) {
+                element.scrollTop = element.scrollHeight;
+                element.focus({ preventScroll: true });
+              }
+            }}
+          >
+            Jump to latest ↓
+          </button>
+        )}
+        <ResizeHandle
+          label="Resize message composer"
+          controls="planning-compose"
+          orientation="horizontal"
+          value={currentComposerHeight}
+          min={composerMin}
+          max={composerMax}
+          onChange={resizeComposer}
+        />
         <form
-          className="planning-composer"
+          id="planning-compose"
+          className="planning-composer message-composer"
+          style={{ height: currentComposerHeight }}
           onSubmit={(event) => {
             event.preventDefault();
             void send();
           }}
         >
-          <label htmlFor="planning-message">Message Codex</label>
+          <label className="sr-only" htmlFor="planning-message">
+            Message Codex
+          </label>
           <textarea
             ref={composer}
             id="planning-message"
             value={draft}
             maxLength={12000}
             rows={3}
-            placeholder="Describe a goal or ask for a change…"
+            placeholder={
+              pendingQuestions
+                ? "Change direction or add a requirement…"
+                : "Describe a goal or ask for a change…"
+            }
             onChange={(event) => setDraft(event.target.value)}
-            aria-describedby="planning-sharing"
+            aria-describedby="planning-sharing-summary"
             onKeyDown={(event) => {
               if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
                 event.preventDefault();
-                if (!busy && !running && state?.agent.available) void send();
+                if (
+                  !busy &&
+                  !running &&
+                  state?.agent.available &&
+                  (!modelSettings.problem || retriesDraft)
+                )
+                  void send();
               }
             }}
           />
           {node && (
-            <label className="planning-check">
-              <input
-                type="checkbox"
-                checked={aboutNode}
-                onChange={(event) => setAboutNode(event.target.checked)}
-              />
-              About selected node: <span>{node.title || "Untitled node"}</span>
-            </label>
+            <div className="planning-node-context">
+              <label className="planning-check">
+                <input
+                  type="checkbox"
+                  checked={aboutNode}
+                  onChange={(event) => setAboutNode(event.target.checked)}
+                  aria-label="About selected node"
+                />
+                About
+              </label>
+              <button
+                className="quiet planning-node-chip"
+                onClick={() => setHelp("node")}
+                type="button"
+                aria-label={`Show selected node: ${node.title || "Untitled node"}`}
+              >
+                {node.title || "Untitled node"}
+              </button>
+            </div>
           )}
-          <p id="planning-sharing">
-            Send shares the plan and conversation with Codex using your CLI
-            sign-in. Attached source files are not included. Edits require your
-            review.
-          </p>
-          <div className="planning-compose-actions">
-            <span>Ctrl / ⌘ + Enter to send</span>
+          <span id="planning-sharing-summary" className="sr-only">
+            Shares the manual plan and discussion using your Codex CLI sign-in.
+            Attached source files are excluded. Control or Command plus Enter
+            sends.
+          </span>
+          <div className="planning-compose-actions message-actions">
+            <ModelControls
+              selection={modelSettings.selection}
+              capabilities={modelSettings.capabilities}
+              onChange={modelSettings.setSelection}
+            />
+            <button
+              type="button"
+              className="quiet planning-help"
+              onClick={() => setHelp("settings")}
+              aria-label="Planning settings and sharing help"
+            >
+              ⓘ
+            </button>
             <button
               type="submit"
               className="primary"
               disabled={
                 !draft.trim() ||
                 !state?.agent.available ||
+                Boolean(modelSettings.problem && !retriesDraft) ||
                 Boolean(busy || running)
               }
             >
-              {busy === "Sending" ? "Sending…" : "Send"}
+              {busy === "Sending"
+                ? "Sending…"
+                : pendingQuestions
+                  ? "Change direction"
+                  : "Send"}
             </button>
           </div>
         </form>
@@ -754,13 +1189,15 @@ export default function PlanningPanel({
                 failedComment.current = target;
                 await mutate("/comments", target);
                 failedComment.current = null;
-                setCommentDrafts((current) => ({
-                  ...current,
-                  [target.nodeId]:
-                    current[target.nodeId]?.trim() === target.text
-                      ? ""
-                      : current[target.nodeId],
-                }));
+                setCommentDrafts((current) => {
+                  const draft = Object.hasOwn(current, target.nodeId)
+                    ? current[target.nodeId]
+                    : "";
+                  return {
+                    ...current,
+                    [target.nodeId]: draft.trim() === target.text ? "" : draft,
+                  };
+                });
                 setAnnouncement(
                   "Node comment added. Send a message when you want Codex to address it.",
                 );
@@ -784,10 +1221,7 @@ export default function PlanningPanel({
               }
               placeholder="A correction, question, or constraint…"
             />
-            <p>
-              Comments stay attached to the node. Send a message to ask Codex to
-              address them.
-            </p>
+
             <div className="planning-compose-actions">
               <span>{commentDraft.length.toLocaleString()} / 12,000</span>
               <button
@@ -979,6 +1413,177 @@ export default function PlanningPanel({
             ))}
         </div>
       </section>
+      <span id="composer-resize-help" className="sr-only">
+        Use arrow keys to resize, Shift for larger steps, and Home or End for
+        limits.
+      </span>
+      {help && (
+        <Dialog
+          title={
+            help === "sharing"
+              ? "About planning chat"
+              : help === "node"
+                ? "Selected node"
+                : help === "settings"
+                  ? "Planning settings"
+                  : "Plan status"
+          }
+          onClose={() => setHelp(null)}
+        >
+          {help === "settings" ? (
+            <>
+              <h3>Next request</h3>
+              <p>{selectionLabel(modelSettings.selection)}</p>
+              <p>
+                {modelSettings.capabilities?.status === "ready"
+                  ? "Choices come from your installed Codex CLI. A listed model may still be unavailable to your account."
+                  : modelSettings.capabilities?.reason ||
+                    "Loading the model list…"}
+              </p>
+              {modelSettings.capabilities?.status !== "ready" && (
+                <p>
+                  CLI default still works. Refresh the list, or update Codex CLI
+                  if discovery remains unavailable.
+                </p>
+              )}
+              {modelSettings.problem && (
+                <p role="alert">{modelSettings.problem}</p>
+              )}
+              <button
+                disabled={modelSettings.refreshing}
+                onClick={() => void modelSettings.refresh()}
+              >
+                {modelSettings.refreshing ? "Refreshing…" : "Refresh models"}
+              </button>
+              <p>
+                Selections affect your next request. Retry preserves its
+                original settings and context.
+              </p>
+              {state?.request && (
+                <details className="planning-request-details">
+                  <summary>Latest request details</summary>
+                  <dl>
+                    <dt>Requested model</dt>
+                    <dd>
+                      {selectionLabel(
+                        state.request.generation?.selection ??
+                          state.request.selection,
+                      )}
+                    </dd>
+                    {state.request.generation?.reportedModel && (
+                      <>
+                        <dt>Reported model</dt>
+                        <dd>{state.request.generation.reportedModel}</dd>
+                      </>
+                    )}
+                    <dt>Codex CLI</dt>
+                    <dd>
+                      {state.request.generation?.cliVersion || "Not recorded"}
+                    </dd>
+                    <dt>Instructions</dt>
+                    <dd>
+                      {state.request.generation?.instructionVersion ||
+                        "Legacy request"}
+                    </dd>
+                    {state.request.generation?.instructionHash && (
+                      <>
+                        <dt>Instruction hash</dt>
+                        <dd>{state.request.generation.instructionHash}</dd>
+                      </>
+                    )}
+                    <dt>Response protocol</dt>
+                    <dd>
+                      {state.request.generation?.protocolVersion ?? "Legacy"}
+                    </dd>
+                  </dl>
+                </details>
+              )}
+              <h3>Sharing and shortcuts</h3>
+              <p>
+                Send shares the manual plan, conversation, and node comments
+                using your Codex CLI sign-in. Attached source files, detected
+                evidence, and source permissions stay local.
+              </p>
+              <p>
+                Edits require review. Approval does not run any steps. Ctrl / ⌘
+                + Enter sends.
+              </p>
+            </>
+          ) : help === "node" ? (
+            <>
+              <p className="planning-prose">{node?.title || "Untitled node"}</p>
+              <p>{diagram?.name}</p>
+              <button
+                onClick={() => {
+                  setHelp(null);
+                  if (node) onReveal(node.id);
+                }}
+              >
+                Show in diagram
+              </button>
+            </>
+          ) : help === "sharing" ? (
+            <>
+              <p>
+                Send shares the manual plan, conversation, and node comments
+                with Codex using your CLI sign-in. Attached source files,
+                detected evidence, and source permissions are not included.
+              </p>
+              <p>
+                Proposed edits need your review. Approval records the saved
+                plan; it does not execute steps.
+              </p>
+              <p>
+                Use Ctrl / ⌘ + Enter to send. Your draft stays here when you
+                switch views.
+              </p>
+            </>
+          ) : (
+            <>
+              <p>
+                {approvalCurrent
+                  ? `Plan approved ${time(state!.approval!.createdAt)}.`
+                  : state?.approval
+                    ? "The plan has changed since approval."
+                    : "This plan is a draft."}
+              </p>
+              <p>
+                {approvalCurrent
+                  ? "Execution has not started."
+                  : approvalReason ||
+                    "The saved plan is ready for your approval."}
+              </p>
+              <p>Approval records the saved plan. It does not run any steps.</p>
+              {approvalReason && (
+                <button
+                  onClick={() => {
+                    setHelp(null);
+                    selectTab(
+                      applicableQuestions
+                        ? "conversation"
+                        : pending.length
+                          ? "review"
+                          : unresolved.length
+                            ? "comments"
+                            : "conversation",
+                    );
+                  }}
+                >
+                  View{" "}
+                  {pending.length
+                    ? "changes"
+                    : unresolved.length
+                      ? "comments"
+                      : "chat"}
+                </button>
+              )}
+            </>
+          )}
+          <div className="dialog-actions">
+            <button onClick={() => setHelp(null)}>Close</button>
+          </div>
+        </Dialog>
+      )}
     </aside>
   );
 }

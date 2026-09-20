@@ -6,6 +6,92 @@ import {
   type Status,
 } from "./types";
 
+export type ModelSelection =
+  | { mode: "default" }
+  | { mode: "explicit"; model: string; reasoningEffort: string | null };
+export type ModelCapabilities = {
+  status: "ready" | "unavailable";
+  source: "cli_catalogue";
+  cliVersion: string | null;
+  fetchedAt: string | null;
+  reason?: string;
+  models: Array<{
+    id: string;
+    label: string;
+    description: string;
+    defaultReasoningEffort: string | null;
+    reasoningEfforts: Array<{ id: string; description: string }>;
+    isDefault: boolean;
+  }>;
+};
+export type GenerationDetails = {
+  selection: ModelSelection;
+  cliVersion: string | null;
+  instructionVersion: string;
+  instructionHash: string;
+  protocolVersion: number;
+  reportedModel?: string | null;
+};
+export function validModelSelection(value: unknown): value is ModelSelection {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  return (
+    item.mode === "default" ||
+    (item.mode === "explicit" &&
+      typeof item.model === "string" &&
+      item.model.length > 0 &&
+      item.model.length <= 200 &&
+      (item.reasoningEffort === null ||
+        (typeof item.reasoningEffort === "string" &&
+          item.reasoningEffort.length <= 40)))
+  );
+}
+export function selectionLabel(value?: ModelSelection): string {
+  return !value || value.mode === "default"
+    ? "CLI default (resolved when run)"
+    : `${value.model}${value.reasoningEffort ? ` · ${value.reasoningEffort}` : ""}`;
+}
+
+export type PlanningQuestion = {
+  id: string;
+  kind: "choice" | "text";
+  prompt: string;
+  options: Array<{ id: string; label: string; description: string }>;
+  recommendedOptionId: string | null;
+};
+export type QuestionAnswer = {
+  questionId: string;
+  optionId: string | null;
+  text: string | null;
+};
+export type QuestionDraft = {
+  choice: string | null;
+  custom: boolean;
+  text: string;
+};
+export type QuestionSet = {
+  id: string;
+  requestId: string;
+  messageId: string;
+  diagramId: string;
+  nodeId: string | null;
+  baseHash: string;
+  baseSnapshot?: Content;
+  state: "open" | "answered" | "superseded" | "stale";
+  questions: PlanningQuestion[];
+  answers: QuestionAnswer[] | null;
+  createdAt: string;
+  answeredAt: string | null;
+  continuationRequestId: string | null;
+};
+export type AnswerSubmission = {
+  setId: string;
+  mutationId: string;
+  baseRevision: number;
+  answers: QuestionAnswer[];
+  selection: ModelSelection;
+};
+export type QuestionDrafts = Record<string, Record<string, QuestionDraft>>;
 export type PlanningMessage = {
   id: string;
   role: "user" | "assistant" | "system";
@@ -49,6 +135,7 @@ export type PlanProposal = {
 export type PlanningState = {
   agent: { available: boolean; label: string; reason?: string };
   messages: PlanningMessage[];
+  questionSets?: QuestionSet[];
   comments: NodeComment[];
   proposals: PlanProposal[];
   approval: null | {
@@ -67,6 +154,9 @@ export type PlanningState = {
     text?: string;
     diagramId?: string;
     nodeId?: string | null;
+    selection?: ModelSelection;
+    generation?: GenerationDetails;
+    payload?: PlanningPrompt;
   };
 };
 export type PlanningPrompt = {
@@ -74,6 +164,7 @@ export type PlanningPrompt = {
   text: string;
   diagramId: string;
   nodeId: string | null;
+  selection?: ModelSelection;
 };
 
 export const reviewFieldLabel = (field: string) =>
@@ -261,12 +352,52 @@ export type PlanningDrafts = {
   message: string;
   comments: Record<string, string>;
   failedPrompt: PlanningPrompt | null;
+  questionDrafts?: QuestionDrafts;
+  failedAnswer?: AnswerSubmission | null;
 };
+
+function sanitizeQuestionDrafts(value: unknown): QuestionDrafts {
+  if (!record(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key, items]) => key.length <= 100 && record(items))
+      .slice(-10)
+      .map(([key, items]) => [
+        key,
+        Object.fromEntries(
+          Object.entries(items as Record<string, unknown>)
+            .filter(
+              ([id, item]) =>
+                id.length <= 100 &&
+                record(item) &&
+                (item.choice === null || typeof item.choice === "string") &&
+                typeof item.text === "string" &&
+                typeof item.custom === "boolean",
+            )
+            .slice(0, 3)
+            .map(([id, item]) => {
+              const draft = item as QuestionDraft;
+              return [
+                id,
+                {
+                  choice: draft.choice?.slice(0, 100) ?? null,
+                  custom: draft.custom,
+                  text: draft.text.slice(0, 2000),
+                },
+              ];
+            }),
+        ),
+      ]),
+  );
+}
+
 export function readPlanningDrafts(projectId: string): PlanningDrafts {
   const empty: PlanningDrafts = {
     message: "",
     comments: {},
     failedPrompt: null,
+    questionDrafts: {},
+    failedAnswer: null,
   };
   try {
     const parsed = JSON.parse(
@@ -298,15 +429,45 @@ export function readPlanningDrafts(projectId: string): PlanningDrafts {
       request.text.length <= 12000 &&
       typeof request.diagramId === "string" &&
       request.diagramId.length <= 100 &&
-      (request.nodeId === null || typeof request.nodeId === "string")
+      (request.nodeId === null || typeof request.nodeId === "string") &&
+      (request.selection === undefined ||
+        validModelSelection(request.selection))
         ? {
             mutationId: request.mutationId,
             text: request.text,
             diagramId: request.diagramId,
             nodeId: request.nodeId,
+            ...(validModelSelection(request.selection)
+              ? { selection: request.selection }
+              : {}),
           }
         : null;
-    return { message, comments, failedPrompt };
+    const questionDrafts = sanitizeQuestionDrafts(parsed.questionDrafts);
+    const answer = parsed.failedAnswer;
+    const failedAnswer: AnswerSubmission | null =
+      answer &&
+      typeof answer.setId === "string" &&
+      answer.setId.length <= 100 &&
+      typeof answer.mutationId === "string" &&
+      answer.mutationId.length <= 100 &&
+      Number.isSafeInteger(answer.baseRevision) &&
+      validModelSelection(answer.selection) &&
+      Array.isArray(answer.answers) &&
+      answer.answers.length <= 3 &&
+      answer.answers.every(
+        (item: unknown) =>
+          record(item) &&
+          typeof item.questionId === "string" &&
+          item.questionId.length <= 100 &&
+          (item.optionId === null ||
+            (typeof item.optionId === "string" &&
+              item.optionId.length <= 100)) &&
+          (item.text === null ||
+            (typeof item.text === "string" && item.text.length <= 2000)),
+      )
+        ? answer
+        : null;
+    return { message, comments, failedPrompt, questionDrafts, failedAnswer };
   } catch {
     return empty;
   }
@@ -323,7 +484,9 @@ export function writePlanningDrafts(projectId: string, drafts: PlanningDrafts) {
     if (
       !drafts.message &&
       !Object.keys(comments).length &&
-      !drafts.failedPrompt
+      !drafts.failedPrompt &&
+      !drafts.failedAnswer &&
+      !Object.keys(drafts.questionDrafts ?? {}).length
     )
       sessionStorage.removeItem(key);
     else
@@ -333,6 +496,8 @@ export function writePlanningDrafts(projectId: string, drafts: PlanningDrafts) {
           message: drafts.message.slice(0, 12000),
           comments,
           failedPrompt: drafts.failedPrompt,
+          questionDrafts: sanitizeQuestionDrafts(drafts.questionDrafts),
+          failedAnswer: drafts.failedAnswer ?? null,
         }),
       );
   } catch {

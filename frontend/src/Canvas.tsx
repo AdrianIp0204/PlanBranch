@@ -161,6 +161,7 @@ export default function Canvas({
   diagram,
   selected,
   onSelect,
+  onInspect,
   filter,
   onInstance,
   connectRequest,
@@ -170,6 +171,7 @@ export default function Canvas({
   diagram: Diagram;
   selected: string | null;
   onSelect: (id: string | null) => void;
+  onInspect?: (id: string) => void;
   filter: string;
   onInstance: (i: ReactFlowInstance<FlowNode>) => void;
   connectRequest: boolean;
@@ -374,7 +376,10 @@ export default function Canvas({
           )
         }
         onNodeClick={(_, n) => selectFromCanvas(n.id)}
-        onNodeDoubleClick={(_, n) => selectFromCanvas(n.id)}
+        onNodeDoubleClick={(_, n) => {
+          selectFromCanvas(n.id);
+          onInspect?.(n.id);
+        }}
         onEdgeClick={(_, e) => onSelect(e.id)}
         onPaneClick={() => selectFromCanvas(null)}
         onMoveEnd={(_, viewport) => setView(diagram.id, viewport)}

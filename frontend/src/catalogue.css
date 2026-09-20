@@ -25,6 +25,10 @@
 .variable-panel .variable-list {
   min-width: 0;
 }
+.variable-panel .table-scroll {
+  container: catalogue-table / size;
+  min-height: 0;
+}
 .variable-panel .catalogue-filters {
   display: grid;
   grid-template-columns: minmax(150px, 1.5fr) repeat(3, minmax(90px, 1fr));
@@ -357,5 +361,18 @@
   .variable-panel .catalogue-results {
     padding: 0 12px 4px;
     min-height: 30px;
+  }
+}
+
+/* A short result viewport must not be covered by its own sticky heading. */
+@container catalogue-table (max-height: 180px) {
+  .variable-panel th {
+    position: static;
+  }
+}
+@container catalogue-table (min-height: 181px) {
+  .variable-panel .table-name {
+    scroll-margin-top: 72px;
+    scroll-margin-bottom: 8px;
   }
 }

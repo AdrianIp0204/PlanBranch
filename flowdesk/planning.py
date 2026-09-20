@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from .storage import ConflictError, NotFoundError, encode, now
 from .validation import MAX_HISTORY, ValidationError, identifier, integer, obj, string, validate_content
+from .planning_questions import answer_summary, validate_answers, validate_envelope
 
 
 def fingerprint(value):
@@ -145,15 +146,38 @@ class PlanningService:
         request = None
         if row is not None:
             payload = json.loads(row["payload"])
-            request = {"id": row["id"], "status": row["status"], "text": payload["text"], "diagramId": payload["diagramId"]}
+            request = {"id": row["id"], "status": row["status"], "text": payload["text"], "diagramId": payload["diagramId"],
+                       "payload": payload, "selection": payload.get("selection", {"mode": "default"})}
+            generation = json.loads(row["context"]).get("generation")
+            if generation is not None:
+                request["generation"] = {key: generation.get(key) for key in (
+                    "selection", "cliVersion", "instructionVersion", "instructionHash", "protocolVersion")}
             if payload.get("nodeId") is not None:
                 request["nodeId"] = payload["nodeId"]
             if row["error"]:
                 request["error"] = row["error"]
+        question_sets = []
+        for row in db.execute("SELECT * FROM planning_question_sets WHERE project_id=? ORDER BY created_at,id", (project_id,)):
+            question_state = row["state"]
+            if question_state == "open" and row["base_hash"] != content_hash:
+                question_state = "stale"
+            item = {"id": row["id"], "requestId": row["request_id"], "messageId": row["message_id"],
+                    "diagramId": row["diagram_id"], "nodeId": row["node_id"], "baseHash": row["base_hash"],
+                    "state": question_state, "questions": json.loads(row["questions"]),
+                    "answers": json.loads(row["answers"]) if row["answers"] else None,
+                    "createdAt": row["created_at"], "answeredAt": row["answered_at"],
+                    "continuationRequestId": row["continuation_request_id"]}
+            if row["state"] == "open":
+                original = db.execute("SELECT context FROM planning_requests WHERE project_id=? AND id=?",
+                                      (project_id, row["request_id"])).fetchone()
+                item["baseSnapshot"] = json.loads(original[0])["content"]
+            question_sets.append(item)
         if approval is not None:
             approval["current"] = approval["current"] and not any(not c["resolved"] for c in comments) and not any(
-                p["state"] == "pending" for p in proposals) and not (request and request["status"] == "running")
-        return {"messages": messages, "comments": comments, "proposals": proposals, "approval": approval, "request": request}
+                p["state"] == "pending" for p in proposals) and not (request and request["status"] == "running") and not any(
+                q["state"] == "open" for q in question_sets)
+        return {"messages": messages, "comments": comments, "proposals": proposals, "approval": approval,
+                "request": request, "questionSets": question_sets}
 
     def state(self, project_id):
         with closing(self.store.connect()) as db:
@@ -175,6 +199,22 @@ class PlanningService:
 
     def _revoke(self, db, project_id):
         db.execute("UPDATE planning_approvals SET revoked=1 WHERE project_id=? AND revoked=0", (project_id,))
+
+    def _context(self, project, state, diagram_id, node_id, generation):
+        context = {"content": project["content"], "activeDiagramId": diagram_id, "nodeId": node_id,
+                   "messages": state["messages"][-200:], "comments": state["comments"],
+                   "omittedMessageCount": max(0, len(state["messages"]) - 200),
+                   "questionSets": [{key: value for key, value in item.items() if key != "baseSnapshot"}
+                                    for item in state["questionSets"]]}
+        if generation is not None:
+            context["generation"] = generation
+        return context
+
+    def _start(self, project_id, request_id, attempt_id):
+        thread = threading.Thread(target=self._generate, args=(project_id, request_id, attempt_id), daemon=True, name="flowdesk-planning")
+        with self._thread_lock:
+            self._threads[(project_id, request_id)] = thread
+        thread.start()
 
     def add_comment(self, project_id, payload):
         obj(payload, {"mutationId", "diagramId", "nodeId", "text"}, "node comment")
@@ -205,14 +245,21 @@ class PlanningService:
         return self.state(project_id)
 
     def send_message(self, project_id, payload):
-        obj(payload, {"mutationId", "text", "diagramId", "nodeId"}, "planning message")
+        obj(payload, {"mutationId", "text", "diagramId", "nodeId", "selection"}, "planning message")
         identifier(payload.get("mutationId"), "Mutation ID")
         string(payload.get("text"), "Message", 12000, True)
         diagram_id = identifier(payload.get("diagramId"), "Diagram ID")
         if payload.get("nodeId") is not None:
             identifier(payload["nodeId"], "Node ID")
         payload = {**payload, "nodeId": payload.get("nodeId")}
+        selection = self._selection(payload.get("selection", {"mode": "default"}))
         request_id = payload["mutationId"]
+        # A catalogue probe must not hold a database write lock. A retry uses
+        # its stored contract even if the catalogue/preferences have changed.
+        with closing(self.store.connect()) as db:
+            self.store._row(db, project_id)
+            known = db.execute("SELECT 1 FROM planning_requests WHERE project_id=? AND id=?", (project_id, request_id)).fetchone()
+        generation = None if known else self._configuration(selection)
         attempt_id = str(uuid4())
         should_start = False
         with closing(self.store.connect()) as db, db:
@@ -236,24 +283,113 @@ class PlanningService:
             else:
                 diagram = diagram_in(project["content"], diagram_id)
                 node = node_in(diagram, payload["nodeId"]) if payload.get("nodeId") is not None else None
+                db.execute("UPDATE planning_question_sets SET state='superseded' WHERE project_id=? AND state='open'", (project_id,))
                 db.execute("INSERT INTO planning_messages VALUES(?,?,?,?,?,?,?,?,NULL)",
                            (str(uuid4()), project_id, "user", payload["text"], timestamp, diagram_id,
                             node["id"] if node else None, node["title"] if node else None))
                 state = self._state(db, project_id)
-                context = {"content": project["content"], "activeDiagramId": diagram_id, "nodeId": payload.get("nodeId"),
-                           "messages": state["messages"][-200:], "comments": state["comments"],
-                           "omittedMessageCount": max(0, len(state["messages"]) - 200)}
+                context = self._context(project, state, diagram_id, payload.get("nodeId"), generation)
                 db.execute("INSERT INTO planning_requests VALUES(?,?,?,?,?,?,?,?,?,'running',NULL,?,?)",
                            (request_id, project_id, fingerprint(payload), encode(payload), encode(context),
                             project["revision"], project["cursor"], fingerprint(project["content"]), attempt_id, timestamp, timestamp))
             self._revoke(db, project_id)
             should_start = True
         if should_start:
-            thread = threading.Thread(target=self._generate, args=(project_id, request_id, attempt_id), daemon=True, name="flowdesk-planning")
-            with self._thread_lock:
-                self._threads[(project_id, request_id)] = thread
-            thread.start()
+            self._start(project_id, request_id, attempt_id)
         return self.state(project_id)
+
+    def answer_questions(self, project_id, set_id, payload):
+        obj(payload, {"mutationId", "baseRevision", "answers", "selection"}, "question answers")
+        identifier(payload.get("mutationId"), "Mutation ID")
+        integer(payload.get("baseRevision"), "Base revision")
+        identifier(set_id, "Question set ID")
+        selection = self._selection(payload.get("selection", {"mode": "default"}))
+        action = "answers:" + set_id
+        request_id = payload["mutationId"]
+        # Receipt lookup precedes discovery, revision and open-state checks.
+        with closing(self.store.connect()) as db:
+            self.store._row(db, project_id)
+            question = db.execute("SELECT * FROM planning_question_sets WHERE project_id=? AND id=?", (project_id, set_id)).fetchone()
+            if question is None:
+                raise NotFoundError("Question set not found.")
+            previous = db.execute("SELECT payload_hash FROM planning_receipts WHERE project_id=? AND mutation_id=?", (project_id, request_id)).fetchone()
+            if previous and previous[0] != fingerprint({"action": action, "payload": payload}):
+                raise ValidationError("A mutation ID cannot be reused for different answers.")
+        generation = None if previous else self._configuration(selection)
+        attempt_id = str(uuid4())
+        should_start = False
+        with closing(self.store.connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            project = self._current(db, project_id)
+            question = db.execute("SELECT * FROM planning_question_sets WHERE project_id=? AND id=?", (project_id, set_id)).fetchone()
+            if question is None:
+                raise NotFoundError("Question set not found.")
+            if not self._receipt(db, project_id, action, payload):
+                if project["revision"] != payload["baseRevision"]:
+                    raise ConflictError(project["revision"])
+                if question["state"] != "open":
+                    raise ValidationError("This question has already been answered or replaced.")
+                if question["base_hash"] != fingerprint(project["content"]):
+                    raise ValidationError("These questions are outdated. Ask again using this plan.")
+                if db.execute("SELECT 1 FROM planning_requests WHERE project_id=? AND status='running'", (project_id,)).fetchone():
+                    raise RuntimeError("Wait for the current planning reply before continuing.")
+                questions = json.loads(question["questions"])
+                answers = validate_answers(questions, payload.get("answers"))
+                text = answer_summary(questions, answers)
+                diagram = diagram_in(project["content"], question["diagram_id"])
+                node = node_in(diagram, question["node_id"]) if question["node_id"] else None
+                timestamp = now()
+                db.execute("INSERT INTO planning_messages VALUES(?,?,?,?,?,?,?,?,NULL)",
+                           (str(uuid4()), project_id, "user", text, timestamp, diagram["id"],
+                            node["id"] if node else None, node["title"] if node else None))
+                # Mark answered before building context; continuation receives confirmed answers.
+                db.execute("UPDATE planning_question_sets SET state='answered',answers=?,answered_at=? WHERE project_id=? AND id=?",
+                           (encode(answers), timestamp, project_id, set_id))
+                context = self._context(project, self._state(db, project_id), diagram["id"], question["node_id"], generation)
+                request_payload = {"mutationId": request_id, "text": text, "diagramId": diagram["id"],
+                                   "nodeId": question["node_id"], "selection": selection}
+                db.execute("INSERT INTO planning_requests VALUES(?,?,?,?,?,?,?,?,?,'running',NULL,?,?)",
+                           (request_id, project_id, fingerprint(request_payload), encode(request_payload), encode(context),
+                            project["revision"], project["cursor"], fingerprint(project["content"]), attempt_id, timestamp, timestamp))
+                db.execute("UPDATE planning_question_sets SET continuation_request_id=? WHERE project_id=? AND id=?", (request_id, project_id, set_id))
+                self._revoke(db, project_id)
+                should_start = True
+            continuation_id = db.execute("SELECT continuation_request_id FROM planning_question_sets WHERE project_id=? AND id=?", (project_id, set_id)).fetchone()[0]
+        if should_start:
+            self._start(project_id, request_id, attempt_id)
+        state = self.state(project_id)
+        state["answerReceipt"] = {"questionSetId": set_id, "requestId": continuation_id}
+        return state
+
+    def capabilities(self, refresh=False):
+        if hasattr(self.planner, "capabilities"):
+            return self.planner.capabilities(refresh=refresh)
+        return {"status": "unavailable", "source": "cli_catalogue", "cliVersion": None,
+                "fetchedAt": None, "models": [], "reason": "Model selection is unavailable for this provider. Use CLI default."}
+
+    @staticmethod
+    def _selection(value):
+        obj(value, {"mode", "model", "reasoningEffort"}, "model selection")
+        if value.get("mode") == "default":
+            obj(value, {"mode"}, "default model selection")
+        elif value.get("mode") == "explicit":
+            string(value.get("model"), "Model", 200, True)
+            if "reasoningEffort" not in value:
+                raise ValidationError("Choose a reasoning level for the selected model.")
+            if value["reasoningEffort"] is not None:
+                string(value["reasoningEffort"], "Reasoning level", 80, True)
+        else:
+            raise ValidationError("Choose CLI default or an available model.")
+        return deepcopy(value)
+
+    def _configuration(self, selection):
+        # Test providers can remain minimal; the actual CLI always freezes a
+        # complete instruction/model contract before a request is persisted.
+        if hasattr(self.planner, "configure"):
+            return self.planner.configure(selection)
+        if selection != {"mode": "default"}:
+            raise ValidationError("Model selection is unavailable for this provider.")
+        return None
 
     def _with_agent(self, state):
         state["agent"] = self.planner.status()
@@ -268,9 +404,7 @@ class PlanningService:
                 context = json.loads(request["context"])
             # Authored planning text is allowed. Scanner evidence, confirmed
             # symbol relationships, source-root grants and filesystem data are not.
-            response = self.planner.generate(provider_context_for(context))
-            obj(response, {"message", "proposal"}, "agent reply")
-            string(response.get("message"), "Agent message", 24000, True)
+            response = validate_envelope(self.planner.generate(provider_context_for(context)), context.get("generation", {}).get("protocolVersion", 1))
             proposed = response.get("proposal")
             proposal_id = None
             with closing(self.store.connect()) as db, db:
@@ -306,9 +440,16 @@ class PlanningService:
                                 request["base_revision"], request["base_cursor"], request["base_hash"], encode(content), encode(changes), now()))
                 source = json.loads(request["payload"])
                 original_node = node_in(diagram_in(context["content"], source["diagramId"]), source["nodeId"]) if source.get("nodeId") else None
+                message_id = str(uuid4())
                 db.execute("INSERT INTO planning_messages VALUES(?,?,?,?,?,?,?,?,?)",
-                           (str(uuid4()), project_id, "assistant", response["message"], now(), source["diagramId"],
+                           (message_id, project_id, "assistant", response["message"], now(), source["diagramId"],
                             source.get("nodeId"), original_node["title"] if original_node else None, proposal_id))
+                if response["kind"] == "questions":
+                    db.execute("UPDATE planning_question_sets SET state='superseded' WHERE project_id=? AND state='open'", (project_id,))
+                    db.execute("INSERT INTO planning_question_sets VALUES(?,?,?,?,?,?,?,2,?,NULL,'open',?,NULL,NULL)",
+                               (str(uuid4()), project_id, request_id, message_id, source["diagramId"], source.get("nodeId"),
+                                request["base_hash"], encode(response["questions"]), now()))
+                    self._revoke(db, project_id)
                 db.execute("UPDATE planning_requests SET status='succeeded',error=NULL,updated_at=? WHERE project_id=? AND id=?", (now(), project_id, request_id))
         except Exception as exc:
             # Connector errors and validation messages are deliberately user-safe.
@@ -382,6 +523,8 @@ class PlanningService:
                     raise RuntimeError("Accept or reject the pending proposals before approving.")
                 if any(not c["resolved"] for c in state["comments"]):
                     raise RuntimeError("Resolve the open node comments before approving.")
+                if any(q["state"] == "open" for q in state["questionSets"]):
+                    raise RuntimeError("Answer the open planning questions or change direction before approving.")
                 self._revoke(db, project_id)
                 db.execute("INSERT INTO planning_approvals VALUES(?,?,?,?,?,?,?,0)",
                            (str(uuid4()), project_id, project["revision"], project["cursor"], fingerprint(project["content"]), encode(project["content"]), now()))

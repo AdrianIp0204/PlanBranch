@@ -2260,10 +2260,241 @@ dialog {
   }
 }
 
-/* Keep a conversation mounted while preserving drafts when the panel closes. */
-.planning-pane[hidden] { display: none; }
-.planning-pane { overflow: hidden; }
+/* Agent workspace: the dock spans the center toolbar, canvas and catalogue. */
+.workspace .topbar {
+  min-height: 60px;
+  padding: 7px 12px;
+  gap: 7px;
+}
+.workspace .topbar .brand {
+  font-size: 20px;
+  margin-right: 2px;
+}
+.workspace-focus {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+.workspace-focus button {
+  padding: 6px 8px;
+  font-size: 13px;
+}
+.workspace-focus .canvas-focus-toggle {
+  display: none;
+}
+.workspace-focus .active,
+.workspace-focus button[aria-pressed="true"] {
+  background: var(--pale);
+  color: var(--accent);
+}
+.work-area {
+  display: flex;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.workspace .main-workspace {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.workspace .canvas-toolbar {
+  padding: 10px 14px 7px;
+  gap: 8px;
+  align-items: center;
+}
+.workspace .canvas-toolbar h1 {
+  margin: 0;
+  font-size: 18px;
+}
+.workspace .canvas-toolbar h1 > span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.workspace .canvas-toolbar h1:focus > span {
+  display: block;
+}
+.workspace .toolbar-actions {
+  flex-wrap: wrap;
+  max-width: none;
+  gap: 4px;
+}
+.workspace .toolbar-actions .button {
+  padding: 7px 9px;
+}
+.workspace .status-strip {
+  flex: none;
+  padding: 0 14px 8px;
+  gap: 10px;
+}
+.workspace .editor-row,
+.workspace .canvas-column {
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.workspace .inspector-pane {
+  min-height: 0;
+  height: auto;
+  max-height: none;
+  overflow: hidden;
+}
+.workspace .inspector-pane[hidden] {
+  display: none;
+}
+.workspace .drawer-toggle {
+  height: 38px;
+  min-height: 38px;
+  padding: 6px 14px;
+  flex: none;
+}
+.workspace .drawer-toggle > span:last-child {
+  display: none;
+}
+.workspace .inspector-pane > .inspector {
+  overflow: auto;
+}
+.workspace .planning-pane {
+  border-left: 0;
+}
+.workspace .catalogue-pane {
+  min-height: 0;
+}
+.workspace .save-banner,
+.workspace .error-banner,
+.workspace .notice {
+  flex: none;
+  max-height: 25%;
+  overflow: auto;
+}
+@media (max-width: 1250px) {
+  .workspace .breadcrumb > .quiet {
+    max-width: 120px;
+  }
+  .workspace .topbar .brand {
+    font-size: 18px;
+  }
+  .workspace .topbar {
+    gap: 5px;
+  }
+}
+.workspace.compact-workspace,
+.workspace.compact-workspace.navigation-closed {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.compact-workspace .topbar {
+  flex-wrap: wrap;
+}
+.compact-workspace .breadcrumb {
+  flex: 1;
+  min-width: 60px;
+}
+.compact-workspace .breadcrumb > .quiet {
+  max-width: 130px;
+  white-space: nowrap;
+}
+.compact-workspace .workspace-focus .canvas-focus-toggle {
+  display: block;
+}
+.compact-workspace .sidebar {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  top: 105px;
+  bottom: 0;
+  width: min(300px, 85vw);
+  max-height: none;
+  box-shadow: 4px 0 12px #213b2820;
+  border-right: 1px solid var(--line);
+}
+.compact-workspace .work-area {
+  width: 100%;
+}
+.compact-workspace .resize-vertical {
+  display: none;
+}
+.compact-workspace .inspector-pane {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  flex: 1;
+}
+.compact-workspace.focus-dock .main-workspace {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  visibility: hidden;
+  pointer-events: none;
+}
+.compact-workspace.focus-canvas .inspector-pane {
+  display: none;
+}
+.compact-workspace .editor-row {
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+}
+.compact-workspace .canvas-column {
+  height: auto;
+  flex: 1;
+}
+.compact-workspace .canvas-toolbar {
+  flex-wrap: wrap;
+}
+.compact-workspace .canvas-toolbar > div:first-child {
+  flex-basis: auto;
+}
+.compact-workspace .toolbar-actions {
+  justify-content: flex-end;
+}
+.compact-workspace .drawer-toggle {
+  height: auto;
+  min-height: 36px;
+}
+@media (max-width: 680px) {
+  .workspace .topbar .brand {
+    font-size: 0;
+  }
+  .workspace .topbar .brand svg {
+    width: 25px;
+    height: 25px;
+  }
+  .workspace .topbar {
+    padding: 5px 8px;
+    gap: 4px;
+  }
+  .workspace .topbar > button,
+  .workspace .topbar > details > summary {
+    padding: 6px 8px;
+  }
+  .workspace .save-state {
+    min-width: 95px;
+  }
+  .workspace .save-state small {
+    font-size: 13px;
+  }
+  .workspace .history-buttons {
+    padding-left: 3px;
+  }
+  .workspace .history-buttons .icon-button {
+    width: 28px;
+    min-width: 28px;
+  }
+}
 
-@media (max-width: 900px), (max-height: 650px) {
-  .inspector-pane.planning-pane { height: 650px; min-height: 650px; max-height: none; }
+/* React Flow assigns visibility to nodes; keep the mounted center fully hidden. */
+.compact-workspace.focus-dock .main-workspace * {
+  visibility: hidden !important;
 }

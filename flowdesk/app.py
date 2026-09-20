@@ -148,6 +148,14 @@ def create_app(data_dir=None, *, testing=False, planner=None):
             raise ValidationError("Planning requests must be smaller than 64 KB.")
         return body()
 
+    @app.get("/api/planning/capabilities")
+    def planning_capabilities():
+        return jsonify(planning.capabilities())
+
+    @app.post("/api/planning/capabilities/refresh")
+    def refresh_planning_capabilities():
+        return jsonify(planning.capabilities(refresh=True))
+
     @app.get("/api/projects/<project_id>/planning")
     def get_planning(project_id):
         return jsonify(planning.state(project_id))
@@ -155,6 +163,10 @@ def create_app(data_dir=None, *, testing=False, planner=None):
     @app.post("/api/projects/<project_id>/planning/messages")
     def planning_message(project_id):
         return jsonify(planning.send_message(project_id, planning_body())), 202
+
+    @app.post("/api/projects/<project_id>/planning/questions/<set_id>/answers")
+    def planning_answers(project_id, set_id):
+        return jsonify(planning.answer_questions(project_id, set_id, planning_body())), 202
 
     @app.post("/api/projects/<project_id>/planning/comments")
     def planning_comment(project_id):

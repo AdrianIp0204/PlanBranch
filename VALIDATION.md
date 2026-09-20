@@ -1,8 +1,42 @@
 # FlowDesk validation
 
-## Planning collaboration — 20 September 2026
+## Agent workspace — 20 September 2026
 
-Current verification covers the Codex planning conversation, node comments, explicit proposal acceptance/rejection, and approval of an exact saved snapshot. All fixtures used new disposable databases and random ports. The user's running application and data directory were not used.
+This pass adds the full-height resizable chat dock, compact model/reasoning controls, explicit versioned planner instructions, and durable structured clarification. Schema version 4 stores question sets and answers separately from graph history. Answer submission, its readable conversation summary, and its continuation request commit together; retries preserve original settings and context. Existing edit review and exact-snapshot approval remain explicit.
+
+All test applications use disposable databases, source folders, ports, and browser profiles. The user's running server, projects, and source attachments were not used. Both platforms use Python 3.14.3 and Node 24.14.0. Windows browser: Edge 153.0.4234.32; Linux: Playwright Chromium under Ubuntu/WSL2. No runtime dependencies were added.
+
+| Check | Windows | Linux (WSL2) |
+| --- | --- | --- |
+| Backend | 252 passed, 2 skipped | 252 passed, 2 skipped |
+| Frontend | 83 passed | 83 passed |
+| Production assets and release wheel | Passed | Passed |
+| Fresh offline package installation | Passed | Passed |
+| Final installed-package browser acceptance | 35 scenarios passed (38 runner results), plus corrected-helper check | 35 scenarios passed across full run and final 10-case agent rerun |
+
+Backend checks cover protected endpoints, semantic response validation, model/effort validation, bounded capability discovery, ignored inherited configuration, immutable retry contracts, legacy-request behavior, historical question context, atomic answer rollback, repeated/lost answer acknowledgements, competing clients, restart recovery, stale/superseded questions, and migration from version 3. Submitted questions and answers survive backups but remain outside portable exports. The Windows skips require symlink permission; Linux skips Windows npm-shim and junction behavior.
+
+Frontend and browser checks cover pointer/keyboard resizing, reset and local preferences, preserved drafts/selection/viewport/history, following or reading older messages, supported and unavailable model choices, frozen request retries, structured choice/custom/text answers, keyboard validation, recommendation labels, pending-question access, change of direction, and answer continuation recovery. Legal object-like IDs such as `constructor` and `__proto__` cannot pick up inherited draft values. Existing editor, catalogue, scanner, save/conflict, proposal, approval, and full-diagram PNG coverage remains in the full browser run.
+
+Comparable captures cover 1280 x 800 and 1440 x 900 with the catalogue open, plus review, request failure, question cards, 720 x 700, and actual 200% browser zoom. At default 1280 x 800, the dock has 740 px of height, including 495 px of transcript and a 150 px composer. At 1440 x 900, the transcript has 595 px. Catalogue opening does not consume chat height. At 200% zoom, the browser verifies a 640 x 400 CSS viewport and device pixel ratio 2. Sampled text contrast reaches at least 5.10:1. These are focused checks, not an accessibility certification.
+
+Integration checks caught a missing catalogue accessible name and a sticky header covering rows in very short panes. The toggle now includes its visible label and open action in its accessible name. Short result panes scroll their headings, while taller panes retain sticky headings. The existing browser helper uses the visible List control before choosing another variable in the responsive detail view; real clicks and assertions remain intact. Its delayed scan-poll fixture now drains its own handlers before teardown. A deliberately delayed Send acknowledgement also reproduced unwanted focus restoration that closed an opened Layout menu; the regression covers respecting the user's subsequent focus.
+
+Baseline captures: `output/playwright/agent-workspace-baseline-KkaT0q`. Final Windows captures: `agent-workspace-after-kvY0Dx`, `agent-questions-layout-nw8WD6`, and `ux-after-BdSkeY` under `output/playwright`. The final Windows package is installed in `output/wheel-agent-workspace-windows-5b52a7c5`; its full log is `output/agent-workspace-verification/windows-browser-release.log`. All 19 fixture records report zero runtime errors and zero external browser requests.
+
+Linux final build, installation, logs, source hashes, and browser archive are in `output/agent-workspace-verification/flowdesk-agent-workspace.0ZUPi8`. Its final frontend run passed all 83 tests. The earlier full Linux backend run passed 252 tests; before reusing that result, the final run verified that every backend module, migration, instruction, dependency definition, and Python test had identical source hashes. Both release wheels contain 25 byte-identical application, migration, instruction, and frontend files. Wheel/installation/source and source-distribution resource checks are recorded in `windows-package.json`, `windows-sdist.json`, and `cross-platform-package.json`.
+
+Linux initially passed 37 of 38 runner results. The remaining question-layout test sent a key before the next question heading received its scheduled focus. The helper now waits for that exact focus destination and asserts the radio is checked before typing. All 10 agent-workspace cases then passed against the same installed package; the corrected Windows case also passed. No application bytes changed. Rerun evidence: `linux-agent-focus-fixed-browser.log`, `linux-agent-focus-fixed-summary.json`, `linux-agent-focus-fixed-artifacts.tar`, and `windows-question-focus-fixed.json`. The rerun records report zero runtime errors and external browser requests.
+
+The detailed audit and remaining artifact paths are in [Agent_Workspace_Validation.md](docs/Agent_Workspace_Validation.md). Generated verification artifacts are excluded from Git. The original build brief retains SHA-256 `A45D6A4ACAE38EB65981322D700D8365EC7499EE0B631163C029C8F79063027E`.
+
+Live integration evidence is limited: installed Codex CLI 0.144.1 returned a seven-model catalogue. One synthetic version-2 generation smoke stopped at the connector's sign-in check after 7.57 seconds; **zero model requests were sent**, and there were no retries. Real model generation with the new protocol/settings remains unverified in this environment. Browser fixtures use a deterministic test-only provider, with external browser requests blocked; production has no simulated assistant fallback. Earlier successful version-1 smoke results below are historical only.
+
+Both planner instruction versions are packaged as explicit developer resources in the wheel and source distribution. No optional `SKILL.md` invocation is needed for mandatory behavior. Tests verify the application contract and instruction delivery, not guaranteed model compliance. The CLI's retained image-reading helper means the connector is not a blanket filesystem-read guarantee. Native Linux desktops, screen readers, touch devices, other browser engines, and other Python/Node versions remain unverified. This pass does not execute plan steps or publish/push the repository.
+
+## Previous planning collaboration — 20 September 2026
+
+This earlier verification covered the Codex planning conversation, node comments, explicit proposal acceptance/rejection, and approval of an exact saved snapshot. All fixtures used new disposable databases and random ports. The user's running application and data directory were not used.
 
 Both platforms used Python 3.14.3 and Node 24.14.0. Windows browser: Edge 153.0.4234.32; Linux: Playwright Chromium under Ubuntu 24.04/WSL2. No runtime dependencies were added.
 

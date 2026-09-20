@@ -64,6 +64,8 @@ describe("local layout preferences", () => {
       catalogueOpen: true,
       sidePanel: "inspector",
       inspectorWidth: 520,
+      chatWidth: 400,
+      composerHeight: 150,
       catalogueHeight: 230,
     });
     localStorage.setItem(
@@ -263,4 +265,47 @@ describe("bounded panel resizing", () => {
       expect(onCollapse).not.toHaveBeenCalled();
     },
   );
+});
+
+describe("independent chat layout", () => {
+  it("migrates old preferences without using inspector dimensions as chat dimensions", () => {
+    localStorage.setItem(
+      LAYOUT_KEY,
+      JSON.stringify({ inspectorWidth: 510, catalogueHeight: 260 }),
+    );
+    expect(readLayout()).toMatchObject({
+      inspectorWidth: 510,
+      chatWidth: 400,
+      composerHeight: 150,
+    });
+    localStorage.setItem(
+      LAYOUT_KEY,
+      JSON.stringify({ chatWidth: 9000, composerHeight: -100 }),
+    );
+    expect(readLayout()).toMatchObject({ chatWidth: 680, composerHeight: 100 });
+  });
+  it("does not collapse or submit a composer when pressing Enter on its separator", () => {
+    const submit = vi.fn();
+    const changed = vi.fn();
+    render(
+      <form onSubmit={submit}>
+        <ResizeHandle
+          label="Resize message composer"
+          controls="compose"
+          orientation="horizontal"
+          value={150}
+          min={100}
+          max={300}
+          onChange={changed}
+        />
+      </form>,
+    );
+    const separator = screen.getByRole("separator");
+    fireEvent.keyDown(separator, { key: "Enter" });
+    expect(submit).not.toHaveBeenCalled();
+    expect(changed).not.toHaveBeenCalled();
+    expect(separator.getAttribute("aria-describedby")).toBe(
+      "composer-resize-help",
+    );
+  });
 });

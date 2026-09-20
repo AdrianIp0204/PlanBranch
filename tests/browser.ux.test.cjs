@@ -581,11 +581,20 @@ test(
           release = resolve;
         });
         const poll = `**/api/projects/${fixture.id}/scans/*`;
+        const pendingPolls = new Set();
         await p.route(poll, async (route) => {
           if (route.request().method() !== "GET") return route.continue();
-          const response = await route.fetch();
-          await gate;
-          return route.fulfill({ response });
+          const pending = (async () => {
+            const response = await route.fetch();
+            await gate;
+            return route.fulfill({ response });
+          })();
+          pendingPolls.add(pending);
+          try {
+            await pending;
+          } finally {
+            pendingPolls.delete(pending);
+          }
         });
         await p
           .getByRole("button", { name: "Scan Python", exact: true })
@@ -620,6 +629,9 @@ test(
         assert.ok((await cancellation).ok());
         release();
         await p.unroute(poll);
+        // Finish this fixture's blocked responses before per-test cleanup;
+        // unrelated route handlers, including the network boundary, stay put.
+        await Promise.all([...pendingPolls]);
         await until(async () => !(await p.locator(".scan-progress").count()));
         await title.fill(fixture.decision.title);
         await save(h);

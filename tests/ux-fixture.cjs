@@ -178,6 +178,17 @@ async function openUxPanels(h, fixture) {
     .dblclick();
   if (!(await p.getByRole("region", { name: "Variable catalogue" }).count()))
     await p.getByRole("button", { name: /Open catalogue/ }).click();
+  // The compact catalogue shows either the selected details or the result
+  // table. Return through its visible List action before choosing a record.
+  const closeDetails = p.getByRole("button", {
+    name: "Close variable details",
+    exact: true,
+  });
+  if (
+    !(await p.locator(".variable-panel .table-scroll").isVisible()) &&
+    (await closeDetails.isVisible())
+  )
+    await closeDetails.click();
   await p
     .locator(`tr[data-variable-id="${fixture.plan.id}"]`)
     .getByRole("button")

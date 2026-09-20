@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -8,6 +9,7 @@ import {
   within,
 } from "@testing-library/react";
 import PlanningPanel from "./PlanningPanel";
+import { MODEL_PREFERENCE_KEY } from "./ModelControls";
 import { api } from "./api";
 import { createNode, copy, type Content } from "./types";
 import type { Session } from "./history";
@@ -18,6 +20,7 @@ import {
   reviewValueText,
   type PlanProposal,
   type PlanningState,
+  type QuestionSet,
 } from "./planning";
 
 vi.mock("./api", () => ({ api: vi.fn() }));
@@ -65,6 +68,7 @@ function posts(path: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   sessionStorage.clear();
+  localStorage.clear();
   flush.mockResolvedValue(true);
   apply.mockResolvedValue();
   const node = {
@@ -183,7 +187,7 @@ describe("planning conversation", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
-    fireEvent.click(screen.getByRole("tab", { name: "Review (1)" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Changes (1)" }));
     expect(screen.getByText("Check input")).toBeTruthy();
     expect(screen.getByText("<script>alert('x')</script>")).toBeTruthy();
     expect(document.querySelector("script")).toBeNull();
@@ -204,20 +208,20 @@ describe("planning conversation", () => {
       snapshot: copy(session.content),
     };
     const result = await mount();
-    expect(screen.getByText("Plan approved")).toBeTruthy();
+    expect(screen.getByText("Approved")).toBeTruthy();
     session = {
       ...session,
       generation: 1,
       views: { diagram: { x: 20, y: 5, zoom: 0.5 } },
     };
     result.rerender(<PlanningPanel {...props()} />);
-    expect(screen.getByText("Plan approved")).toBeTruthy();
+    expect(screen.getByText("Approved")).toBeTruthy();
     session = {
       ...session,
       content: { ...session.content, notes: "A new constraint" },
     };
     result.rerender(<PlanningPanel {...props()} />);
-    expect(screen.getByText("Plan needs review")).toBeTruthy();
+    expect(screen.getByText("Needs review")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Reopen plan" })).toBeNull();
     expect(samePlan({ b: 1, a: [2] }, { a: [2], b: 1 })).toBe(true);
   });
@@ -279,7 +283,7 @@ describe("planning conversation", () => {
 
   it("keeps per-node comment drafts and supports keyboard tab navigation", async () => {
     const result = await mount();
-    const conversation = screen.getByRole("tab", { name: "Conversation" });
+    const conversation = screen.getByRole("tab", { name: "Chat" });
     conversation.focus();
     fireEvent.keyDown(conversation, { key: "ArrowRight" });
     const field = screen.getByLabelText("Comment on: Validate the input");
@@ -346,7 +350,7 @@ describe("planning conversation", () => {
       },
     ];
     await mount();
-    fireEvent.click(screen.getByRole("tab", { name: "Review" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Changes" }));
     expect(screen.queryByRole("button", { name: "Accept changes" })).toBeNull();
     fireEvent.click(
       screen.getByRole("button", { name: "Request updated proposal" }),
@@ -402,7 +406,7 @@ describe("planning conversation", () => {
     ];
     apply.mockRejectedValueOnce(new Error("Response lost"));
     await mount();
-    fireEvent.click(screen.getByRole("tab", { name: "Review (1)" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Changes (1)" }));
     fireEvent.click(screen.getByRole("button", { name: "Accept changes" }));
     await screen.findByText("Response lost");
     const fetchesBeforeFocus = vi.mocked(api).mock.calls.length;
@@ -468,7 +472,7 @@ describe("planning conversation", () => {
       );
     });
     await mount();
-    fireEvent.click(screen.getByRole("tab", { name: "Review (1)" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Changes (1)" }));
     fireEvent.click(screen.getByRole("button", { name: "Accept changes" }));
     await screen.findByText("The plan has changed. Review the latest version.");
     expect(
@@ -547,7 +551,7 @@ describe("planning conversation", () => {
     proposal.changes[1].label = "step → opaque-added-node";
     state.proposals = [proposal];
     await mount();
-    fireEvent.click(screen.getByRole("tab", { name: "Review (1)" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Changes (1)" }));
     expect(
       screen.getByRole("heading", {
         name: "Add connection: Validate the input → Is the input valid? · Valid",
@@ -555,4 +559,535 @@ describe("planning conversation", () => {
     ).toBeTruthy();
     expect(screen.queryByText("step → opaque-added-node")).toBeNull();
   });
+});
+
+it("keeps a reader's position and draft when new messages arrive until Jump to latest", async () => {
+  const { container } = await mount();
+  const input = screen.getByLabelText("Message Codex") as HTMLTextAreaElement;
+  fireEvent.change(input, { target: { value: "Unsent idea" } });
+  input.focus();
+  const transcript = container.querySelector(
+    "#planning-view-conversation .planning-scroll",
+  ) as HTMLElement;
+  Object.defineProperties(transcript, {
+    scrollHeight: { value: 900, configurable: true },
+    clientHeight: { value: 300, configurable: true },
+  });
+  transcript.scrollTop = 40;
+  fireEvent.scroll(transcript);
+  expect(screen.getByRole("button", { name: /Jump to latest/ })).toBeTruthy();
+  state.messages.push({
+    id: "new-reply",
+    role: "assistant",
+    text: "A new reply while you read.",
+    createdAt: "2026-09-20T00:00:00Z",
+    diagramId: "diagram",
+    nodeId: null,
+    nodeTitle: null,
+    proposalId: null,
+  });
+  fireEvent.focus(window);
+  await screen.findByText("A new reply while you read.");
+  expect(transcript.scrollTop).toBe(40);
+  expect(input.value).toBe("Unsent idea");
+  expect(document.activeElement).toBe(input);
+  fireEvent.click(screen.getByRole("button", { name: /Jump to latest/ }));
+  expect(transcript.scrollTop).toBe(900);
+  expect(input.value).toBe("Unsent idea");
+});
+
+const modelCatalogue = {
+  status: "ready",
+  source: "cli_catalogue",
+  cliVersion: "test-cli",
+  fetchedAt: "2026-09-20T00:00:00Z",
+  models: [
+    {
+      id: "quick",
+      label: "Quick planner",
+      description: "",
+      defaultReasoningEffort: "low",
+      reasoningEfforts: [
+        { id: "low", description: "" },
+        { id: "medium", description: "" },
+      ],
+      isDefault: true,
+    },
+    {
+      id: "careful",
+      label: "Careful planner",
+      description: "",
+      defaultReasoningEffort: "high",
+      reasoningEfforts: [{ id: "high", description: "" }],
+      isDefault: false,
+    },
+  ],
+};
+function withModels(
+  handler?: (path: string, options?: RequestInit) => unknown,
+) {
+  vi.mocked(api).mockImplementation(async (path, options) =>
+    path.startsWith("/planning/capabilities")
+      ? copy(modelCatalogue)
+      : handler
+        ? handler(path, options)
+        : copy(state),
+  );
+}
+it("freezes settings for an uncertain retry and permits an explicit new request", async () => {
+  withModels((path, options) => {
+    if (path.endsWith("/messages") && options?.method === "POST")
+      throw new Error("Response lost");
+    return copy(state);
+  });
+  await mount();
+  await screen.findByRole("option", { name: "Quick planner" });
+  fireEvent.change(screen.getByLabelText("Model"), {
+    target: { value: "quick" },
+  });
+  expect(
+    (screen.getByLabelText("Reasoning effort") as HTMLSelectElement).value,
+  ).toBe("low");
+  fireEvent.change(screen.getByLabelText("Message Codex"), {
+    target: { value: "Use one validation loop" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await screen.findByText("Response lost");
+  fireEvent.change(screen.getByLabelText("Model"), {
+    target: { value: "careful" },
+  });
+  expect(
+    (screen.getByLabelText("Reasoning effort") as HTMLSelectElement).value,
+  ).toBe("high");
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(posts("/messages")).toHaveLength(2));
+  expect(posts("/messages")[0][1]?.body).toBe(posts("/messages")[1][1]?.body);
+  const old = JSON.parse(posts("/messages")[0][1]!.body as string);
+  expect(old.selection).toEqual({
+    mode: "explicit",
+    model: "quick",
+    reasoningEffort: "low",
+  });
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Send as new request",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Send as new request" }));
+  await waitFor(() => expect(posts("/messages")).toHaveLength(3));
+  const fresh = JSON.parse(posts("/messages")[2][1]!.body as string);
+  expect(fresh.mutationId).not.toBe(old.mutationId);
+  expect(fresh.selection).toEqual({
+    mode: "explicit",
+    model: "careful",
+    reasoningEffort: "high",
+  });
+});
+it("blocks stale saved selections without silently replacing them and keeps CLI default available", async () => {
+  localStorage.setItem(
+    MODEL_PREFERENCE_KEY,
+    JSON.stringify({
+      mode: "explicit",
+      model: "retired",
+      reasoningEffort: "high",
+    }),
+  );
+  withModels();
+  await mount();
+  await screen.findByText(/Your saved model is no longer listed/);
+  fireEvent.change(screen.getByLabelText("Message Codex"), {
+    target: { value: "Review the plan" },
+  });
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "Send",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe(
+    "retired",
+  );
+  fireEvent.change(screen.getByLabelText("Model"), { target: { value: "" } });
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "Send",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(false);
+  expect(
+    (screen.getByLabelText("Reasoning effort") as HTMLSelectElement).disabled,
+  ).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(posts("/messages")).toHaveLength(1));
+  expect(
+    JSON.parse(posts("/messages")[0][1]!.body as string).selection,
+  ).toEqual({ mode: "default" });
+});
+it("restores frozen uncertain-request settings after a tab reload", async () => {
+  withModels((path, options) => {
+    if (path.endsWith("/messages") && options?.method === "POST")
+      throw new Error("Lost acknowledgement");
+    return copy(state);
+  });
+  const first = await mount();
+  await screen.findByRole("option", { name: "Quick planner" });
+  fireEvent.change(screen.getByLabelText("Model"), {
+    target: { value: "quick" },
+  });
+  fireEvent.change(screen.getByLabelText("Message Codex"), {
+    target: { value: "Keep the loop" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await screen.findByText("Lost acknowledgement");
+  const original = posts("/messages")[0][1]!.body;
+  fireEvent.change(screen.getByLabelText("Model"), {
+    target: { value: "careful" },
+  });
+  first.unmount();
+  await mount();
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(posts("/messages")).toHaveLength(2));
+  expect(posts("/messages")[1][1]!.body).toBe(original);
+});
+it("known failed replies retry their stored payload after the model menu changes", async () => {
+  state.request = {
+    id: "existing-request",
+    status: "failed",
+    text: "Review this saved plan",
+    diagramId: "diagram",
+    nodeId: null,
+    selection: { mode: "explicit", model: "quick", reasoningEffort: "low" },
+    payload: {
+      mutationId: "existing-request",
+      text: "Review this saved plan",
+      diagramId: "diagram",
+      nodeId: null,
+      selection: { mode: "explicit", model: "quick", reasoningEffort: "low" },
+    },
+  };
+  withModels();
+  await mount();
+  await screen.findByRole("option", { name: "Careful planner" });
+  fireEvent.change(screen.getByLabelText("Model"), {
+    target: { value: "careful" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Retry agent reply" }));
+  await waitFor(() => expect(posts("/messages")).toHaveLength(1));
+  expect(JSON.parse(posts("/messages")[0][1]!.body as string)).toEqual(
+    state.request!.payload,
+  );
+});
+
+function openQuestions(): QuestionSet {
+  return {
+    id: "question-set",
+    requestId: "question-request",
+    messageId: "question-message",
+    diagramId: "diagram",
+    nodeId: null,
+    baseHash: "hash",
+    baseSnapshot: copy(session.content),
+    state: "open",
+    questions: [
+      {
+        id: "storage",
+        kind: "choice",
+        prompt: "Choose storage for the first version",
+        options: [
+          { id: "json", label: "JSON file", description: "Simple" },
+          { id: "sqlite", label: "SQLite", description: "Structured" },
+        ],
+        recommendedOptionId: "sqlite",
+      },
+    ],
+    answers: null,
+    createdAt: "2026-09-20T00:00:00Z",
+    answeredAt: null,
+    continuationRequestId: null,
+  };
+}
+async function mountQuestions() {
+  state.questionSets = [openQuestions()];
+  const view = render(<PlanningPanel {...props()} />);
+  await screen.findByRole("group", {
+    name: "Choose storage for the first version",
+  });
+  return view;
+}
+it("submits clarification exactly once without editing the graph or approving it", async () => {
+  withModels((path, options) => {
+    if (path.endsWith("/answers") && options?.method === "POST") {
+      const answer = JSON.parse(options.body as string);
+      state.questionSets![0].state = "answered";
+      state.questionSets![0].answers = answer.answers;
+    }
+    return copy(state);
+  });
+  const original = copy(session.content);
+  await mountQuestions();
+  expect(
+    (screen.getByRole("button", { name: "Approve plan" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  fireEvent.click(screen.getByRole("radio", { name: /SQLite/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  await screen.findByText("Answers submitted");
+  expect(posts("/answers")).toHaveLength(1);
+  expect(JSON.parse(posts("/answers")[0][1]!.body as string)).toMatchObject({
+    baseRevision: 3,
+    answers: [{ questionId: "storage", optionId: "sqlite", text: null }],
+    selection: { mode: "default" },
+  });
+  expect(posts("/messages")).toHaveLength(0);
+  expect(posts("/approve")).toHaveLength(0);
+  expect(session.content).toEqual(original);
+});
+it("preserves answer drafts across reload and repeats lost acknowledgements with the exact body", async () => {
+  let attempts = 0;
+  withModels((path, options) => {
+    if (
+      path.endsWith("/answers") &&
+      options?.method === "POST" &&
+      attempts++ === 0
+    )
+      throw new Error("Answer acknowledgement lost");
+    return copy(state);
+  });
+  let view = await mountQuestions();
+  fireEvent.click(screen.getByRole("radio", { name: "Something else" }));
+  fireEvent.change(screen.getByLabelText("Your answer"), {
+    target: { value: "An in-memory store" },
+  });
+  view.unmount();
+  view = render(<PlanningPanel {...props()} />);
+  await screen.findByLabelText("Your answer");
+  expect(
+    (screen.getByLabelText("Your answer") as HTMLTextAreaElement).value,
+  ).toBe("An in-memory store");
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  await screen.findByText("Answer acknowledgement lost");
+  const original = posts("/answers")[0][1]!.body;
+  fireEvent.change(screen.getByLabelText("Model"), {
+    target: { value: "careful" },
+  });
+  view.unmount();
+  render(<PlanningPanel {...props()} />);
+  await screen.findByRole("button", { name: "Retry answers" });
+  session.revision = 12;
+  session.content.notes = "A newer manual requirement";
+  flush.mockResolvedValue(false);
+  fireEvent.click(screen.getByRole("button", { name: "Retry answers" }));
+  await waitFor(() => expect(posts("/answers")).toHaveLength(2));
+  expect(posts("/answers")[1][1]!.body).toBe(original);
+});
+it("marks manual changes outdated but ignores viewport and composer layout changes", async () => {
+  withModels();
+  const view = await mountQuestions();
+  fireEvent.click(screen.getByRole("radio", { name: /SQLite/ }));
+  session.views = { diagram: { x: 50, y: 20, zoom: 1.5 } };
+  view.rerender(<PlanningPanel {...props()} composerHeight={250} />);
+  expect(screen.queryByText("Plan changed")).toBeNull();
+  session.content.notes = "A changed requirement";
+  view.rerender(<PlanningPanel {...props()} composerHeight={200} />);
+  await screen.findByText("Plan changed");
+  expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Ask again using this plan" }),
+  );
+  await waitFor(() => expect(posts("/messages")).toHaveLength(1));
+  const persisted = JSON.parse(
+    sessionStorage.getItem(PLANNING_DRAFT_PREFIX + session.id)!,
+  );
+  expect(persisted.questionDrafts["question-set"].storage.choice).toBe(
+    "sqlite",
+  );
+  expect(posts("/answers")).toHaveLength(0);
+});
+it("lets a normal message explicitly change direction while questions are pending", async () => {
+  withModels();
+  await mountQuestions();
+  fireEvent.change(screen.getByLabelText("Message Codex"), {
+    target: { value: "Use SQLite and focus on export first." },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Change direction" }));
+  await waitFor(() => expect(posts("/messages")).toHaveLength(1));
+  expect(JSON.parse(posts("/messages")[0][1]!.body as string).text).toBe(
+    "Use SQLite and focus on export first.",
+  );
+  expect(posts("/answers")).toHaveLength(0);
+});
+
+it("unlocks an outdated question draft after a confirmed conflict without retaining an uncertain receipt", async () => {
+  withModels((path, options) => {
+    if (path.endsWith("/answers") && options?.method === "POST") {
+      state.questionSets![0].state = "stale";
+      throw Object.assign(new Error("The plan changed in another tab"), {
+        status: 409,
+      });
+    }
+    return copy(state);
+  });
+  await mountQuestions();
+  fireEvent.click(screen.getByRole("radio", { name: /SQLite/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  await screen.findByText("The plan changed in another tab");
+  expect(screen.queryByRole("button", { name: "Retry answers" })).toBeNull();
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "Ask again using this plan",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(false);
+  expect(screen.getByText("Saved draft answers")).toBeTruthy();
+});
+
+it.each(["constructor", "__proto__"])(
+  "stores a legal question-set and question ID named %s as own draft keys",
+  async (id) => {
+    withModels();
+    const questions = openQuestions();
+    questions.id = id;
+    questions.questions = [
+      {
+        id,
+        kind: "text",
+        prompt: "Name the runtime",
+        options: [],
+        recommendedOptionId: null,
+      },
+    ];
+    state.questionSets = [questions];
+    render(<PlanningPanel {...props()} />);
+    const input = await screen.findByLabelText("Your answer");
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(
+      await screen.findByText("Enter your answer to continue."),
+    ).toBeTruthy();
+    fireEvent.change(input, { target: { value: "Python" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(posts("/answers")).toHaveLength(1));
+    expect(JSON.parse(posts("/answers")[0][1]!.body as string).answers).toEqual(
+      [{ questionId: id, optionId: null, text: "Python" }],
+    );
+    const stored = JSON.parse(
+      sessionStorage.getItem(PLANNING_DRAFT_PREFIX + session.id)!,
+    );
+    expect(Object.hasOwn(stored.questionDrafts, id)).toBe(true);
+    expect(Object.hasOwn(stored.questionDrafts[id], id)).toBe(true);
+  },
+);
+
+it.each(["constructor", "__proto__"])(
+  "starts an empty comment draft and submits for a legal node ID named %s",
+  async (id) => {
+    session.content.diagrams[0].nodes[0].id = id;
+    render(<PlanningPanel {...props()} nodeId={id} />);
+    await screen.findByText("What should this plan accomplish?");
+    fireEvent.click(screen.getByRole("tab", { name: "Comments" }));
+    const input = screen.getByLabelText(
+      "Comment on: Validate the input",
+    ) as HTMLTextAreaElement;
+    expect(input.value).toBe("");
+    expect(
+      (screen.getByRole("button", { name: "Add comment" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    fireEvent.change(input, { target: { value: "Keep validation explicit" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
+    await waitFor(() => expect(posts("/comments")).toHaveLength(1));
+    expect(JSON.parse(posts("/comments")[0][1]!.body as string)).toMatchObject({
+      nodeId: id,
+      text: "Keep validation explicit",
+    });
+    await waitFor(() => expect(input.value).toBe(""));
+  },
+);
+
+it.each(["messages", "answers"])(
+  "does not steal focus after a delayed %s acknowledgement when the user moved elsewhere",
+  async (endpoint) => {
+    let acknowledge!: (value: PlanningState) => void;
+    const response = new Promise<PlanningState>((resolve) => {
+      acknowledge = resolve;
+    });
+    withModels((path, options) =>
+      path.endsWith("/" + endpoint) && options?.method === "POST"
+        ? response
+        : copy(state),
+    );
+    if (endpoint === "answers") state.questionSets = [openQuestions()];
+    render(
+      <>
+        <button>Workspace menu</button>
+        <PlanningPanel {...props()} />
+      </>,
+    );
+    await screen.findByRole("option", { name: "Quick planner" });
+    if (endpoint === "answers") {
+      fireEvent.click(screen.getByRole("radio", { name: /SQLite/ }));
+      const submit = screen.getByRole("button", { name: "Continue" });
+      submit.focus();
+      fireEvent.click(submit);
+    } else {
+      const input = screen.getByLabelText("Message Codex");
+      input.focus();
+      fireEvent.change(input, { target: { value: "Plan the import" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    }
+    await waitFor(() => expect(posts("/" + endpoint)).toHaveLength(1));
+    const menu = screen.getByRole("button", { name: "Workspace menu" });
+    menu.focus();
+    await act(async () => acknowledge(copy(state)));
+    expect(document.activeElement).toBe(menu);
+  },
+);
+
+it("restores composer focus after answers only while the original interaction still owns it", async () => {
+  let acknowledge!: (value: PlanningState) => void;
+  const response = new Promise<PlanningState>((resolve) => {
+    acknowledge = resolve;
+  });
+  withModels((path, options) =>
+    path.endsWith("/answers") && options?.method === "POST"
+      ? response
+      : copy(state),
+  );
+  await mountQuestions();
+  fireEvent.click(screen.getByRole("radio", { name: /SQLite/ }));
+  const submit = screen.getByRole("button", { name: "Continue" });
+  submit.focus();
+  fireEvent.click(submit);
+  await waitFor(() => expect(posts("/answers")).toHaveLength(1));
+  state.questionSets![0].state = "answered";
+  await act(async () => acknowledge(copy(state)));
+  expect(document.activeElement).toBe(screen.getByLabelText("Message Codex"));
+});
+
+it("does not focus a hidden planning pane after a delayed acknowledgement", async () => {
+  let acknowledge!: (value: PlanningState) => void;
+  const response = new Promise<PlanningState>((resolve) => {
+    acknowledge = resolve;
+  });
+  withModels((path, options) =>
+    path.endsWith("/messages") && options?.method === "POST"
+      ? response
+      : copy(state),
+  );
+  const view = await mount();
+  const input = screen.getByLabelText("Message Codex");
+  input.focus();
+  fireEvent.change(input, { target: { value: "Plan the import" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(posts("/messages")).toHaveLength(1));
+  view.rerender(<PlanningPanel {...props()} active={false} />);
+  input.blur();
+  await act(async () => acknowledge(copy(state)));
+  expect(document.activeElement).not.toBe(input);
 });

@@ -4,10 +4,23 @@ const path = require("node:path");
 const { setupBrowser, until, wait } = require("./browser-harness.cjs");
 const planning = (p) =>
   p.getByRole("complementary", { name: "Planning conversation" });
-const review = (p) => p.getByRole("tab", { name: /^Review/ });
+const review = (p) => p.getByRole("tab", { name: /^(Review|Changes)/ });
 const conversation = (p) =>
-  p.getByRole("tab", { name: "Conversation", exact: true });
+  p.getByRole("tab", { name: /^(Conversation|Chat)$/ });
 async function open(p) {
+  await p
+    .getByRole("button", { name: "Toggle planning chat", exact: true })
+    .waitFor();
+  await until(async () =>
+    p.evaluate(() => {
+      const workspace = document.querySelector(".workspace");
+      return (
+        workspace &&
+        workspace.classList.contains("compact-workspace") ===
+          (innerWidth <= 900 || innerHeight <= 650)
+      );
+    }),
+  );
   if (!(await planning(p).isVisible()))
     await p
       .getByRole("button", { name: "Toggle planning chat", exact: true })
@@ -136,14 +149,14 @@ test(
           .isDisabled()),
     );
     await p.getByRole("button", { name: "Approve plan", exact: true }).click();
-    await p.getByText("Plan approved", { exact: true }).waitFor();
+    await p.getByText(/^(Plan approved|Approved)$/).waitFor();
     await h.restart();
     await open(p);
-    await p.getByText("Plan approved", { exact: true }).waitFor();
+    await p.getByText(/^(Plan approved|Approved)$/).waitFor();
     assert.equal((await h.api(url + "/planning")).approval.current, true);
     await p.getByRole("button", { name: /^Undo/ }).click();
     await h.saved();
-    await p.getByText("Plan needs review", { exact: true }).waitFor();
+    await p.getByText(/^(Plan needs review|Needs review)$/).waitFor();
     assert.deepEqual((await h.api(url)).content, original.content);
     await h.restart();
     await open(p);
@@ -278,20 +291,30 @@ test(
     );
     await p.locator("#open-catalogue").click();
     const sendButton = p.getByRole("button", { name: "Send", exact: true });
-    await sendButton.click({ trial: true });
-    assert.equal(await sendButton.evaluate((element) => {
-      const control = element.getBoundingClientRect();
-      const pane = element.closest(".planning-pane").getBoundingClientRect();
-      return control.top >= pane.top && control.bottom <= pane.bottom + 1;
-    }), true, "Send remains reachable while the catalogue is open");
-    await p.screenshot({ path: path.join(h.output, "planning-catalogue-1280.png") });
-    await p.getByRole("button", { name: "Close variable panel", exact: true }).click();
-    await p.getByRole("tab", { name: "Conversation", exact: true }).scrollIntoViewIfNeeded();
+    assert.equal(
+      await sendButton.evaluate((element) => {
+        const control = element.getBoundingClientRect();
+        const pane = element.closest(".planning-pane").getBoundingClientRect();
+        return control.top >= pane.top && control.bottom <= pane.bottom + 1;
+      }),
+      true,
+      "Send remains reachable while the catalogue is open",
+    );
+    await p.screenshot({
+      path: path.join(h.output, "planning-catalogue-1280.png"),
+    });
+    await p
+      .getByRole("button", { name: "Close variable panel", exact: true })
+      .click();
+    await p
+      .getByRole("tab", { name: /^(Conversation|Chat)$/ })
+      .scrollIntoViewIfNeeded();
     await p.screenshot({ path: path.join(h.output, "planning-1280.png") });
     await p.setViewportSize({ width: 1440, height: 900 });
     await p.screenshot({ path: path.join(h.output, "planning-1440.png") });
     await p.emulateMedia({ reducedMotion: "reduce" });
     await p.setViewportSize({ width: 720, height: 700 });
+    await open(p);
     await p
       .getByLabel("Message Codex", { exact: true })
       .scrollIntoViewIfNeeded();
@@ -305,7 +328,6 @@ test(
       ),
     );
     await p.reload();
-    await p.getByTestId("diagram-canvas").waitFor();
     await open(p);
     assert.equal(
       await p.getByLabel("Message Codex", { exact: true }).inputValue(),

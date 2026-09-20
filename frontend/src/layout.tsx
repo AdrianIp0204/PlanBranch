@@ -13,6 +13,8 @@ export type Layout = {
   catalogueOpen: boolean;
   sidePanel: "inspector" | "planning";
   inspectorWidth: number;
+  chatWidth: number;
+  composerHeight: number;
   catalogueHeight: number;
 };
 export const clamp = (value: number, min: number, max: number) =>
@@ -24,6 +26,8 @@ export function defaultLayout(width = window.innerWidth): Layout {
     catalogueOpen: false,
     sidePanel: "inspector",
     inspectorWidth: 340,
+    chatWidth: 400,
+    composerHeight: 150,
     catalogueHeight: 300,
   };
 }
@@ -43,6 +47,8 @@ export function readLayout(): Layout {
     for (const [key, min, max] of [
       ["inspectorWidth", 280, 520],
       ["catalogueHeight", 230, 600],
+      ["chatWidth", 300, 680],
+      ["composerHeight", 100, 600],
     ] as const)
       if (typeof saved[key] === "number" && Number.isFinite(saved[key]))
         defaults[key] = clamp(saved[key], min, max);
@@ -108,7 +114,7 @@ export function ResizeHandle({
   min: number;
   max: number;
   onChange: (value: number) => void;
-  onCollapse: () => void;
+  onCollapse?: () => void;
 }) {
   const drag = useRef<{
     origin: number;
@@ -135,7 +141,7 @@ export function ResizeHandle({
       aria-valuemin={min}
       aria-valuemax={max}
       aria-valuetext={`${Math.round(value)} pixels`}
-      aria-describedby="resize-help"
+      aria-describedby={onCollapse ? "resize-help" : "composer-resize-help"}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
         event.preventDefault();
@@ -170,7 +176,7 @@ export function ResizeHandle({
         event.preventDefault();
         event.stopPropagation();
         if (event.key === "Enter") {
-          onCollapse();
+          onCollapse?.();
           return;
         }
         const step = event.shiftKey ? 40 : 16;
