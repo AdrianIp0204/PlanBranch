@@ -1,5 +1,13 @@
 # FlowDesk validation
 
+## Chat/server compatibility fix — 20 September 2026
+
+The reported `Unexpected fields in planning message: selection.` failure came from new frontend assets served by an older, still-running Python process. Its model catalogue endpoint returned 404. Chat now distinguishes this mismatch from ordinary CLI catalogue discovery failure, shows restart/reload guidance, and blocks message, retry, keyboard, and question-answer submissions while incompatible. A legacy validation rejection enters the same recovery state without silently dropping settings or resending. Ordinary discovery failure still permits CLI default. Drafts, preferences, and uncertain answer receipts are preserved.
+
+The updated local service recognizes the existing Codex sign-in and returns seven catalogue models. Model and reasoning changes were verified in the user's browser and the original CLI-default preference restored; the unsent message remains present. A SQLite backup was created before startup, and hashes confirmed all 22 existing data tables were unchanged after migration added `planning_question_sets`. No message was sent to a live model during this fix.
+
+Windows verification: 89 frontend tests passed, production assets and release wheel built, and four focused browser scenarios passed against both source and the freshly installed wheel. The scenarios cover missing endpoints, the legacy validation rejection, preserved drafts/preferences, recovery to an explicit model/effort, normal default fallback, and immutable retry settings. Each browser fixture uses disposable data and blocks external HTTP requests. Backend code was unchanged; the previous backend and Linux results below were not rerun for this frontend-only patch. The installed-package log is `output/chat-fix-installed-browser.log`.
+
 ## Agent workspace — 20 September 2026
 
 This pass adds the full-height resizable chat dock, compact model/reasoning controls, explicit versioned planner instructions, and durable structured clarification. Schema version 4 stores question sets and answers separately from graph history. Answer submission, its readable conversation summary, and its continuation request commit together; retries preserve original settings and context. Existing edit review and exact-snapshot approval remain explicit.

@@ -562,6 +562,232 @@ async function waitForModels(p) {
   );
   return model;
 }
+
+test(
+  "older planning server blocks sends and preserves drafts and model choices until connection recovery",
+  { timeout: 90000, skip: mode === "baseline" },
+  async (t) => {
+    const h = await setupBrowser(t, {
+        name: "agent-server-upgrade",
+        planningFixture: true,
+        viewport: { width: 1280, height: 800 },
+      }),
+      p = h.page;
+    await openChat(p);
+    await waitForModels(p);
+    const draft = "Discuss a Python todo CLI without losing this unsent draft.";
+    const composer = p.getByLabel("Message Codex", { exact: true });
+    const model = p.getByRole("combobox", { name: "Model", exact: true });
+    const effort = p.getByRole("combobox", {
+      name: "Reasoning effort",
+      exact: true,
+    });
+    const send = p.getByRole("button", { name: "Send", exact: true });
+    await composer.fill(draft);
+    await h.saved();
+    const before = await h.api("/projects/" + h.initial.id);
+    const capabilityRoute = "**/api/planning/capabilities";
+    let incompatible = true,
+      posts = 0;
+    await p.route(capabilityRoute, async (route) => {
+      if (incompatible)
+        return route.fulfill({
+          status: 404,
+          json: { error: "Unknown API route." },
+        });
+      return route.continue();
+    });
+    await p.route("**/planning/messages", async (route) => {
+      posts++;
+      await route.continue();
+    });
+    const recovery = p.getByRole("button", {
+      name: "Check connection",
+      exact: true,
+    });
+    async function assertBlocked() {
+      await recovery.waitFor();
+      assert.match(
+        await p.locator("#planning-model-problem").innerText(),
+        /Restart FlowDesk.*Your draft remains here/,
+      );
+      assert.equal(await composer.inputValue(), draft);
+      assert.equal(await send.isDisabled(), true);
+      await composer.focus();
+      await p.keyboard.press("Control+Enter");
+      await wait(200);
+      assert.equal(posts, 0, "Keyboard cannot send to an incompatible server");
+    }
+    await p.reload();
+    await openChat(p);
+    await assertBlocked();
+    assert.equal(await model.inputValue(), "");
+    incompatible = false;
+    await recovery.click();
+    await waitForModels(p);
+    await model.selectOption("fixture-deep");
+    await effort.selectOption("high");
+    assert.equal(await send.isEnabled(), true);
+
+    // The same protection must preserve a saved explicit choice, not reset it.
+    incompatible = true;
+    await p.reload();
+    await openChat(p);
+    await assertBlocked();
+    assert.equal(await model.inputValue(), "fixture-deep");
+    assert.deepEqual(
+      await p.evaluate(() =>
+        JSON.parse(localStorage.getItem("flowdesk.planning-model.v1")),
+      ),
+      { mode: "explicit", model: "fixture-deep", reasoningEffort: "high" },
+    );
+    await assertNoPlanChange(h, before);
+    await p.screenshot({ path: path.join(h.output, "restart-guidance.png") });
+    incompatible = false;
+    await recovery.click();
+    await waitForModels(p);
+    assert.equal(await model.inputValue(), "fixture-deep");
+    assert.equal(await effort.inputValue(), "high");
+    assert.equal(await composer.inputValue(), draft);
+    await composer.focus();
+    await p.keyboard.press("Control+Enter");
+    const result = await requestState(h, "succeeded", draft);
+    assert.equal(posts, 1);
+    assert.deepEqual(result.request.generation.selection, {
+      mode: "explicit",
+      model: "fixture-deep",
+      reasoningEffort: "high",
+    });
+    await assertNoPlanChange(h, before);
+  },
+);
+
+test(
+  "legacy selection rejection keeps the draft and recovers without an uncertain retry or silent default",
+  { timeout: 90000, skip: mode === "baseline" },
+  async (t) => {
+    const h = await setupBrowser(t, {
+        name: "agent-selection-rejection",
+        planningFixture: true,
+      }),
+      p = h.page;
+    await openChat(p);
+    const model = await waitForModels(p);
+    await model.selectOption("fixture-deep");
+    const effort = p.getByRole("combobox", {
+      name: "Reasoning effort",
+      exact: true,
+    });
+    await effort.selectOption("high");
+    const payloads = [];
+    await p.route("**/planning/messages", async (route) => {
+      payloads.push(route.request().postDataJSON());
+      if (payloads.length === 1)
+        return route.fulfill({
+          status: 400,
+          json: { error: "Unexpected fields in planning message: selection." },
+        });
+      return route.continue();
+    });
+    const draft = "Discuss model settings after a server upgrade.";
+    await sendUi(p, draft);
+    const recovery = p.getByRole("button", {
+      name: "Check connection",
+      exact: true,
+    });
+    await recovery.waitFor();
+    const composer = p.getByLabel("Message Codex", { exact: true });
+    assert.equal(await composer.inputValue(), draft);
+    assert.equal(
+      await p.getByRole("button", { name: "Send", exact: true }).isDisabled(),
+      true,
+    );
+    assert.equal(
+      await p
+        .getByRole("button", { name: "Send as new request", exact: true })
+        .count(),
+      0,
+      "A confirmed rejection must not imply the request may have committed",
+    );
+    assert.equal(
+      await p
+        .getByText("Unexpected fields in planning message: selection.", {
+          exact: true,
+        })
+        .count(),
+      0,
+    );
+    await composer.focus();
+    await p.keyboard.press("Control+Enter");
+    await wait(200);
+    assert.equal(payloads.length, 1);
+    assert.equal(
+      (await h.api(`/projects/${h.initial.id}/planning`)).messages.length,
+      0,
+    );
+    await recovery.click();
+    await waitForModels(p);
+    assert.equal(await model.inputValue(), "fixture-deep");
+    assert.equal(await effort.inputValue(), "high");
+    assert.equal(await composer.inputValue(), draft);
+    await p.getByRole("button", { name: "Send", exact: true }).click();
+    const result = await requestState(h, "succeeded", draft);
+    assert.equal(payloads.length, 2);
+    assert.notEqual(payloads[0].mutationId, payloads[1].mutationId);
+    assert.deepEqual(payloads[1].selection, payloads[0].selection);
+    assert.deepEqual(result.request.generation.selection, {
+      mode: "explicit",
+      model: "fixture-deep",
+      reasoningEffort: "high",
+    });
+    assert.equal(
+      result.messages.filter((message) => message.role === "user").length,
+      1,
+    );
+  },
+);
+
+test(
+  "ordinary model discovery failure keeps CLI default usable",
+  { timeout: 90000, skip: mode === "baseline" },
+  async (t) => {
+    const h = await setupBrowser(t, {
+        name: "agent-model-discovery-fallback",
+        planningFixture: true,
+      }),
+      p = h.page;
+    await p.route("**/api/planning/capabilities", (route) =>
+      route.fulfill({
+        status: 200,
+        json: {
+          status: "unavailable",
+          source: "cli_catalogue",
+          cliVersion: "fixture",
+          fetchedAt: null,
+          models: [],
+          reason: "Model discovery is temporarily unavailable.",
+        },
+      }),
+    );
+    await p.reload();
+    await openChat(p);
+    await p.locator("#planning-model-problem").waitFor();
+    assert.match(
+      await p.locator("#planning-model-problem").innerText(),
+      /Model discovery is temporarily unavailable/,
+    );
+    assert.equal(
+      await p
+        .getByRole("button", { name: "Check connection", exact: true })
+        .count(),
+      0,
+    );
+    const draft = "Discuss the default model while discovery is unavailable.";
+    await sendUi(p, draft);
+    const result = await requestState(h, "succeeded", draft);
+    assert.deepEqual(result.request.generation.selection, { mode: "default" });
+  },
+);
 async function sendUi(p, text) {
   await conversation(p).click();
   await p.getByLabel("Message Codex", { exact: true }).fill(text);

@@ -8,7 +8,10 @@ import {
 } from "react";
 import { ResizeHandle, clamp } from "./layout";
 import { Dialog } from "./ui";
-import ModelControls, { useModelSelection } from "./ModelControls";
+import ModelControls, {
+  isLegacyPlanningServerError,
+  useModelSelection,
+} from "./ModelControls";
 import QuestionCard from "./QuestionCard";
 import { api } from "./api";
 import { useProject } from "./store";
@@ -364,7 +367,13 @@ export default function PlanningPanel({
     try {
       await action();
     } catch (err) {
-      if (mounted.current) setError(errorText(err));
+      if (mounted.current) {
+        if (isLegacyPlanningServerError(err)) {
+          modelSettings.markServerIncompatible();
+          // This validation response confirms no request was accepted.
+          setFailedPrompt(null);
+        } else setError(errorText(err));
+      }
     } finally {
       operation.current = false;
       if (mounted.current) setBusy("");
@@ -397,6 +406,7 @@ export default function PlanningPanel({
     }
   }
   async function send(prompt?: PlanningPrompt, forceNew = false) {
+    if (modelSettings.serverIncompatible) return;
     const captured: PlanningPrompt = prompt ?? {
       mutationId: uid(),
       text: draft.trim(),
@@ -471,6 +481,7 @@ export default function PlanningPanel({
     answers: QuestionAnswer[],
     replay?: AnswerSubmission,
   ) {
+    if (modelSettings.serverIncompatible) return;
     if (!replay && (questionOutdated(set) || modelSettings.problem)) {
       setError(
         questionOutdated(set)
@@ -740,7 +751,11 @@ export default function PlanningPanel({
                 answers and model settings.
               </p>
               <button
-                disabled={Boolean(busy || !state?.agent.available)}
+                disabled={Boolean(
+                  busy ||
+                  !state?.agent.available ||
+                  modelSettings.serverIncompatible,
+                )}
                 onClick={() => {
                   const set = questionSets.find(
                     (item) => item.id === failedAnswer.setId,
@@ -761,19 +776,34 @@ export default function PlanningPanel({
               </button>
             </div>
           )}
-          {modelSettings.problem && (
+          {(modelSettings.problem ||
+            modelSettings.capabilities?.status === "unavailable") && (
             <div
               className="planning-feedback"
               id="planning-model-problem"
               role="status"
             >
-              <p>{modelSettings.problem}</p>
+              <p>
+                {modelSettings.problem || modelSettings.capabilities?.reason}
+              </p>
+              <button
+                disabled={modelSettings.refreshing}
+                onClick={() =>
+                  void modelSettings.refresh(!modelSettings.serverIncompatible)
+                }
+              >
+                {modelSettings.refreshing
+                  ? "Checking…"
+                  : modelSettings.serverIncompatible
+                    ? "Check connection"
+                    : "Refresh models"}
+              </button>
               <button onClick={() => setHelp("settings")}>
                 Model settings
               </button>
             </div>
           )}
-          {failedPrompt && !busy && (
+          {failedPrompt && !busy && !modelSettings.serverIncompatible && (
             <div className="planning-feedback" role="status">
               <p>
                 Retry keeps the original settings:{" "}
@@ -908,7 +938,11 @@ export default function PlanningPanel({
               )}
               {failedRequest && (
                 <button
-                  disabled={Boolean(busy || !state.agent.available)}
+                  disabled={Boolean(
+                    busy ||
+                    !state.agent.available ||
+                    modelSettings.serverIncompatible,
+                  )}
                   onClick={() => void send(failedRequest)}
                 >
                   Retry agent reply
@@ -997,6 +1031,7 @@ export default function PlanningPanel({
                   !busy &&
                   !running &&
                   state?.agent.available &&
+                  !modelSettings.serverIncompatible &&
                   (!modelSettings.problem || retriesDraft)
                 )
                   void send();
@@ -1049,6 +1084,7 @@ export default function PlanningPanel({
               disabled={
                 !draft.trim() ||
                 !state?.agent.available ||
+                modelSettings.serverIncompatible ||
                 Boolean(modelSettings.problem && !retriesDraft) ||
                 Boolean(busy || running)
               }
@@ -1440,12 +1476,13 @@ export default function PlanningPanel({
                   : modelSettings.capabilities?.reason ||
                     "Loading the model list…"}
               </p>
-              {modelSettings.capabilities?.status !== "ready" && (
-                <p>
-                  CLI default still works. Refresh the list, or update Codex CLI
-                  if discovery remains unavailable.
-                </p>
-              )}
+              {modelSettings.capabilities?.status !== "ready" &&
+                !modelSettings.serverIncompatible && (
+                  <p>
+                    CLI default still works. Refresh the list, or update Codex
+                    CLI if discovery remains unavailable.
+                  </p>
+                )}
               {modelSettings.problem && (
                 <p role="alert">{modelSettings.problem}</p>
               )}

@@ -11,6 +11,7 @@ import {
 import { useState } from "react";
 import ModelControls, {
   MODEL_PREFERENCE_KEY,
+  PLANNING_SERVER_RESTART,
   readModelPreference,
   selectModel,
   selectionProblem,
@@ -177,4 +178,41 @@ it("does not present cached efforts as verified when catalogue discovery is unav
   ).toBe(true);
   expect(screen.queryByRole("option", { name: "medium" })).toBeNull();
   expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe("a");
+});
+
+it("blocks a missing server endpoint and preserves the selection while reconnecting", async () => {
+  const selected: ModelSelection = {
+    mode: "explicit",
+    model: "b",
+    reasoningEffort: "high",
+  };
+  localStorage.setItem(MODEL_PREFERENCE_KEY, JSON.stringify(selected));
+  vi.mocked(api).mockRejectedValueOnce(
+    Object.assign(new Error("Unknown API route."), { status: 404 }),
+  );
+  const { result } = renderHook(() => useModelSelection());
+  await waitFor(() => expect(result.current.serverIncompatible).toBe(true));
+  expect(result.current.problem).toBe(PLANNING_SERVER_RESTART);
+  expect(result.current.selection).toEqual(selected);
+  act(() => result.current.setSelection({ mode: "default" }));
+  expect(result.current.problem).toBe(PLANNING_SERVER_RESTART);
+  act(() => result.current.setSelection(selected));
+  vi.mocked(api).mockResolvedValueOnce(capabilities);
+  await act(async () => result.current.refresh(false));
+  expect(result.current.serverIncompatible).toBe(false);
+  expect(result.current.problem).toBe("");
+  expect(result.current.selection).toEqual(selected);
+});
+
+it("does not erase a confirmed server mismatch when a later check cannot connect", async () => {
+  vi.mocked(api).mockResolvedValueOnce(capabilities);
+  const { result } = renderHook(() => useModelSelection());
+  await waitFor(() =>
+    expect(result.current.capabilities?.status).toBe("ready"),
+  );
+  act(() => result.current.markServerIncompatible());
+  vi.mocked(api).mockRejectedValueOnce(new Error("Connection refused"));
+  await act(async () => result.current.refresh(false));
+  expect(result.current.serverIncompatible).toBe(true);
+  expect(result.current.problem).toBe(PLANNING_SERVER_RESTART);
 });

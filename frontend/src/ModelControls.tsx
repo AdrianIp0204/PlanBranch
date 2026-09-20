@@ -7,6 +7,16 @@ import {
 } from "./planning";
 
 export const MODEL_PREFERENCE_KEY = "flowdesk.planning-model.v1";
+export const PLANNING_SERVER_RESTART =
+  "Restart FlowDesk, then reload this window to use chat and model settings. Your draft remains here.";
+export function isLegacyPlanningServerError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "status" in error &&
+    error.status === 400 &&
+    error.message === "Unexpected fields in planning message: selection."
+  );
+}
 export function readModelPreference(): ModelSelection {
   try {
     const value = JSON.parse(
@@ -71,8 +81,22 @@ export function useModelSelection(active = true) {
     null,
   );
   const [refreshing, setRefreshing] = useState(false);
+  const [serverIncompatible, setServerIncompatible] = useState(false);
   const sequence = useRef(0);
   const alive = useRef(true);
+  function markServerIncompatible() {
+    ++sequence.current;
+    setRefreshing(false);
+    setServerIncompatible(true);
+    setCapabilities({
+      status: "unavailable",
+      source: "cli_catalogue",
+      models: [],
+      cliVersion: null,
+      fetchedAt: null,
+      reason: PLANNING_SERVER_RESTART,
+    });
+  }
   async function refresh(explicit = true) {
     const ticket = ++sequence.current;
     setRefreshing(true);
@@ -81,7 +105,8 @@ export function useModelSelection(active = true) {
         explicit ? "/planning/capabilities/refresh" : "/planning/capabilities",
         explicit ? { method: "POST", body: "{}" } : {},
       );
-      if (alive.current && ticket === sequence.current)
+      if (alive.current && ticket === sequence.current) {
+        setServerIncompatible(false);
         setCapabilities(
           result.status && Array.isArray(result.models)
             ? result
@@ -95,8 +120,18 @@ export function useModelSelection(active = true) {
                   "The model list is unavailable. CLI default is still available.",
               },
         );
+      }
     } catch (error) {
-      if (alive.current && ticket === sequence.current)
+      if (alive.current && ticket === sequence.current) {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "status" in error &&
+          error.status === 404
+        ) {
+          markServerIncompatible();
+          return;
+        }
         setCapabilities({
           status: "unavailable",
           source: "cli_catalogue",
@@ -108,6 +143,7 @@ export function useModelSelection(active = true) {
               ? error.message
               : "The model list is unavailable.",
         });
+      }
     } finally {
       if (alive.current && ticket === sequence.current) setRefreshing(false);
     }
@@ -135,7 +171,11 @@ export function useModelSelection(active = true) {
     capabilities,
     refreshing,
     refresh,
-    problem: selectionProblem(selection, capabilities),
+    serverIncompatible,
+    markServerIncompatible,
+    problem: serverIncompatible
+      ? PLANNING_SERVER_RESTART
+      : selectionProblem(selection, capabilities),
   };
 }
 export default function ModelControls({

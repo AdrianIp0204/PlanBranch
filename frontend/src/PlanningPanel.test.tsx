@@ -9,7 +9,7 @@ import {
   within,
 } from "@testing-library/react";
 import PlanningPanel from "./PlanningPanel";
-import { MODEL_PREFERENCE_KEY } from "./ModelControls";
+import { MODEL_PREFERENCE_KEY, PLANNING_SERVER_RESTART } from "./ModelControls";
 import { api } from "./api";
 import { createNode, copy, type Content } from "./types";
 import type { Session } from "./history";
@@ -812,6 +812,172 @@ function openQuestions(): QuestionSet {
     continuationRequestId: null,
   };
 }
+
+it("explains an old server inline and preserves the draft and settings through recovery", async () => {
+  const selected = {
+    mode: "explicit",
+    model: "quick",
+    reasoningEffort: "medium",
+  };
+  localStorage.setItem(MODEL_PREFERENCE_KEY, JSON.stringify(selected));
+  let restarted = false;
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path.startsWith("/planning/capabilities")) {
+      if (!restarted)
+        throw Object.assign(new Error("Unknown API route."), { status: 404 });
+      return copy(modelCatalogue);
+    }
+    return copy(state);
+  });
+  await mount();
+  await screen.findByText(PLANNING_SERVER_RESTART);
+  const composer = screen.getByLabelText("Message Codex");
+  fireEvent.change(composer, { target: { value: "Keep this unsent plan" } });
+  expect(
+    (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  fireEvent.keyDown(composer, { key: "Enter", ctrlKey: true });
+  fireEvent.keyDown(composer, { key: "Enter", metaKey: true });
+  expect(posts("/messages")).toHaveLength(0);
+  expect(flush).not.toHaveBeenCalled();
+  expect(JSON.parse(localStorage.getItem(MODEL_PREFERENCE_KEY)!)).toEqual(
+    selected,
+  );
+  restarted = true;
+  fireEvent.click(screen.getByRole("button", { name: "Check connection" }));
+  await screen.findByRole("option", { name: "Quick planner" });
+  expect(screen.queryByText(PLANNING_SERVER_RESTART)).toBeNull();
+  expect((composer as HTMLTextAreaElement).value).toBe("Keep this unsent plan");
+  expect(
+    (screen.getByLabelText("Reasoning effort") as HTMLSelectElement).value,
+  ).toBe("medium");
+  expect(posts("/messages")).toHaveLength(0);
+  fireEvent.change(screen.getByLabelText("Model"), {
+    target: { value: "careful" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(posts("/messages")).toHaveLength(1));
+  expect(
+    JSON.parse(posts("/messages")[0][1]!.body as string).selection,
+  ).toEqual({
+    mode: "explicit",
+    model: "careful",
+    reasoningEffort: "high",
+  });
+});
+
+it("handles a legacy selection rejection without dropping settings or retrying automatically", async () => {
+  withModels((path, options) => {
+    if (path.endsWith("/messages") && options?.method === "POST")
+      throw Object.assign(
+        new Error("Unexpected fields in planning message: selection."),
+        { status: 400 },
+      );
+    return copy(state);
+  });
+  await mount();
+  await screen.findByRole("option", { name: "Quick planner" });
+  fireEvent.change(screen.getByLabelText("Model"), {
+    target: { value: "quick" },
+  });
+  const composer = screen.getByLabelText("Message Codex");
+  fireEvent.change(composer, { target: { value: "Keep my message" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await screen.findByText(PLANNING_SERVER_RESTART);
+  expect((composer as HTMLTextAreaElement).value).toBe("Keep my message");
+  expect(screen.queryByText(/Retry keeps the original settings/)).toBeNull();
+  expect(screen.queryByText(/Unexpected fields/)).toBeNull();
+  expect(
+    (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  fireEvent.keyDown(composer, { key: "Enter", ctrlKey: true });
+  expect(posts("/messages")).toHaveLength(1);
+  expect(
+    JSON.parse(posts("/messages")[0][1]!.body as string).selection,
+  ).toEqual({
+    mode: "explicit",
+    model: "quick",
+    reasoningEffort: "low",
+  });
+  expect(
+    JSON.parse(sessionStorage.getItem(PLANNING_DRAFT_PREFIX + session.id)!)
+      .failedPrompt,
+  ).toBeNull();
+});
+
+it("blocks failed reply retries and new question answers against an old server", async () => {
+  state.request = {
+    id: "failed-request",
+    status: "failed",
+    text: "Make a plan",
+    diagramId: "diagram",
+    nodeId: null,
+    selection: { mode: "default" },
+  };
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path.startsWith("/planning/capabilities"))
+      throw Object.assign(new Error("Unknown API route."), { status: 404 });
+    return copy(state);
+  });
+  await mountQuestions();
+  await screen.findAllByText(PLANNING_SERVER_RESTART);
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "Retry agent reply",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  fireEvent.click(screen.getByRole("radio", { name: /SQLite/ }));
+  expect(
+    (screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  expect(posts("/messages")).toHaveLength(0);
+  expect(posts("/answers")).toHaveLength(0);
+  expect(
+    (screen.getByRole("radio", { name: /SQLite/ }) as HTMLInputElement).checked,
+  ).toBe(true);
+});
+
+it("retains an uncertain answer receipt while a mismatched server blocks its retry", async () => {
+  withModels((path, options) => {
+    if (path.endsWith("/answers") && options?.method === "POST")
+      throw new Error("Answer acknowledgement lost");
+    return copy(state);
+  });
+  const view = await mountQuestions();
+  fireEvent.click(screen.getByRole("radio", { name: /SQLite/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  await screen.findByText("Answer acknowledgement lost");
+  const original = posts("/answers")[0][1]!.body;
+  view.unmount();
+  let restarted = false;
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path.startsWith("/planning/capabilities")) {
+      if (!restarted)
+        throw Object.assign(new Error("Unknown API route."), { status: 404 });
+      return copy(modelCatalogue);
+    }
+    return copy(state);
+  });
+  render(<PlanningPanel {...props()} />);
+  await screen.findAllByText(PLANNING_SERVER_RESTART);
+  const retry = screen.getByRole("button", { name: "Retry answers" });
+  expect((retry as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(retry);
+  expect(posts("/answers")).toHaveLength(1);
+  restarted = true;
+  fireEvent.click(screen.getByRole("button", { name: "Check connection" }));
+  await waitFor(() =>
+    expect((retry as HTMLButtonElement).disabled).toBe(false),
+  );
+  fireEvent.click(retry);
+  await waitFor(() => expect(posts("/answers")).toHaveLength(2));
+  expect(posts("/answers")[1][1]!.body).toBe(original);
+});
 async function mountQuestions() {
   state.questionSets = [openQuestions()];
   const view = render(<PlanningPanel {...props()} />);
