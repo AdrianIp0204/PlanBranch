@@ -18,7 +18,7 @@ import {
   type Session,
 } from "./history";
 import { copy, type Content, type Envelope, type Viewport } from "./types";
-type Store = {
+export type Store = {
   session: Session;
   change: (
     edit: (c: Content) => void,
@@ -38,7 +38,7 @@ type Store = {
   saveStatus: string;
   saveError: string;
 };
-const Context = createContext<Store | null>(null);
+export const StoreContext = createContext<Store | null>(null);
 export function ProjectProvider({
   envelope,
   children,
@@ -121,10 +121,12 @@ export function ProjectProvider({
     }),
     [session, saveStatus, saveError, queue],
   );
-  return <Context.Provider value={value}>{children}</Context.Provider>;
+  return (
+    <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
+  );
 }
 export function useProject() {
-  const value = useContext(Context);
+  const value = useContext(StoreContext);
   if (!value) throw new Error("No project is open.");
   return value;
 }

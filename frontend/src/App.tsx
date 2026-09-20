@@ -6,7 +6,7 @@ import {
   useState,
 } from "react";
 import type { ReactFlowInstance } from "@xyflow/react";
-import { api, bootstrap, download, post } from "./api";
+import { api, ApiError, bootstrap, download, post } from "./api";
 import { ProjectProvider, useProject } from "./store";
 import {
   copy,
@@ -15,6 +15,7 @@ import {
   statuses,
   uid,
   type Content,
+  type Diagram,
   type DetectedSymbol,
   type Envelope,
   type NodeKind,
@@ -26,6 +27,15 @@ import {
 import Canvas, { type FlowNode } from "./Canvas";
 import Inspector from "./Inspector";
 import PlanningPanel from "./PlanningPanel";
+import ProposalWorkspace, {
+  type ProposalLeaveGuard,
+} from "./ProposalWorkspace";
+import {
+  samePlan,
+  type PlanningState,
+  type ProposalDetail,
+  type ProposalRevision,
+} from "./planning";
 import VariablePanel from "./VariablePanel";
 import { Dialog, Empty, ErrorMessage, Field, StatusMark } from "./ui";
 import { useLayout, ResizeHandle, clamp, focusAfterLayout } from "./layout";
@@ -324,6 +334,32 @@ function Workbench({
   const planning = layout.sidePanel === "planning";
   const [planningVisited, setPlanningVisited] = useState(planning);
   const [commentFocus, setCommentFocus] = useState(0);
+  const [proposalPreview, setProposalPreview] = useState<ProposalDetail | null>(
+    null,
+  );
+  const [planningSnapshot, setPlanningSnapshot] =
+    useState<PlanningState | null>(null);
+  const [proposalRevision, setProposalRevision] =
+    useState<ProposalRevision | null>(null);
+  const [planningRefresh, setPlanningRefresh] = useState(0);
+  const [uncertainApply, setUncertainApply] = useState<{
+    proposalId: string;
+    mutationId: string;
+    candidate?: Diagram;
+    contentHash: string;
+  } | null>(null);
+  const proposalPreviewRef = useRef(proposalPreview);
+  proposalPreviewRef.current = proposalPreview;
+  const proposalLeaveGuard = useRef<ProposalLeaveGuard | null>(null);
+  const registerProposalLeaveGuard = useCallback(
+    (guard: ProposalLeaveGuard | null) => {
+      proposalLeaveGuard.current = guard;
+    },
+    [],
+  );
+  const previewSequence = useRef(0);
+  const seenProposals = useRef(new Set<string>());
+  const previewMutation = useRef<{ key: string; id: string } | null>(null);
   const [focusPane, setFocusPane] = useState<"canvas" | "dock">(
     layout.inspectorOpen && planning ? "dock" : "canvas",
   );
@@ -399,14 +435,148 @@ function Workbench({
     setInspector(true);
     if (comments) setCommentFocus((value) => value + 1);
   };
-  const acceptProposal = async (proposalId: string, mutationId: string) => {
+  const acceptProposal = async (
+    proposalId: string,
+    mutationId: string,
+    candidate?: Diagram,
+    contentHash?: string,
+  ) => {
     await synchronize(async (snapshot) => {
       const result = await post<{ project: Envelope }>(
         `/projects/${snapshot.id}/planning/proposals/${proposalId}/accept`,
-        { baseRevision: snapshot.revision, mutationId },
+        {
+          baseRevision: snapshot.revision,
+          mutationId,
+          ...(candidate ? { diagram: candidate } : {}),
+          ...(contentHash ? { contentHash } : {}),
+        },
       );
       return result.project;
     });
+  };
+  const previewProposal = useCallback(
+    async (proposalId: string) => {
+      const ticket = ++previewSequence.current;
+      // Selecting the open proposal only focuses it; never reset its draft or receipt.
+      if (proposalPreviewRef.current?.proposal.id === proposalId) {
+        setFocusPane("canvas");
+        return;
+      }
+      try {
+        const detail = await api<ProposalDetail>(
+          `/projects/${session.id}/planning/proposals/${proposalId}`,
+        );
+        if (ticket !== previewSequence.current) return;
+        // Fetches can finish after a manual edit or while Apply is in flight.
+        // Consult the current workspace immediately before replacing it.
+        if (
+          proposalPreviewRef.current &&
+          proposalLeaveGuard.current &&
+          !proposalLeaveGuard.current()
+        )
+          return;
+        setProposalPreview(detail);
+        setFocusPane("canvas");
+        setNarrowNavigationOpen(false);
+        previewMutation.current = null;
+      } catch (err) {
+        if (ticket === previewSequence.current)
+          setError((err as Error).message);
+      }
+    },
+    [session.id],
+  );
+  useEffect(() => {
+    const latest = planningSnapshot?.proposals
+      .slice()
+      .reverse()
+      .find((p) => p.state === "pending");
+    const unseen = latest && !seenProposals.current.has(latest.id);
+    planningSnapshot?.proposals.forEach((p) => seenProposals.current.add(p.id));
+    if (latest && unseen) {
+      void previewProposal(latest.id);
+    }
+  }, [planningSnapshot, previewProposal]);
+  const closeProposal = () => {
+    ++previewSequence.current;
+    setProposalPreview(null);
+    setFocusPane("canvas");
+  };
+  const currentProposal =
+    proposalPreview &&
+    planningSnapshot?.proposals.find(
+      (p) => p.id === proposalPreview.proposal.id,
+    );
+  const proposalStale = Boolean(
+    proposalPreview &&
+    ((currentProposal ?? proposalPreview.proposal).state !== "pending" ||
+      (proposalPreview.baseContent &&
+        !samePlan(proposalPreview.baseContent, session.content))),
+  );
+  const applyPreview = async (candidate?: Diagram) => {
+    if (!proposalPreview) return;
+    const key = JSON.stringify({
+      id: proposalPreview.proposal.id,
+      candidate,
+      contentHash: proposalPreview.contentHash,
+    });
+    if (previewMutation.current?.key !== key)
+      previewMutation.current = { key, id: uid() };
+    // A lost response may already have committed. Replay that exact receipt,
+    // even if refreshing chat now reports the proposal as accepted.
+    const receipt =
+      uncertainApply?.proposalId === proposalPreview.proposal.id
+        ? uncertainApply
+        : {
+            proposalId: proposalPreview.proposal.id,
+            mutationId: previewMutation.current.id,
+            candidate: candidate ? copy(candidate) : undefined,
+            contentHash: proposalPreview.contentHash,
+          };
+    try {
+      await acceptProposal(
+        receipt.proposalId,
+        receipt.mutationId,
+        receipt.candidate,
+        receipt.contentHash,
+      );
+    } catch (err) {
+      setUncertainApply(
+        err instanceof ApiError && err.status >= 400 && err.status < 500
+          ? null
+          : receipt,
+      );
+      throw err;
+    }
+    setUncertainApply(null);
+    setActive(proposalPreview.proposal.diagramId);
+    setSelected(null);
+    previewMutation.current = null;
+    closeProposal();
+    setPlanningRefresh((v) => v + 1);
+    setNotice("Changes applied. Undo restores the previous plan.");
+  };
+  const discardPreview = async () => {
+    if (!proposalPreview) return;
+    const key = `discard:${proposalPreview.proposal.id}`;
+    if (previewMutation.current?.key !== key)
+      previewMutation.current = { key, id: uid() };
+    await post(
+      `/projects/${session.id}/planning/proposals/${proposalPreview.proposal.id}/reject`,
+      { mutationId: previewMutation.current.id },
+    );
+    closeProposal();
+    setPlanningRefresh((v) => v + 1);
+  };
+  const revisePreview = (candidate: Diagram) => {
+    if (!proposalPreview) return;
+    setProposalRevision({
+      proposalId: proposalPreview.proposal.id,
+      title: proposalPreview.proposal.title,
+      diagram: candidate,
+      nonce: uid(),
+    });
+    openPlanning();
   };
   const openSource = () => {
     setScanDialog(true);
@@ -572,6 +742,7 @@ function Workbench({
   };
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
+      if (proposalPreview) return;
       const target = e.target as HTMLElement;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
@@ -592,6 +763,7 @@ function Workbench({
     return () => window.removeEventListener("keydown", key);
   });
   const addNode = (kind: NodeKind) => {
+    if (proposalPreview) return;
     if (!diagram) return;
     const canvas = canvasRef.current?.getBoundingClientRect();
     const center = instance.current?.screenToFlowPosition({
@@ -679,7 +851,7 @@ function Workbench({
   };
   return (
     <div
-      className={`workspace ${navigation ? "" : "navigation-closed"} ${inspector ? "" : "inspector-closed"} ${stacked ? "compact-workspace" : ""} ${focusPane === "dock" && inspector ? "focus-dock" : "focus-canvas"}`}
+      className={`workspace ${navigation && !proposalPreview ? "" : "navigation-closed"} ${inspector ? "" : "inspector-closed"} ${stacked ? "compact-workspace" : ""} ${focusPane === "dock" && inspector ? "focus-dock" : "focus-canvas"}`}
       onKeyDown={preserveDisclosureKeys}
       onKeyUp={preserveDisclosureKeys}
       style={
@@ -696,6 +868,7 @@ function Workbench({
       <header className="topbar">
         <button
           id="toggle-navigation"
+          disabled={Boolean(proposalPreview)}
           className="icon-button navigation-toggle"
           aria-label="Toggle navigation"
           title="Projects and diagrams"
@@ -716,6 +889,7 @@ function Workbench({
         <div className="breadcrumb" aria-label="Current project and diagram">
           <button
             className="quiet"
+            disabled={Boolean(proposalPreview)}
             onClick={() => {
               select(null);
               preference("sidePanel", "inspector");
@@ -753,8 +927,9 @@ function Workbench({
           <button
             className="icon-button"
             disabled={
-              !session.pending &&
-              historyIndex <= Math.max(0, session.history.length - 101)
+              Boolean(proposalPreview) ||
+              (!session.pending &&
+                historyIndex <= Math.max(0, session.history.length - 101))
             }
             title={`Undo ${session.pending?.label ?? session.history[historyIndex]?.label ?? ""}`}
             aria-label="Undo"
@@ -765,7 +940,9 @@ function Workbench({
           <button
             className="icon-button"
             disabled={
-              !!session.pending || historyIndex === session.history.length - 1
+              Boolean(proposalPreview) ||
+              !!session.pending ||
+              historyIndex === session.history.length - 1
             }
             title={`Redo ${session.history[historyIndex + 1]?.label ?? ""}`}
             aria-label="Redo"
@@ -774,7 +951,11 @@ function Workbench({
             ↷
           </button>
         </div>
-        <button className="quiet" onClick={() => void flush()}>
+        <button
+          className="quiet"
+          disabled={Boolean(proposalPreview)}
+          onClick={() => void flush()}
+        >
           Save
         </button>
         <button onClick={openSource}>
@@ -932,7 +1113,7 @@ function Workbench({
           </div>
         </details>
       </header>
-      {navigation && (
+      {navigation && !proposalPreview && (
         <aside
           className="sidebar"
           id="workspace-navigation"
@@ -1061,8 +1242,35 @@ function Workbench({
         </aside>
       )}
       <div className="work-area">
+        {proposalPreview && (
+          <main
+            className="main-workspace proposal-host"
+            onFocusCapture={() => setFocusPane("canvas")}
+            onPointerDownCapture={() => setFocusPane("canvas")}
+            inert={stacked && focusPane === "dock" && inspector}
+            aria-hidden={
+              stacked && focusPane === "dock" && inspector ? true : undefined
+            }
+          >
+            <ProposalWorkspace
+              key={proposalPreview.proposal.id + proposalPreview.contentHash}
+              detail={proposalPreview}
+              projectId={session.id}
+              stale={proposalStale}
+              retryingApply={
+                uncertainApply?.proposalId === proposalPreview.proposal.id
+              }
+              onApply={applyPreview}
+              onRevise={revisePreview}
+              onDiscard={discardPreview}
+              onClose={closeProposal}
+              onRegisterLeaveGuard={registerProposalLeaveGuard}
+            />
+          </main>
+        )}
         <main
           className="main-workspace"
+          style={proposalPreview ? { display: "none" } : undefined}
           onFocusCapture={() => setFocusPane("canvas")}
           onPointerDownCapture={() => setFocusPane("canvas")}
           ref={mainRef}
@@ -1323,7 +1531,7 @@ function Workbench({
             </button>
           )}
         </main>
-        {inspector && diagram && (
+        {inspector && diagram && (!proposalPreview || planning) && (
           <>
             <ResizeHandle
               label={planning ? "Resize planning chat" : "Resize inspector"}
@@ -1400,6 +1608,10 @@ function Workbench({
               composerHeight={layout.composerHeight}
               onComposerResize={(value) => preference("composerHeight", value)}
               focusComments={commentFocus}
+              refreshKey={planningRefresh}
+              onState={setPlanningSnapshot}
+              onPreview={previewProposal}
+              revisionRequest={proposalRevision}
               onReveal={reveal}
               onApply={acceptProposal}
               onClose={closeInspector}

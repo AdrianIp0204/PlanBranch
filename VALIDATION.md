@@ -1,5 +1,29 @@
 # FlowDesk validation
 
+## Visual proposal review — 20 September 2026
+
+Agent proposals now open on an isolated canvas with Before/Proposed views and explicit added, changed, and removed markers. Users can apply the candidate, ask Codex to revise it, edit nodes/connections and metadata manually, or discard it with confirmation. The saved plan remains unchanged until Apply; applying produces one durable undo action. Draft selection, viewport, and local undo do not enter project history. Unapplied manual drafts recover best-effort from this tab's session storage, with a leave/switch guard if storage fails.
+
+| Check | Windows result |
+| --- | --- |
+| Backend | 280 passed, 2 platform skips |
+| Frontend | 108 passed |
+| Production build | Passed |
+| Release wheel and fresh offline installation | Passed; 26 application/resource files match source and build bytes |
+| Installed-package browser suite | 45 passing runner results (42 scenarios), no failures |
+
+All automated applications use disposable databases, random ports, temporary Python sources, and separate browser profiles. All 26 browser fixture records report zero runtime errors and zero external HTTP requests. Coverage includes candidate-only editing, draft reload recovery, manual title/node/connection changes, Before/Proposed comparison, one-step apply/undo, discard isolation, stale conflicts, revision context, and narrow-window/actual 200% zoom access. The existing catalogue, scanning, durable history, model/reasoning selection, structured questions, approval, save recovery, and full-diagram PNG checks also pass.
+
+Recovery regressions cover an Apply that commits but loses its response, followed by a planning refresh showing Accepted: Retry apply replays the original receipt and synchronizes without a duplicate action. Changing the model after a failed revision retains the manually edited candidate. Browser draft validation accepts the backend's 5,000-node, 10,000-edge and 128-character-ID limits. Proposal switching cannot silently lose edits when storage fails or an Apply is unresolved. An existing chat layout fixture now explicitly selects Chat after zoom switches the workspace into its compact Canvas/Chat view; its layout assertions remain intact.
+
+The backend exposes immutable proposal content, its available original snapshot and a content hash. Manual application is limited to the target diagram's nodes/edges; current unrelated content and surviving manual links are preserved. Candidate revision context survives retry and clarification continuation. New requests use packaged `planner-v3.md`; old frozen instruction versions remain supported. This pass adds no dependency or schema migration.
+
+Logs: `output/proposal-frontend-final.log`, `proposal-production-final.log`, `proposal-release-final.log`, and `proposal-browser-final.log`. Package/source receipts are in `output/proposal-package.json`; browser records are collected in `output/proposal-browser-evidence.json`. The final wheel and installation are under `output/proposal-release-9h1sm6ut`. An isolated release directory was used after the Windows sandbox account became unavailable and its earlier generated package files were inaccessible; application sources and final artifacts were compared byte for byte.
+
+Final captures include `output/playwright/proposal-workspace-jrOg8g`, `proposal-responsive-8IgtWU` (1280 × 800, 1440 × 900, narrow view and genuine 200% zoom), `agent-workspace-after-6llH5V`, and `ux-after-fsHbUd`. Generated artifacts remain outside Git. The build retains Vite's advisory about a JavaScript chunk larger than 500 KB.
+
+After verification, the existing idle local service was backed up and restarted with the same data directory. Hashes confirmed all 23 existing data tables were unchanged. The user's existing 10-node/12-connection proposal now displays in both open browsers; no proposal was applied or discarded, and the Chrome composer draft was preserved. No live model request was sent. Agent-generation tests use the deterministic test provider, so real generation under the new revision instructions remains unverified. Linux, other browser engines, screen readers, and touch input were not rerun for this pass. The original brief's SHA-256 remains `A45D6A4ACAE38EB65981322D700D8365EC7499EE0B631163C029C8F79063027E`. No push or publication was performed.
+
 ## Chat/server compatibility fix — 20 September 2026
 
 The reported `Unexpected fields in planning message: selection.` failure came from new frontend assets served by an older, still-running Python process. Its model catalogue endpoint returned 404. Chat now distinguishes this mismatch from ordinary CLI catalogue discovery failure, shows restart/reload guidance, and blocks message, retry, keyboard, and question-answer submissions while incompatible. A legacy validation rejection enters the same recovery state without silently dropping settings or resending. Ordinary discovery failure still permits CLI default. Drafts, preferences, and uncertain answer receipts are preserved.

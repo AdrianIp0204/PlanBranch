@@ -143,10 +143,16 @@ def create_app(data_dir=None, *, testing=False, planner=None):
         filename = Path(store.backup()).name
         return jsonify(filename=filename)
 
-    def planning_body():
-        if len(request.get_data(cache=True)) > 65536:
+    def planning_body(*, diagram_field=None):
+        raw = request.get_data(cache=True)
+        if diagram_field is not None and len(raw) > 2_000_000 + 65536:
+            raise ValidationError("Proposal requests must be smaller than 2 MB plus message metadata.")
+        if diagram_field is None and len(raw) > 65536:
             raise ValidationError("Planning requests must be smaller than 64 KB.")
-        return body()
+        data = body()
+        if diagram_field is not None and diagram_field not in data and len(raw) > 65536:
+            raise ValidationError("Planning requests must be smaller than 64 KB.")
+        return data
 
     @app.get("/api/planning/capabilities")
     def planning_capabilities():
@@ -162,7 +168,7 @@ def create_app(data_dir=None, *, testing=False, planner=None):
 
     @app.post("/api/projects/<project_id>/planning/messages")
     def planning_message(project_id):
-        return jsonify(planning.send_message(project_id, planning_body())), 202
+        return jsonify(planning.send_message(project_id, planning_body(diagram_field="proposalDiagram"))), 202
 
     @app.post("/api/projects/<project_id>/planning/questions/<set_id>/answers")
     def planning_answers(project_id, set_id):
@@ -176,9 +182,13 @@ def create_app(data_dir=None, *, testing=False, planner=None):
     def planning_comment_resolution(project_id, comment_id):
         return jsonify(planning.resolve_comment(project_id, comment_id, planning_body()))
 
+    @app.get("/api/projects/<project_id>/planning/proposals/<proposal_id>")
+    def planning_proposal_detail(project_id, proposal_id):
+        return jsonify(planning.proposal_detail(project_id, proposal_id))
+
     @app.post("/api/projects/<project_id>/planning/proposals/<proposal_id>/accept")
     def accept_planning_proposal(project_id, proposal_id):
-        return jsonify(planning.accept(project_id, proposal_id, planning_body()))
+        return jsonify(planning.accept(project_id, proposal_id, planning_body(diagram_field="diagram")))
 
     @app.post("/api/projects/<project_id>/planning/proposals/<proposal_id>/reject")
     def reject_planning_proposal(project_id, proposal_id):

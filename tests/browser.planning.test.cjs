@@ -77,7 +77,8 @@ test(
     );
     assert.ok(await item.getByText("Before", { exact: true }).count());
     assert.ok(await item.getByText("After", { exact: true }).count());
-    await item.getByRole("button", { name: "Reject changes" }).click();
+    await item.getByRole("button", { name: "Review on canvas" }).click();
+    await p.getByRole("button", { name: "Discard", exact: true }).click();
     await item.getByText("Rejected", { exact: true }).waitFor();
     assert.deepEqual((await h.api(url)).content, original.content);
     assert.equal(await p.evaluate(() => window.fixtureInjected), undefined);
@@ -120,9 +121,22 @@ test(
         await route.abort("failed");
       } else await route.continue();
     });
-    await next.getByRole("button", { name: "Accept changes" }).click();
-    await planning(p).getByRole("alert").waitFor();
-    await next.getByRole("button", { name: "Accept changes" }).click();
+    await next.getByRole("button", { name: "Review on canvas" }).click();
+    await p.getByRole("button", { name: "Apply changes", exact: true }).click();
+    await p
+      .getByRole("region", { name: "Proposed changes workspace" })
+      .getByRole("alert")
+      .waitFor();
+    // Refresh planning state after the committed response was lost. The receipt
+    // must remain retryable even when the proposal now reports Accepted.
+    await p
+      .getByRole("button", { name: "Close planning conversation", exact: true })
+      .click();
+    await p
+      .getByRole("button", { name: "Toggle planning chat", exact: true })
+      .click();
+    await next.getByText("Accepted", { exact: true }).waitFor();
+    await p.getByRole("button", { name: "Retry apply", exact: true }).click();
     await p.unroute(acceptRoute);
     await next.getByText("Accepted", { exact: true }).waitFor();
     await h.saved();
@@ -199,9 +213,12 @@ test(
       (await h.api(`/projects/${h.initial.id}`)).content,
       latest.content,
     );
-    await item
-      .getByRole("button", { name: "Request updated proposal" })
-      .click();
+    await item.getByRole("button", { name: "Review on canvas" }).click();
+    await p.getByRole("button", { name: "Ask Codex", exact: true }).click();
+    await p.getByRole("button", { name: "Back to plan", exact: true }).click();
+    await p
+      .getByLabel("Message Codex", { exact: true })
+      .fill("Please update your proposal to preserve my current plan.");
     assert.match(
       await p.getByLabel("Message Codex", { exact: true }).inputValue(),
       /update your proposal/,
@@ -233,7 +250,8 @@ test(
     await p.getByRole("button", { name: "Send", exact: true }).click();
     await settled(h);
     const updated = await proposal(p);
-    await updated.getByRole("button", { name: "Reject changes" }).click();
+    await updated.getByRole("button", { name: "Review on canvas" }).click();
+    await p.getByRole("button", { name: "Discard", exact: true }).click();
     await updated.getByText("Rejected", { exact: true }).waitFor();
   },
 );

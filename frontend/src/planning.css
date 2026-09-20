@@ -690,3 +690,18 @@
   white-space: normal;
   line-height: 1.3;
 }
+.planning-revision-context {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  font-size: 13px;
+  min-width: 0;
+}
+.planning-revision-context > span {
+  flex: 1;
+  min-width: 0;
+  max-height: 3em;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}

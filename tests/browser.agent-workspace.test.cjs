@@ -34,6 +34,13 @@ async function openChat(p) {
   await until(
     async () => !(await panel(p).getByText("Loading conversation…").count()),
   );
+  const back = p.getByRole("button", { name: "Back to plan", exact: true });
+  if (await back.isVisible()) await back.click();
+  if (!(await panel(p).isVisible()))
+    await p
+      .getByRole("button", { name: "Toggle planning chat", exact: true })
+      .click();
+  await conversation(p).click();
 }
 async function request(h, text) {
   const envelope = await h.api("/projects/" + h.initial.id);
@@ -113,7 +120,7 @@ async function compactCommentsAndChanges(h, nodeId, label) {
   await review(p).click();
   await p.locator("#planning-view-review").waitFor();
   const accept = p
-    .getByRole("button", { name: "Accept changes", exact: true })
+    .getByRole("button", { name: "Review on canvas", exact: true })
     .first();
   await accept.focus();
   await p.evaluate(
@@ -125,7 +132,7 @@ async function compactCommentsAndChanges(h, nodeId, label) {
   assert.equal(
     await accept.evaluate((el) => document.activeElement === el),
     true,
-    "Native focus reaches Accept",
+    "Native focus reaches visual review",
   );
   await p.screenshot({
     path: path.join(h.output, `${mode}-${label}-changes-focused.png`),
@@ -134,11 +141,11 @@ async function compactCommentsAndChanges(h, nodeId, label) {
   await p.keyboard.press("Tab");
   assert.equal(
     await p
-      .getByRole("button", { name: "Reject changes", exact: true })
+      .locator(".planning-change-details > summary")
       .first()
       .evaluate((el) => document.activeElement === el),
     true,
-    "Proposal actions remain adjacent in keyboard order",
+    "Text details follow the visual review action in keyboard order",
   );
   await p.screenshot({
     path: path.join(h.output, `${mode}-${label}-changes.png`),
@@ -313,6 +320,8 @@ test(
       await openChat(zoomed.page);
       const factor = await setZoom(2);
       assert.equal(factor, 2);
+      // Closing the proposal returns to Canvas; select Chat in the compact view.
+      await openChat(zoomed.page);
       const value = await measure(zoomed.page);
       measurements.zoom200 = value;
       assert.equal(value.viewport.width, 640);

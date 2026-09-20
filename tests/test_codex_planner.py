@@ -263,11 +263,43 @@ def test_configure_freezes_packaged_policy_and_pair(ready):
     import hashlib
     config = ready.configure({"mode": "explicit", "model": "quick-model", "reasoningEffort": "high"})
     assert config["selection"] == {"mode": "explicit", "model": "quick-model", "reasoningEffort": "high"}
-    assert config["protocolVersion"] == 2 and config["instructionVersion"] == "planner-v2"
+    assert config["protocolVersion"] == 2 and config["instructionVersion"] == "planner-v3"
     assert config["cliVersion"] == "0.144.1"
     assert config["instructionHash"] == hashlib.sha256(config["instructions"].encode()).hexdigest()
     assert "Never execute the plan" in config["instructions"]
     assert "already specified language" in config["instructions"]
+    assert "reviewProposal.diagram" in config["instructions"]
+    assert "Preserve the current manual edits" in config["instructions"]
+
+
+def test_frozen_v2_policy_is_still_supported(ready, context, monkeypatch):
+    import hashlib
+    instructions = adapter.instruction_resource("planner-v2")
+    context["generation"] = {**ready.configure({"mode": "default"}), "instructionVersion": "planner-v2",
+                             "instructions": instructions, "instructionHash": hashlib.sha256(instructions.encode()).hexdigest()}
+    def run(args, **kwargs):
+        assert 'developer_instructions=' + json.dumps(instructions, ensure_ascii=False) in args
+        kwargs["output_path"].write_text(json.dumps({"protocolVersion": 2, "kind": "reply", "message": "Ready",
+                                                  "questions": [], "proposal": None}), encoding="utf-8")
+        return adapter._Result(0, b"", b"")
+    monkeypatch.setattr(adapter, "_run", run)
+    assert ready.generate(context)["kind"] == "reply"
+
+
+def test_review_candidate_crosses_only_the_context_boundary(ready, context, monkeypatch):
+    context["generation"] = ready.configure({"mode": "default"})
+    review = {"id": "proposal-1", "title": "Review candidate", "summary": "Retain manual edits",
+              "diagram": context["content"]["diagrams"][0], "stale": True}
+    context["reviewProposal"] = review
+    def run(args, **kwargs):
+        data = json.loads(kwargs["prompt"].split(b"\n", 1)[1])
+        assert data["reviewProposal"] == review
+        assert "Retain manual edits" not in str(args)
+        kwargs["output_path"].write_text(json.dumps({"protocolVersion": 2, "kind": "reply", "message": "Ready",
+                                                  "questions": [], "proposal": None}), encoding="utf-8")
+        return adapter._Result(0, b"", b"")
+    monkeypatch.setattr(adapter, "_run", run)
+    assert ready.generate(context)["kind"] == "reply"
 
 
 @pytest.mark.parametrize("selection,reason", [

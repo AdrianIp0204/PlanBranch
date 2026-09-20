@@ -92,8 +92,9 @@ CONFIG_OVERRIDES = (
     'notify=[]', 'history.persistence="none"', 'analytics.enabled=false',
     'feedback.enabled=false', 'check_for_update_on_startup=false',
 )
-INSTRUCTION_VERSION = "planner-v2"
+INSTRUCTION_VERSION = "planner-v3"
 PROTOCOL_VERSION = 2
+INSTRUCTION_PROTOCOLS = {"planner-v1": 1, "planner-v2": 2, "planner-v3": 2}
 
 
 def instruction_resource(version=None):
@@ -127,7 +128,8 @@ def validate_generation(generation):
     fields = {"selection", "cliVersion", "instructionVersion", "instructionHash", "instructions", "protocolVersion"}
     if (set(generation) != fields or type(generation.get("protocolVersion")) is not int
             or generation["protocolVersion"] not in OUTPUT_SCHEMAS
-            or generation.get("instructionVersion") != f"planner-v{generation['protocolVersion']}"):
+            or not isinstance(generation.get("instructionVersion"), str)
+            or INSTRUCTION_PROTOCOLS.get(generation["instructionVersion"]) != generation["protocolVersion"]):
         raise CodexPlannerError("This message's planning contract is no longer supported. Send it as a new message.")
     if not isinstance(generation.get("selection"), dict):
         raise CodexPlannerError("This message has an invalid saved model selection. Send it as a new message.")
@@ -373,7 +375,7 @@ class CodexPlanner:
         try:
             # Only these explicit manual-context fields cross the provider boundary.
             fields = ("content", "activeDiagramId", "nodeId", "messages", "comments",
-                      "omittedMessageCount", "omittedResolvedCommentCount", "questionSets")
+                      "omittedMessageCount", "omittedResolvedCommentCount", "questionSets", "reviewProposal")
             payload = {key: context[key] for key in fields if key in context}
             encoded = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
         except (TypeError, ValueError, RecursionError):

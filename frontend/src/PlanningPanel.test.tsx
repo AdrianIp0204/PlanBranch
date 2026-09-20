@@ -101,6 +101,124 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it("sends the reviewed candidate and retains its exact revision context after an uncertain response and reload", async () => {
+  let calls = 0;
+  withModels((path, options) => {
+    if (
+      path.endsWith("/messages") &&
+      options?.method === "POST" &&
+      ++calls === 1
+    )
+      throw new Error("Reply connection lost");
+    return copy(state);
+  });
+  const diagram = copy(session.content.diagrams[0]);
+  diagram.nodes[0].title = "Manual candidate";
+  const revision = {
+    proposalId: "proposal",
+    title: "Candidate plan",
+    diagram,
+    nonce: "revision-1",
+  };
+  const view = render(
+    <PlanningPanel {...props()} revisionRequest={revision} />,
+  );
+  await screen.findByText("Candidate plan");
+  fireEvent.change(screen.getByLabelText("Message Codex"), {
+    target: { value: "Keep my title and refine the description" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await screen.findByText("Reply connection lost");
+  const captured = JSON.parse(posts("/messages")[0][1]!.body as string);
+  expect(captured).toMatchObject({
+    proposalId: "proposal",
+    proposalDiagram: diagram,
+    nodeId: null,
+  });
+  expect(session.content.diagrams[0].nodes[0].title).toBe("Validate the input");
+  view.unmount();
+  render(<PlanningPanel {...props()} />);
+  await screen.findByText("Candidate plan");
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(posts("/messages")).toHaveLength(2));
+  expect(JSON.parse(posts("/messages")[1][1]!.body as string)).toEqual(
+    captured,
+  );
+});
+
+it("keeps a failed revision candidate when trying another model with a fresh request", async () => {
+  withModels();
+  const candidate = copy(session.content.diagrams[0]);
+  candidate.nodes[0].title = "My manually refined candidate";
+  candidate.nodes[0].notes = "Keep the changes from the preview";
+  state.request = {
+    id: "failed-revision",
+    status: "failed",
+    text: "Clarify the next step",
+    diagramId: "diagram",
+    payload: {
+      mutationId: "failed-revision",
+      text: "Clarify the next step",
+      diagramId: "diagram",
+      nodeId: null,
+      selection: { mode: "explicit", model: "quick", reasoningEffort: "low" },
+      proposalId: "original-proposal",
+      proposalDiagram: candidate,
+    },
+  };
+  await mount();
+  await screen.findByRole("option", { name: "Careful planner" });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Try with another model" }),
+  );
+  expect(screen.getByText("Reviewed proposal")).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Model"), {
+    target: { value: "careful" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(posts("/messages")).toHaveLength(1));
+  const request = JSON.parse(posts("/messages")[0][1]!.body as string);
+  expect(request).toMatchObject({
+    text: "Clarify the next step",
+    proposalId: "original-proposal",
+    proposalDiagram: candidate,
+    nodeId: null,
+    selection: { mode: "explicit", model: "careful", reasoningEffort: "high" },
+  });
+  expect(request.mutationId).not.toBe("failed-revision");
+  expect(session.content.diagrams[0].nodes[0].title).toBe("Validate the input");
+});
+
+it("cancels proposal context without deleting the user's message", async () => {
+  withModels();
+  render(
+    <PlanningPanel
+      {...props()}
+      revisionRequest={{
+        proposalId: "proposal",
+        title: "Candidate plan",
+        diagram: copy(session.content.diagrams[0]),
+        nonce: "revision-2",
+      }}
+    />,
+  );
+  await screen.findByText("Candidate plan");
+  fireEvent.change(screen.getByLabelText("Message Codex"), {
+    target: { value: "A different direction" },
+  });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Cancel proposal revision" }),
+  );
+  expect(
+    (screen.getByLabelText("Message Codex") as HTMLTextAreaElement).value,
+  ).toBe("A different direction");
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(posts("/messages")).toHaveLength(1));
+  expect(
+    JSON.parse(posts("/messages")[0][1]!.body as string).proposalId,
+  ).toBeUndefined();
+});
+
 describe("planning conversation", () => {
   it("preserves unsent text when saving fails and uses a fresh saved revision for approval", async () => {
     await mount();

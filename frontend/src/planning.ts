@@ -2,6 +2,7 @@ import {
   nodeKinds,
   statuses,
   type Content,
+  type Diagram,
   type NodeKind,
   type Status,
 } from "./types";
@@ -132,6 +133,18 @@ export type PlanProposal = {
   createdAt: string;
   changes: ProposedChange[];
 };
+export type ProposalDetail = {
+  proposal: PlanProposal;
+  content: Content;
+  baseContent: Content | null;
+  contentHash: string;
+};
+export type ProposalRevision = {
+  proposalId: string;
+  title: string;
+  diagram: Diagram;
+  nonce: string;
+};
 export type PlanningState = {
   agent: { available: boolean; label: string; reason?: string };
   messages: PlanningMessage[];
@@ -165,6 +178,8 @@ export type PlanningPrompt = {
   diagramId: string;
   nodeId: string | null;
   selection?: ModelSelection;
+  proposalId?: string;
+  proposalDiagram?: Diagram;
 };
 
 export const reviewFieldLabel = (field: string) =>
@@ -354,7 +369,68 @@ export type PlanningDrafts = {
   failedPrompt: PlanningPrompt | null;
   questionDrafts?: QuestionDrafts;
   failedAnswer?: AnswerSubmission | null;
+  revision?: ProposalRevision | null;
 };
+
+function storedDiagram(value: unknown): value is Diagram {
+  if (
+    !record(value) ||
+    typeof value.id !== "string" ||
+    typeof value.name !== "string" ||
+    !Array.isArray(value.nodes) ||
+    !Array.isArray(value.edges)
+  )
+    return false;
+  return (
+    value.nodes.every(
+      (node: unknown) =>
+        record(node) &&
+        typeof node.id === "string" &&
+        [
+          "title",
+          "description",
+          "notes",
+          "pseudocode",
+          "targetFile",
+          "targetScope",
+          "why",
+          "alternatives",
+          "blocker",
+        ].every((key) => typeof node[key] === "string") &&
+        typeof node.type === "string" &&
+        Object.hasOwn(nodeKinds, node.type) &&
+        typeof node.status === "string" &&
+        Object.hasOwn(statuses, node.status) &&
+        record(node.position) &&
+        Number.isFinite(node.position.x) &&
+        Number.isFinite(node.position.y) &&
+        Array.isArray(node.checklist) &&
+        node.checklist.every(
+          (item: unknown) =>
+            record(item) &&
+            typeof item.id === "string" &&
+            typeof item.text === "string" &&
+            typeof item.checked === "boolean",
+        ),
+    ) &&
+    value.edges.every(
+      (edge: unknown) =>
+        record(edge) &&
+        ["id", "source", "target", "label"].every(
+          (key) => typeof edge[key] === "string",
+        ),
+    )
+  );
+}
+function storedRevision(value: unknown): value is ProposalRevision {
+  return (
+    record(value) &&
+    typeof value.proposalId === "string" &&
+    typeof value.title === "string" &&
+    typeof value.nonce === "string" &&
+    storedDiagram(value.diagram)
+  );
+}
 
 function sanitizeQuestionDrafts(value: unknown): QuestionDrafts {
   if (!record(value)) return {};
@@ -431,7 +507,10 @@ export function readPlanningDrafts(projectId: string): PlanningDrafts {
       request.diagramId.length <= 100 &&
       (request.nodeId === null || typeof request.nodeId === "string") &&
       (request.selection === undefined ||
-        validModelSelection(request.selection))
+        validModelSelection(request.selection)) &&
+      (request.proposalId === undefined ||
+        (typeof request.proposalId === "string" &&
+          storedDiagram(request.proposalDiagram)))
         ? {
             mutationId: request.mutationId,
             text: request.text,
@@ -439,6 +518,12 @@ export function readPlanningDrafts(projectId: string): PlanningDrafts {
             nodeId: request.nodeId,
             ...(validModelSelection(request.selection)
               ? { selection: request.selection }
+              : {}),
+            ...(request.proposalId
+              ? {
+                  proposalId: request.proposalId,
+                  proposalDiagram: request.proposalDiagram,
+                }
               : {}),
           }
         : null;
@@ -467,7 +552,14 @@ export function readPlanningDrafts(projectId: string): PlanningDrafts {
       )
         ? answer
         : null;
-    return { message, comments, failedPrompt, questionDrafts, failedAnswer };
+    return {
+      message,
+      comments,
+      failedPrompt,
+      questionDrafts,
+      failedAnswer,
+      revision: storedRevision(parsed.revision) ? parsed.revision : null,
+    };
   } catch {
     return empty;
   }
@@ -486,6 +578,7 @@ export function writePlanningDrafts(projectId: string, drafts: PlanningDrafts) {
       !Object.keys(comments).length &&
       !drafts.failedPrompt &&
       !drafts.failedAnswer &&
+      !drafts.revision &&
       !Object.keys(drafts.questionDrafts ?? {}).length
     )
       sessionStorage.removeItem(key);
@@ -498,6 +591,7 @@ export function writePlanningDrafts(projectId: string, drafts: PlanningDrafts) {
           failedPrompt: drafts.failedPrompt,
           questionDrafts: sanitizeQuestionDrafts(drafts.questionDrafts),
           failedAnswer: drafts.failedAnswer ?? null,
+          revision: drafts.revision ?? null,
         }),
       );
   } catch {

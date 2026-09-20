@@ -28,6 +28,7 @@ import {
   type PlanningPrompt,
   type ProposedChange,
   type QuestionDrafts,
+  type ProposalRevision,
   type AnswerSubmission,
   type QuestionAnswer,
   type QuestionSet,
@@ -106,6 +107,10 @@ export default function PlanningPanel({
   focusComments = 0,
   composerHeight = 150,
   onComposerResize,
+  onPreview,
+  onState,
+  revisionRequest,
+  refreshKey = 0,
 }: {
   diagramId: string;
   nodeId: string | null;
@@ -116,6 +121,10 @@ export default function PlanningPanel({
   focusComments?: number;
   composerHeight?: number;
   onComposerResize?: (height: number) => void;
+  onPreview?: (proposalId: string) => void;
+  onState?: (state: PlanningState) => void;
+  revisionRequest?: ProposalRevision | null;
+  refreshKey?: number;
 }) {
   const { session, flush, getSnapshot } = useProject();
   const modelSettings = useModelSelection(active);
@@ -123,6 +132,9 @@ export default function PlanningPanel({
   const [state, setState] = useState<PlanningState | null>(null);
   const [tab, setTab] = useState<Tab>("conversation");
   const [draft, setDraft] = useState(recoveredDrafts.message);
+  const [revision, setRevision] = useState<ProposalRevision | null>(
+    recoveredDrafts.revision ?? null,
+  );
   const [aboutNode, setAboutNode] = useState(false);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>(
     recoveredDrafts.comments,
@@ -298,7 +310,18 @@ export default function PlanningPanel({
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [active, session.id, session.revision]);
+  }, [active, session.id, session.revision, refreshKey]);
+  useEffect(() => {
+    if (state) onState?.(state);
+  }, [state, onState]);
+  useEffect(() => {
+    if (!revisionRequest) return;
+    setRevision(revisionRequest);
+    setFailedPrompt(null);
+    setAboutNode(false);
+    setTab("conversation");
+    requestAnimationFrame(() => composer.current?.focus());
+  }, [revisionRequest?.nonce]);
   useEffect(() => {
     writePlanningDrafts(session.id, {
       message: draft,
@@ -306,6 +329,7 @@ export default function PlanningPanel({
       failedPrompt,
       questionDrafts,
       failedAnswer,
+      revision,
     });
   }, [
     session.id,
@@ -314,6 +338,7 @@ export default function PlanningPanel({
     failedPrompt,
     questionDrafts,
     failedAnswer,
+    revision,
   ]);
   useEffect(() => {
     if (!running) return;
@@ -407,12 +432,16 @@ export default function PlanningPanel({
   }
   async function send(prompt?: PlanningPrompt, forceNew = false) {
     if (modelSettings.serverIncompatible) return;
+    const capturedRevision = revision;
     const captured: PlanningPrompt = prompt ?? {
       mutationId: uid(),
       text: draft.trim(),
-      diagramId,
-      nodeId: aboutNode ? (node?.id ?? null) : null,
+      diagramId: revision?.diagram.id ?? diagramId,
+      nodeId: revision ? null : aboutNode ? (node?.id ?? null) : null,
       selection: modelSettings.selection,
+      ...(revision
+        ? { proposalId: revision.proposalId, proposalDiagram: revision.diagram }
+        : {}),
     };
     if (!captured.text) return;
     // An uncertain delivery is retried with its original identifier and payload.
@@ -422,7 +451,12 @@ export default function PlanningPanel({
       failedPrompt &&
       captured.text === failedPrompt.text &&
       captured.diagramId === failedPrompt.diagramId &&
-      captured.nodeId === failedPrompt.nodeId
+      captured.nodeId === failedPrompt.nodeId &&
+      captured.proposalId === failedPrompt.proposalId &&
+      samePlan(
+        captured.proposalDiagram ?? null,
+        failedPrompt.proposalDiagram ?? null,
+      )
         ? failedPrompt
         : captured;
     if (body === captured && !prompt && modelSettings.problem) {
@@ -437,6 +471,9 @@ export default function PlanningPanel({
       await mutate("/messages", body);
       setFailedPrompt(null);
       setFailedAnswer(null);
+      setRevision((current) =>
+        current?.nonce === capturedRevision?.nonce ? null : current,
+      );
       setDraft((current) => (current.trim() === body.text ? "" : current));
       setAnnouncement("Message sent. The agent is preparing a reply.");
       restoreComposerFocus(interaction);
@@ -461,14 +498,31 @@ export default function PlanningPanel({
   const retriesDraft = Boolean(
     failedPrompt &&
     draft.trim() === failedPrompt.text &&
-    diagramId === failedPrompt.diagramId &&
-    (aboutNode ? (node?.id ?? null) : null) === failedPrompt.nodeId,
+    (revision?.diagram.id ?? diagramId) === failedPrompt.diagramId &&
+    (revision ? null : aboutNode ? (node?.id ?? null) : null) ===
+      failedPrompt.nodeId &&
+    revision?.proposalId === failedPrompt.proposalId &&
+    samePlan(revision?.diagram ?? null, failedPrompt.proposalDiagram ?? null),
   );
   function startNewFromFailure() {
     if (!failedRequest) return;
     setDraft((current) => (current.trim() ? current : failedRequest.text));
     setFailedPrompt(null);
-    if (!draft.trim())
+    if (
+      !revision &&
+      failedRequest.proposalId &&
+      failedRequest.proposalDiagram
+    ) {
+      setRevision({
+        proposalId: failedRequest.proposalId,
+        title:
+          state?.proposals.find((item) => item.id === failedRequest.proposalId)
+            ?.title ?? "Reviewed proposal",
+        diagram: failedRequest.proposalDiagram,
+        nonce: uid(),
+      });
+      setAboutNode(false);
+    } else if (!draft.trim())
       setAboutNode(failedRequest.nodeId === node?.id && Boolean(node));
     setTab("conversation");
     setAnnouncement(
@@ -900,6 +954,7 @@ export default function PlanningPanel({
                   <button
                     onClick={() => {
                       setTab("review");
+                      if (message.proposalId) onPreview?.(message.proposalId);
                       requestAnimationFrame(() =>
                         document
                           .getElementById(`proposal-${message.proposalId}`)
@@ -1008,6 +1063,24 @@ export default function PlanningPanel({
             void send();
           }}
         >
+          {revision && (
+            <div className="planning-revision-context" role="status">
+              <span>
+                Revising: <strong>{revision.title}</strong>
+              </span>
+              <button
+                type="button"
+                className="quiet"
+                aria-label="Cancel proposal revision"
+                onClick={() => {
+                  setRevision(null);
+                  setFailedPrompt(null);
+                }}
+              >
+                ×
+              </button>
+            </div>
+          )}
           <label className="sr-only" htmlFor="planning-message">
             Message Codex
           </label>
@@ -1018,9 +1091,11 @@ export default function PlanningPanel({
             maxLength={12000}
             rows={3}
             placeholder={
-              pendingQuestions
-                ? "Change direction or add a requirement…"
-                : "Describe a goal or ask for a change…"
+              revision
+                ? "Describe what to change in this proposal…"
+                : pendingQuestions
+                  ? "Change direction or add a requirement…"
+                  : "Describe a goal or ask for a change…"
             }
             onChange={(event) => setDraft(event.target.value)}
             aria-describedby="planning-sharing-summary"
@@ -1341,10 +1416,21 @@ export default function PlanningPanel({
                     updated proposal to preserve your latest edits.
                   </p>
                 )}
+                {onPreview &&
+                  (proposal.state === "pending" ||
+                    proposal.state === "stale") && (
+                    <button
+                      className="primary"
+                      onClick={() => onPreview(proposal.id)}
+                    >
+                      Review on canvas
+                    </button>
+                  )}
                 <details
                   className="planning-change-details"
                   open={
-                    proposal.state === "pending" || proposal.state === "stale"
+                    !onPreview &&
+                    (proposal.state === "pending" || proposal.state === "stale")
                   }
                 >
                   <summary>
@@ -1370,7 +1456,7 @@ export default function PlanningPanel({
                     ))}
                   </ol>
                 </details>
-                {proposal.state === "pending" && (
+                {proposal.state === "pending" && !onPreview && (
                   <div className="planning-proposal-actions">
                     <button
                       className="primary"
@@ -1429,7 +1515,7 @@ export default function PlanningPanel({
                     </button>
                   </div>
                 )}
-                {proposal.state === "stale" && (
+                {proposal.state === "stale" && !onPreview && (
                   <button
                     onClick={() => {
                       setTab("conversation");

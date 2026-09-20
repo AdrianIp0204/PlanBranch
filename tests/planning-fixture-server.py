@@ -76,6 +76,12 @@ class FixturePlanner:
             detail = (f" Requested model: {selection['model']} / {selection['reasoningEffort']}."
                       if "model settings" in prompt.lower() and selection["mode"] == "explicit" else "")
             return self.envelope("reply", "The plan is ready for your review. No steps were executed." + detail)
+        if prompt.startswith("Revise the visible proposal"):
+            candidate = deepcopy(context["reviewProposal"]["diagram"])
+            candidate["nodes"][0]["description"] = "Revised from the visible candidate: " + candidate["nodes"][0]["title"]
+            return self.envelope("proposal", "I revised the visible candidate.", proposal={
+                "title": "Revised review step", "summary": "Preserve the manually edited candidate.",
+                "diagramId": candidate["id"], "nodes": candidate["nodes"], "edges": candidate["edges"]})
         diagram = deepcopy(next(d for d in context["content"]["diagrams"] if d["id"] == context["activeDiagramId"]))
         node = {"id": str(uuid4()), "type": "process", "title": "Review expected result", "position": {"x": 420, "y": 300},
                 "description": "Check the expected result before continuing.", "status": "not_started",
