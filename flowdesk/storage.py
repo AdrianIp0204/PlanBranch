@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from .content_versions import CONTENT_VERSION, SUPPORTED_CONTENT_VERSIONS, empty_brief, upgrade_content
+
 from .validation import (
     MAX_HISTORY, ValidationError, array, identifier, integer, obj,
     validate_checkpoint, validate_content, validate_views,
@@ -34,7 +36,7 @@ def encode(value):
 
 def empty_content(name="Untitled project"):
     return {
-        "schemaVersion": 1, "name": name, "notes": "",
+        "schemaVersion": CONTENT_VERSION, "name": name, "notes": "", "brief": empty_brief(),
         "diagrams": [{"id": str(uuid4()), "name": "Main flow", "nodes": [], "edges": []}],
         "variables": [], "nodeLinks": [], "matches": [],
     }
@@ -73,9 +75,9 @@ class Store:
     def _history(self, connection, project_id):
         result = []
         for row in connection.execute("SELECT * FROM history_checkpoints WHERE project_id=? ORDER BY ordinal", (project_id,)):
-            if row["schema_version"] != 1:
+            if row["schema_version"] not in SUPPORTED_CONTENT_VERSIONS:
                 raise ValidationError("Unsupported saved history version.")
-            checkpoint = {"id": row["id"], "label": row["label"], "content": json.loads(row["content"])}
+            checkpoint = {"id": row["id"], "label": row["label"], "content": upgrade_content(json.loads(row["content"]))}
             if row["diagram_id"] is not None:
                 checkpoint["diagramId"] = row["diagram_id"]
             result.append(checkpoint)
@@ -150,7 +152,7 @@ class Store:
     def _write_history(self, connection, project_id, history):
         connection.execute("DELETE FROM history_checkpoints WHERE project_id=?", (project_id,))
         connection.executemany("INSERT INTO history_checkpoints VALUES(?,?,?,?,?,?,?)", [
-            (project_id, item["id"], ordinal, item["label"], item.get("diagramId"), 1, encode(item["content"]))
+            (project_id, item["id"], ordinal, item["label"], item.get("diagramId"), CONTENT_VERSION, encode(item["content"]))
             for ordinal, item in enumerate(history)
         ])
 

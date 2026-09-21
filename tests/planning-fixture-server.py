@@ -32,13 +32,15 @@ class FixturePlanner:
                 from flowdesk.validation import ValidationError
                 raise ValidationError("Choose a supported fixture model and reasoning level.")
         instructions = "Synthetic planning fixture instructions."
-        return {"selection": deepcopy(selection), "cliVersion": "fixture-1", "instructionVersion": "fixture-v2",
+        return {"selection": deepcopy(selection), "cliVersion": "fixture-1", "instructionVersion": "fixture-v3",
                 "instructionHash": hashlib.sha256(instructions.encode()).hexdigest(), "instructions": instructions,
-                "protocolVersion": 2}
+                "protocolVersion": 3}
 
     @staticmethod
     def envelope(kind, message, *, questions=None, proposal=None):
-        return {"protocolVersion": 2, "kind": kind, "message": message,
+        if proposal is not None:
+            proposal = {"brief": None, **proposal}
+        return {"protocolVersion": 3, "kind": kind, "message": message,
                 "questions": questions or [], "proposal": proposal}
 
     def generate(self, context):
@@ -90,6 +92,22 @@ class FixturePlanner:
                      {"id": "personal", "label": "Personal use", "description": "One person on one computer."},
                      {"id": "team", "label": "Team use", "description": "A shared workflow for a team."}],
                  "recommendedOptionId": "personal"}])
+        if prompt.startswith("Discuss brief context"):
+            brief = context["content"]["brief"]
+            return self.envelope("reply", "Current goal: " + brief["goal"] + " Agreed decisions: " + brief["decisions"])
+        if prompt.startswith("Propose project brief"):
+            brief = deepcopy(context["content"]["brief"])
+            brief["goal"] = "Plan a small local task tool with clear user-reviewed outcomes."
+            brief["assumptions"] = "Task ordering may be manual; this is an assumption to review."
+            return self.envelope("proposal", "Review the proposed goal and assumptions in the project brief.", proposal={
+                "title": "A focused project brief", "summary": "Clarify the goal while keeping assumptions visibly unconfirmed.",
+                "diagramId": context["activeDiagramId"], "nodes": None, "edges": None, "brief": brief})
+        if prompt.startswith("Revise the visible brief"):
+            brief = deepcopy(context["reviewProposal"]["brief"])
+            brief["assumptions"] += " Confirm whether task ordering should be manual."
+            return self.envelope("proposal", "The revised brief keeps your manual edits and confirmed decisions.", proposal={
+                "title": "Refined project brief", "summary": "Retain manual review and make the remaining assumption explicit.",
+                "diagramId": context["activeDiagramId"], "nodes": None, "edges": None, "brief": brief})
         if prompt.startswith("Discuss"):
             selection = context.get("generation", {}).get("selection", {"mode": "default"})
             detail = (f" Requested model: {selection['model']} / {selection['reasoningEffort']}."

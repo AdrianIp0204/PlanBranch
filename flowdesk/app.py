@@ -149,13 +149,14 @@ def create_app(data_dir=None, *, testing=False, planner=None):
         return jsonify(filename=filename)
 
     def planning_body(*, diagram_field=None):
+        fields = (diagram_field,) if isinstance(diagram_field, str) else diagram_field
         raw = request.get_data(cache=True)
         if diagram_field is not None and len(raw) > 2_000_000 + 65536:
             raise ValidationError("Proposal requests must be smaller than 2 MB plus message metadata.")
         if diagram_field is None and len(raw) > 65536:
             raise ValidationError("Planning requests must be smaller than 64 KB.")
         data = body()
-        if diagram_field is not None and diagram_field not in data and len(raw) > 65536:
+        if fields is not None and not any(field in data for field in fields) and len(raw) > 65536:
             raise ValidationError("Planning requests must be smaller than 64 KB.")
         return data
 
@@ -173,7 +174,7 @@ def create_app(data_dir=None, *, testing=False, planner=None):
 
     @app.post("/api/projects/<project_id>/planning/messages")
     def planning_message(project_id):
-        return jsonify(planning.send_message(project_id, planning_body(diagram_field="proposalDiagram"))), 202
+        return jsonify(planning.send_message(project_id, planning_body(diagram_field=("proposalDiagram", "proposalBrief")))), 202
 
     @app.post("/api/projects/<project_id>/planning/questions/<set_id>/answers")
     def planning_answers(project_id, set_id):
@@ -201,7 +202,7 @@ def create_app(data_dir=None, *, testing=False, planner=None):
 
     @app.put("/api/projects/<project_id>/planning/proposals/<proposal_id>/drafts/<draft_id>")
     def save_proposal_draft(project_id, proposal_id, draft_id):
-        return jsonify(planning.drafts.save(project_id, proposal_id, draft_id, planning_body(diagram_field="diagram")))
+        return jsonify(planning.drafts.save(project_id, proposal_id, draft_id, planning_body(diagram_field=("diagram", "brief"))))
 
     @app.post("/api/projects/<project_id>/planning/proposals/<proposal_id>/drafts/<draft_id>/prepare-apply")
     def prepare_proposal_apply(project_id, proposal_id, draft_id):

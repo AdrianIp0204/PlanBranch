@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from .validation import ValidationError, validate_content, validate_views, relative_file
 
-EXPORT_VERSION = 1
+EXPORT_VERSION = 2
 MAX_PORTABLE_BYTES = 10 * 1024 * 1024
 MAX_PORTABLE_SYMBOLS = 20_000
 SYMBOL_FIELDS = {"id", "name", "kind", "file", "scope", "scopeKind", "annotation", "locations", "declarations", "state", "scanTime", "hash", "heuristic", "identity", "ambiguousIdentity", "identityNote", "importedFrom"}
@@ -177,8 +177,8 @@ def import_project(store, value):
         raise ValidationError("Portable project JSON must contain an object.")
     if set(value) - {"format", "version", "content", "views", "symbols"}:
         raise ValidationError("Unexpected fields in import. Machine settings are not portable.")
-    if value.get("format") != "flowdesk" or type(value.get("version")) is not int or value["version"] != EXPORT_VERSION:
-        raise ValidationError("Unsupported file. Choose a PlanBranch version 1 JSON export.")
+    if value.get("format") != "flowdesk" or type(value.get("version")) is not int or value["version"] not in {1, EXPORT_VERSION}:
+        raise ValidationError("Unsupported file. Choose a PlanBranch version 1 or 2 JSON export.")
     _check_symbol_count(value.get("symbols", []))
     serialize_portable(value)
     content, symbols, views = remap_project(value.get("content"), value.get("symbols", []), value.get("views", {}))
@@ -199,6 +199,14 @@ def markdown_brief(content):
         return value
 
     lines = [f"# {escape(content['name'])}", "", "Implementation plan — statuses are user-recorded, not proof of correctness.", ""]
+    brief = content.get("brief", {})
+    if any(brief.values()):
+        lines += ["## Project brief", ""]
+        for field, label in (("goal", "Goal"), ("audience", "Intended user"), ("requirements", "Requirements"),
+                             ("constraints", "Constraints"), ("outOfScope", "Out of scope"),
+                             ("decisions", "Agreed decisions"), ("assumptions", "Assumptions")):
+            if brief.get(field):
+                lines += [f"### {label}", "", escape(brief[field]), ""]
     if content.get("notes"):
         lines += ["## Project notes", "", escape(content["notes"]), ""]
     for diagram in content["diagrams"]:

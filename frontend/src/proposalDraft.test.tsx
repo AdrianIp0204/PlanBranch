@@ -8,8 +8,8 @@ import {
   type ProposalDraftContextValue,
 } from "./proposalDraft";
 import { useProject, type Store } from "./store";
-import { copy, createNode, type Content } from "./types";
-import type { DraftDetail, DraftSummary } from "./durableDrafts";
+import { copy, createNode, emptyBrief, type Content } from "./types";
+import type { DraftDetail, DraftSummary, DraftSection } from "./durableDrafts";
 vi.mock("./api", () => ({ api: vi.fn() }));
 let store: Store;
 let controls: ProposalDraftContextValue;
@@ -41,7 +41,7 @@ function Probe() {
     </p>
   );
 }
-async function mount(readOnly = false) {
+async function mount(readOnly = false, editableSections?: DraftSection[]) {
   const result = render(
     <ProposalDraftProvider
       projectId="project"
@@ -51,6 +51,7 @@ async function mount(readOnly = false) {
       content={original}
       storageKey={key}
       readOnly={readOnly}
+      editableSections={editableSections}
     >
       <Probe />
     </ProposalDraftProvider>,
@@ -103,7 +104,11 @@ beforeEach(() => {
     if (options?.method === "PUT") {
       const body = JSON.parse(options.body as string);
       const candidate = copy(original);
-      candidate.diagrams[0] = body.diagram;
+      if (body.diagram) candidate.diagrams[0] = body.diagram;
+      if (body.brief) {
+        candidate.brief = body.brief;
+        candidate.schemaVersion = 2;
+      }
       saved = {
         ...summary(body.baseDraftRevision + 1, path.split("/").at(-1)),
         candidate,
@@ -406,4 +411,82 @@ it("retains structured API conflict metadata for draft recovery", async () => {
   } finally {
     vi.unstubAllGlobals();
   }
+});
+
+it("restricts brief-only manual edits and serializes only the authored brief", async () => {
+  original.schemaVersion = 2;
+  original.brief = { ...emptyBrief(), goal: "Original brief" };
+  await mount(false, ["brief"]);
+  act(() =>
+    store.change(
+      (content) => {
+        content.name = "Wrong project";
+        content.diagrams[0].nodes[0].title = "Wrong graph";
+        content.brief = {
+          ...emptyBrief(),
+          goal: "My brief",
+          extra: "Not an authored field",
+        } as typeof content.brief;
+      },
+      "Edit brief",
+      undefined,
+      true,
+    ),
+  );
+  expect(store.session.content.name).toBe("Project");
+  expect(store.session.content.diagrams[0].nodes[0].title).toBe("Original");
+  expect(store.session.content.brief).toEqual({
+    ...emptyBrief(),
+    goal: "My brief",
+  });
+  await act(async () => {
+    expect(await controls.flush()).toBe(true);
+  });
+  const body = JSON.parse(edits()[0][1]!.body as string);
+  expect(body).not.toHaveProperty("diagram");
+  expect(body).toMatchObject({
+    contentHash: "hash",
+    brief: { ...emptyBrief(), goal: "My brief" },
+  });
+  act(() => store.undo());
+  expect(store.session.content.brief?.goal).toBe("Original brief");
+});
+
+it("retains both authored sections after saving and a fresh provider load", async () => {
+  original.schemaVersion = 2;
+  original.brief = { ...emptyBrief(), goal: "Agent brief" };
+  const view = await mount(false, ["diagram", "brief"]);
+  act(() =>
+    store.change((content) => {
+      content.diagrams[0].nodes[0].title = "Manual graph";
+      content.brief!.goal = "Manual goal";
+    }, "Edit candidate"),
+  );
+  await act(async () => {
+    expect(await controls.flush()).toBe(true);
+  });
+  expect(saved?.candidate.brief?.goal).toBe("Manual goal");
+  expect(saved?.candidate.diagrams[0].nodes[0].title).toBe("Manual graph");
+  view.unmount();
+  await mount(false, ["diagram", "brief"]);
+  expect(store.session.content.brief?.goal).toBe("Manual goal");
+  expect(store.session.content.diagrams[0].nodes[0].title).toBe("Manual graph");
+  expect(edits()).toHaveLength(1);
+});
+
+it("keeps legacy diagram-only drafts from changing or resending project briefs", async () => {
+  original.schemaVersion = 2;
+  original.brief = { ...emptyBrief(), goal: "Human intent" };
+  await mount();
+  act(() =>
+    store.change((content) => {
+      content.brief!.goal = "Not part of this proposal";
+      content.diagrams[0].nodes[0].title = "Authored diagram";
+    }, "Edit"),
+  );
+  expect(store.session.content.brief?.goal).toBe("Human intent");
+  await act(async () => {
+    expect(await controls.flush()).toBe(true);
+  });
+  expect(JSON.parse(edits()[0][1]!.body as string)).not.toHaveProperty("brief");
 });

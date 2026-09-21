@@ -1,6 +1,6 @@
 """Durable planning conversation and explicit review, separate from graph history.
 
-The provider can propose one diagram, never write project content. Acceptance is
+The provider can propose a diagram and brief, never write project content. Acceptance is
 the sole boundary that projects a proposal into ordinary undoable manual content.
 """
 from __future__ import annotations
@@ -13,12 +13,52 @@ import threading
 from uuid import uuid4
 
 from .storage import ConflictError, NotFoundError, encode, now
-from .validation import MAX_HISTORY, ValidationError, identifier, integer, obj, string, validate_content
+from .validation import MAX_HISTORY, ValidationError, identifier, integer, obj, string, validate_brief, validate_content
+from .content_versions import BRIEF_FIELDS, SUPPORTED_CONTENT_VERSIONS, manual_identity, upgrade_content
 from .planning_questions import answer_summary, validate_answers, validate_envelope
 
 
 def fingerprint(value):
     return hashlib.sha256(encode(value).encode("utf-8")).hexdigest()
+
+
+def manual_fingerprint(content):
+    return fingerprint(manual_identity(content))
+
+
+def editable_sections(proposal):
+    return json.loads(proposal["editable_sections"])
+
+
+def apply_candidate_sections(base, candidate, proposal, detected_ids):
+    result = upgrade_content(base)
+    candidate = upgrade_content(candidate)
+    sections = editable_sections(proposal)
+    if "diagram" in sections:
+        result = replace_diagram(result, diagram_in(candidate, proposal["diagram_id"]), proposal["diagram_id"], detected_ids)
+    if "brief" in sections:
+        result["brief"] = validate_brief(candidate["brief"])
+    return validate_content(result, detected_ids)
+
+
+def edit_candidate_sections(base, original, proposal, payload, detected_ids, *, prefix=""):
+    """Only authored sections are editable; use base links when nodes return."""
+    sections = editable_sections(proposal)
+    original = upgrade_content(original)
+    for section in ("diagram", "brief"):
+        field = prefix + section.capitalize() if prefix else section
+        if field in payload and section not in sections:
+            raise ValidationError(f"This proposal does not include {section} changes.")
+    candidate = apply_candidate_sections(base, original, proposal, detected_ids)
+    graph_key, brief_key = (prefix + "Diagram", prefix + "Brief") if prefix else ("diagram", "brief")
+    if graph_key in payload:
+        # Start with original base links so restoring a node also restores its links.
+        candidate = replace_diagram(base, payload[graph_key], proposal["diagram_id"], detected_ids)
+        if "brief" in sections:
+            candidate["brief"] = original["brief"]
+    if brief_key in payload:
+        candidate["brief"] = validate_brief(payload[brief_key])
+    return validate_content(candidate, detected_ids)
 
 
 def diagram_in(content, diagram_id):
@@ -130,14 +170,14 @@ class PlanningService:
                                 (project_id, project["cursor"])).fetchone()
         if checkpoint is None:
             raise ValidationError("Saved project history is inconsistent; restore a database backup.")
-        if checkpoint["schema_version"] != 1:
+        if checkpoint["schema_version"] not in SUPPORTED_CONTENT_VERSIONS:
             raise ValidationError("Unsupported saved history version.")
         return {"id": project_id, "revision": project["revision"], "savedAt": project["saved_at"],
-                "cursor": project["cursor"], "content": json.loads(checkpoint["content"])}
+                "cursor": project["cursor"], "content": upgrade_content(json.loads(checkpoint["content"]))}
 
     def _state(self, db, project_id):
         project = self._current(db, project_id)
-        content_hash = fingerprint(project["content"])
+        content_hash = manual_fingerprint(project["content"])
         messages = []
         for row in db.execute("SELECT * FROM planning_messages WHERE project_id=? ORDER BY created_at,id", (project_id,)):
             message = {"id": row["id"], "role": row["role"], "text": row["text"], "createdAt": row["created_at"]}
@@ -155,10 +195,11 @@ class PlanningService:
                 state = "stale"
             proposals.append({"id": row["id"], "title": row["title"], "summary": row["summary"], "diagramId": row["diagram_id"],
                               "baseRevision": row["base_revision"], "baseCursor": row["base_cursor"], "baseHash": row["base_hash"],
-                              "state": state, "createdAt": row["created_at"], "changes": json.loads(row["changes"])})
+                              "state": state, "createdAt": row["created_at"], "changes": json.loads(row["changes"]),
+                              "editableSections": editable_sections(row)})
         row = db.execute("SELECT * FROM planning_approvals WHERE project_id=? ORDER BY created_at DESC,id DESC LIMIT 1", (project_id,)).fetchone()
         approval = None if row is None else {"id": row["id"], "revision": row["revision"], "cursor": row["cursor"],
-                   "contentHash": row["content_hash"], "snapshot": json.loads(row["content"]), "createdAt": row["created_at"],
+                   "contentHash": row["content_hash"], "snapshot": upgrade_content(json.loads(row["content"])), "createdAt": row["created_at"],
                    "current": not bool(row["revoked"]) and row["content_hash"] == content_hash}
         row = db.execute("SELECT * FROM planning_requests WHERE project_id=? ORDER BY updated_at DESC,id DESC LIMIT 1", (project_id,)).fetchone()
         request = None
@@ -188,7 +229,7 @@ class PlanningService:
             if row["state"] == "open":
                 original = db.execute("SELECT context FROM planning_requests WHERE project_id=? AND id=?",
                                       (project_id, row["request_id"])).fetchone()
-                item["baseSnapshot"] = json.loads(original[0])["content"]
+                item["baseSnapshot"] = upgrade_content(json.loads(original[0])["content"])
             question_sets.append(item)
         if approval is not None:
             approval["current"] = approval["current"] and not any(not c["resolved"] for c in comments) and not any(
@@ -216,14 +257,14 @@ class PlanningService:
         for row in db.execute("SELECT context FROM planning_requests WHERE project_id=? AND base_hash=? ORDER BY created_at DESC",
                               (project_id, proposal["base_hash"])):
             content = json.loads(row["context"]).get("content")
-            if content is not None and fingerprint(content) == proposal["base_hash"]:
-                return content
+            if content is not None and manual_fingerprint(content) == proposal["base_hash"]:
+                return upgrade_content(content)
         checkpoint = db.execute("SELECT content FROM history_checkpoints WHERE project_id=? AND id=?",
                                 (project_id, proposal["base_cursor"])).fetchone()
         if checkpoint is not None:
             content = json.loads(checkpoint["content"])
-            if fingerprint(content) == proposal["base_hash"]:
-                return content
+            if manual_fingerprint(content) == proposal["base_hash"]:
+                return upgrade_content(content)
         return None
 
     def proposal_detail(self, project_id, proposal_id):
@@ -233,14 +274,15 @@ class PlanningService:
             row = self._proposal(db, project_id, proposal_id)
             content = json.loads(row["content"])
             state = row["state"]
-            if state == "pending" and row["base_hash"] != fingerprint(project["content"]):
+            if state == "pending" and row["base_hash"] != manual_fingerprint(project["content"]):
                 state = "stale"
             summary = {"id": row["id"], "title": row["title"], "summary": row["summary"], "diagramId": row["diagram_id"],
                        "baseRevision": row["base_revision"], "baseCursor": row["base_cursor"], "baseHash": row["base_hash"],
-                       "state": state, "createdAt": row["created_at"], "changes": json.loads(row["changes"])}
-            return {"proposal": summary, "content": content, "baseContent": self._proposal_base(db, project_id, row),
+                       "state": state, "createdAt": row["created_at"], "changes": json.loads(row["changes"]),
+                       "editableSections": editable_sections(row)}
+            return {"proposal": summary, "content": upgrade_content(content), "baseContent": self._proposal_base(db, project_id, row),
                     "contentHash": fingerprint(content),
-                    **self.drafts._list(db, project_id, row, fingerprint(project["content"]))}
+                    **self.drafts._list(db, project_id, row, manual_fingerprint(project["content"]))}
 
     def _review_context(self, db, project_id, project, payload):
         proposal = self._proposal(db, project_id, payload["proposalId"])
@@ -249,13 +291,15 @@ class PlanningService:
         if proposal["diagram_id"] != payload["diagramId"]:
             raise ValidationError("Choose the proposal's diagram before requesting a revision.")
         candidate = json.loads(proposal["content"])
-        if "proposalDiagram" in payload:
-            base = self._proposal_base(db, project_id, proposal)
-            candidate = replace_diagram(base if base is not None else candidate, payload["proposalDiagram"],
-                                        proposal["diagram_id"], self.store._detected_ids(db, project_id))
-        return {"id": proposal["id"], "title": proposal["title"], "summary": proposal["summary"],
+        base = self._proposal_base(db, project_id, proposal)
+        candidate = edit_candidate_sections(base if base is not None else candidate, candidate, proposal, payload,
+                                             self.store._detected_ids(db, project_id), prefix="proposal")
+        result = {"id": proposal["id"], "title": proposal["title"], "summary": proposal["summary"],
                 "diagram": deepcopy(diagram_in(candidate, proposal["diagram_id"])),
-                "stale": proposal["base_hash"] != fingerprint(project["content"])}
+                "stale": proposal["base_hash"] != manual_fingerprint(project["content"])}
+        if "brief" in editable_sections(proposal):
+            result.update(brief=candidate["brief"], editableSections=editable_sections(proposal))
+        return result
 
     def _receipt(self, db, project_id, action, payload):
         identifier(payload.get("mutationId"), "Mutation ID")
@@ -316,7 +360,7 @@ class PlanningService:
         return self.state(project_id)
 
     def send_message(self, project_id, payload):
-        obj(payload, {"mutationId", "text", "diagramId", "nodeId", "selection", "proposalId", "proposalDiagram"}, "planning message")
+        obj(payload, {"mutationId", "text", "diagramId", "nodeId", "selection", "proposalId", "proposalDiagram", "proposalBrief"}, "planning message")
         identifier(payload.get("mutationId"), "Mutation ID")
         string(payload.get("text"), "Message", 12000, True)
         diagram_id = identifier(payload.get("diagramId"), "Diagram ID")
@@ -324,8 +368,8 @@ class PlanningService:
             identifier(payload["nodeId"], "Node ID")
         if "proposalId" in payload:
             identifier(payload["proposalId"], "Proposal ID")
-        elif "proposalDiagram" in payload:
-            raise ValidationError("Choose a proposal before submitting its edited diagram.")
+        elif "proposalDiagram" in payload or "proposalBrief" in payload:
+            raise ValidationError("Choose a proposal before submitting its edited content.")
         payload = {**payload, "nodeId": payload.get("nodeId")}
         selection = self._selection(payload.get("selection", {"mode": "default"}))
         request_id = payload["mutationId"]
@@ -369,7 +413,7 @@ class PlanningService:
                     context["reviewProposal"] = review
                 db.execute("INSERT INTO planning_requests VALUES(?,?,?,?,?,?,?,?,?,'running',NULL,?,?)",
                            (request_id, project_id, fingerprint(payload), encode(payload), encode(context),
-                            project["revision"], project["cursor"], fingerprint(project["content"]), attempt_id, timestamp, timestamp))
+                            project["revision"], project["cursor"], manual_fingerprint(project["content"]), attempt_id, timestamp, timestamp))
             self._revoke(db, project_id)
             should_start = True
         if should_start:
@@ -407,7 +451,7 @@ class PlanningService:
                     raise ConflictError(project["revision"])
                 if question["state"] != "open":
                     raise ValidationError("This question has already been answered or replaced.")
-                if question["base_hash"] != fingerprint(project["content"]):
+                if question["base_hash"] != manual_fingerprint(project["content"]):
                     raise ValidationError("These questions are outdated. Ask again using this plan.")
                 if db.execute("SELECT 1 FROM planning_requests WHERE project_id=? AND status='running'", (project_id,)).fetchone():
                     raise RuntimeError("Wait for the current planning reply before continuing.")
@@ -432,10 +476,14 @@ class PlanningService:
                 request_payload = {"mutationId": request_id, "text": text, "diagramId": diagram["id"],
                                    "nodeId": question["node_id"], "selection": selection}
                 if review is not None:
-                    request_payload.update(proposalId=review["id"], proposalDiagram=review["diagram"])
+                    request_payload["proposalId"] = review["id"]
+                    if "diagram" in review.get("editableSections", ["diagram"]):
+                        request_payload["proposalDiagram"] = review["diagram"]
+                    if "brief" in review:
+                        request_payload["proposalBrief"] = review["brief"]
                 db.execute("INSERT INTO planning_requests VALUES(?,?,?,?,?,?,?,?,?,'running',NULL,?,?)",
                            (request_id, project_id, fingerprint(request_payload), encode(request_payload), encode(context),
-                            project["revision"], project["cursor"], fingerprint(project["content"]), attempt_id, timestamp, timestamp))
+                            project["revision"], project["cursor"], manual_fingerprint(project["content"]), attempt_id, timestamp, timestamp))
                 db.execute("UPDATE planning_question_sets SET continuation_request_id=? WHERE project_id=? AND id=?", (request_id, project_id, set_id))
                 self._revoke(db, project_id)
                 should_start = True
@@ -498,15 +546,25 @@ class PlanningService:
                 if live is None or live["status"] != "running" or live["attempt_id"] != attempt_id:
                     return
                 if proposed is not None:
-                    obj(proposed, {"title", "summary", "diagramId", "nodes", "edges"}, "agent proposal")
+                    version = context.get("generation", {}).get("protocolVersion", 1)
+                    obj(proposed, {"title", "summary", "diagramId", "nodes", "edges"} | ({"brief"} if version >= 3 else set()), "agent proposal")
                     string(proposed.get("title"), "Proposal title", 200, True)
                     string(proposed.get("summary"), "Proposal summary", 12000, True)
                     if proposed.get("diagramId") != context["activeDiagramId"]:
                         raise ValidationError("The agent may propose changes only to the selected diagram.")
-                    content = deepcopy(context["content"])
+                    content = upgrade_content(context["content"])
                     diagram = diagram_in(content, proposed["diagramId"])
                     before = deepcopy(diagram)
-                    diagram["nodes"], diagram["edges"] = proposed.get("nodes"), proposed.get("edges")
+                    graph = proposed.get("nodes") is not None or proposed.get("edges") is not None
+                    sections = (["diagram"] if graph else []) + (["brief"] if proposed.get("brief") is not None else [])
+                    if (version < 3 and not graph) or not sections:
+                        raise ValidationError("The proposal must include diagram or brief changes.")
+                    if version >= 3 and not {"nodes", "edges", "brief"}.issubset(proposed):
+                        raise ValidationError("A proposal must specify nodes, edges, and brief, using null for unchanged sections.")
+                    if graph:
+                        diagram["nodes"], diagram["edges"] = proposed.get("nodes"), proposed.get("edges")
+                    if "brief" in sections:
+                        content["brief"] = validate_brief(proposed["brief"])
                     # Validate shape before computing deletion IDs. All remaining
                     # links must keep their exact authored relationship and ID.
                     if not isinstance(diagram["nodes"], list):
@@ -526,12 +584,17 @@ class PlanningService:
                     content = validate_content(content, self.store._detected_ids(db, project_id))
                     diagram = diagram_in(content, proposed["diagramId"])
                     changes = changes_between(before, diagram, context["content"]["nodeLinks"], content["nodeLinks"])
+                    old_brief = upgrade_content(context["content"])["brief"]
+                    for field in BRIEF_FIELDS:
+                        if old_brief[field] != content["brief"][field]:
+                            changes.append({"kind": "update_brief", "field": field, "label": "Project brief: " + field,
+                                            "before": old_brief[field], "after": content["brief"][field]})
                     if not changes:
-                        raise ValidationError("The proposed diagram contains no changes. Ask for a reply without a proposal instead.")
+                        raise ValidationError("The proposed plan contains no changes. Ask for a reply without a proposal instead.")
                     proposal_id = str(uuid4())
-                    db.execute("INSERT INTO planning_proposals VALUES(?,?,?,?,?,?,?,?,?,?, 'pending',?)",
+                    db.execute("INSERT INTO planning_proposals VALUES(?,?,?,?,?,?,?,?,?,?, 'pending',?,?)",
                                (proposal_id, project_id, proposed["title"], proposed["summary"], proposed["diagramId"],
-                                request["base_revision"], request["base_cursor"], request["base_hash"], encode(content), encode(changes), now()))
+                                request["base_revision"], request["base_cursor"], request["base_hash"], encode(content), encode(changes), now(), encode(sections)))
                 source = json.loads(request["payload"])
                 original_node = node_in(diagram_in(context["content"], source["diagramId"]), source["nodeId"]) if source.get("nodeId") else None
                 message_id = str(uuid4())
@@ -576,20 +639,20 @@ class PlanningService:
                     raise ConflictError(project["revision"])
                 if proposal["state"] != "pending":
                     raise RuntimeError("This proposal has already been reviewed.")
-                if proposal["base_hash"] != fingerprint(project["content"]):
+                if proposal["base_hash"] != manual_fingerprint(project["content"]):
                     raise RuntimeError("The plan changed after this proposal was created. Ask the agent for an updated proposal.")
                 candidate = json.loads(proposal["content"])
                 if "contentHash" in payload and payload["contentHash"] != fingerprint(candidate):
                     raise RuntimeError("The proposal changed. Reload its preview before applying changes.")
                 if "draftId" in payload:
                     candidate = self.drafts.candidate_for_apply(db, project_id, proposal_id, payload)
-                    edited = diagram_in(candidate, proposal["diagram_id"])
                 else:
                     if db.execute("SELECT 1 FROM proposal_drafts WHERE project_id=? AND proposal_id=? AND state IN ('active','applying')",
                                   (project_id, proposal_id)).fetchone():
                         raise RuntimeError("This proposal has saved drafts. Apply a reviewed saved draft instead.")
-                    edited = payload.get("diagram", diagram_in(candidate, proposal["diagram_id"]))
-                content = replace_diagram(project["content"], edited, proposal["diagram_id"], self.store._detected_ids(db, project_id))
+                    candidate = edit_candidate_sections(project["content"], candidate, proposal, payload,
+                                                         self.store._detected_ids(db, project_id))
+                content = apply_candidate_sections(project["content"], candidate, proposal, self.store._detected_ids(db, project_id))
                 if content == project["content"]:
                     raise ValidationError("The edited proposal has no changes. Discard it or make a change before applying.")
                 checkpoint = {"id": str(uuid4()), "label": ("Accept proposal: " + proposal["title"])[:200],
@@ -644,7 +707,7 @@ class PlanningService:
                     raise RuntimeError("Answer the open planning questions or change direction before approving.")
                 self._revoke(db, project_id)
                 db.execute("INSERT INTO planning_approvals VALUES(?,?,?,?,?,?,?,0)",
-                           (str(uuid4()), project_id, project["revision"], project["cursor"], fingerprint(project["content"]), encode(project["content"]), now()))
+                           (str(uuid4()), project_id, project["revision"], project["cursor"], manual_fingerprint(project["content"]), encode(project["content"]), now()))
         return self.state(project_id)
 
     def reopen(self, project_id, payload):

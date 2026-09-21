@@ -1,3 +1,9 @@
+## Project brief — 21 September 2026
+
+Milestone 4 adds seven explicit brief fields, direct editing, reviewed agent updates, durable candidate drafts, manual history and portable JSON/Markdown. Migration 6 upgrades retained manual snapshots while preserving frozen requests, receipts, approvals and prepared Apply payloads. Empty schema defaults preserve older approval freshness; substantive brief changes require review and renewed approval.
+
+Windows verification: **331 backend tests passed, 2 existing platform skips; 164 frontend tests passed**; TypeScript and production build passed. Four disposable browser cases passed across the initial lifecycle/conflict run and focused dialog rerun. They cover manual history/restart, approval freshness, long-lived planning context, reviewed brief-only edits, database draft recovery, stale rejection, old/current imports and exports, keyboard focus, both target sizes, narrow layout and actual 200% zoom with reduced motion. Visual inspection found and fixed an outer-dialog width constraint; the final regression checks field bounds and horizontal overflow. Captures: `output/playwright/brief-manual-13g3V9` and `brief-responsive-adKF94`. External browser requests were blocked; no user data, live agent or existing server was used. Linux and installed-package verification remain part of the final release gate.
+
 ## Guided proposal review — 21 September 2026
 
 Review now provides stable item navigation, compact added/changed/removed counts and optional navigable hints. Removed nodes and connections open in Before; other targets open in Proposed. Manual edits retain the current item when possible and native field navigation. Hints check substantive checklist criteria, decision labels and weakly connected flow components while excluding notes and accepting cycles. They never gate Apply. The canvas retains a 220 px minimum height with workspace scrolling at high zoom.

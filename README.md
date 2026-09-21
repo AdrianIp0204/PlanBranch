@@ -71,7 +71,7 @@ For AI chat, separately [install Codex CLI](https://developers.openai.com/codex/
 
 - **Projects stay local.** SQLite stores saved plans, discussion, review records, and undo history. Choose a different location with `--data-dir`; the server binds to loopback only.
 - **Chat shares authored context.** Sending a message shares the manual plan and discussion with Codex, including a candidate when you request revisions. Attached source files and scanner observations are excluded.
-- **Changes require review.** Agent edits stay separate until you apply them. Manual proposal drafts recover best-effort in the same browser tab; they are not database-backed until applied.
+- **Changes require review.** Agent edits stay separate until you apply them. Manual proposal drafts save separately in SQLite and recover after browser or server restart; applying creates one undoable plan edit.
 - **Evidence is read-only.** Python scanning requires an explicitly attached folder. It does not import or execute that code, change source files, or mark tasks complete.
 
 See the [user guide](docs/User_Guide.md) for backups, draft recovery, sharing boundaries, scanner limits, keyboard controls, and exports. [Validation notes](VALIDATION.md) distinguish tested behavior from remaining platform and live-model checks.

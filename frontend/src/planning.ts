@@ -2,6 +2,7 @@ import {
   nodeKinds,
   statuses,
   type Content,
+  type ProjectBrief,
   type Diagram,
   type NodeKind,
   type Status,
@@ -121,7 +122,9 @@ export type ProposedChange = {
   before: unknown;
   after: unknown;
 };
+export type ProposalSection = "diagram" | "brief";
 export type PlanProposal = {
+  editableSections?: ProposalSection[];
   id: string;
   title: string;
   summary: string;
@@ -140,9 +143,11 @@ export type ProposalDetail = {
   contentHash: string;
 };
 export type ProposalRevision = {
+  editableSections?: ProposalSection[];
   proposalId: string;
   title: string;
   diagram: Diagram;
+  brief?: ProjectBrief;
   nonce: string;
 };
 export type PlanningState = {
@@ -180,6 +185,7 @@ export type PlanningPrompt = {
   selection?: ModelSelection;
   proposalId?: string;
   proposalDiagram?: Diagram;
+  proposalBrief?: ProjectBrief;
 };
 
 export const reviewFieldLabel = (field: string) =>
@@ -422,13 +428,44 @@ function storedDiagram(value: unknown): value is Diagram {
     )
   );
 }
+function storedBrief(value: unknown): value is ProjectBrief {
+  const fields = [
+    "goal",
+    "audience",
+    "requirements",
+    "constraints",
+    "outOfScope",
+    "decisions",
+    "assumptions",
+  ];
+  return (
+    record(value) &&
+    Object.keys(value).length === fields.length &&
+    fields.every(
+      (field) =>
+        typeof value[field] === "string" &&
+        (value[field] as string).length <= 32768,
+    )
+  );
+}
+function storedSections(value: unknown) {
+  return (
+    value === undefined ||
+    (Array.isArray(value) &&
+      value.length > 0 &&
+      value.length <= 2 &&
+      value.every((item) => item === "diagram" || item === "brief"))
+  );
+}
 function storedRevision(value: unknown): value is ProposalRevision {
   return (
     record(value) &&
     typeof value.proposalId === "string" &&
     typeof value.title === "string" &&
     typeof value.nonce === "string" &&
-    storedDiagram(value.diagram)
+    storedDiagram(value.diagram) &&
+    (value.brief === undefined || storedBrief(value.brief)) &&
+    storedSections(value.editableSections)
   );
 }
 
@@ -510,7 +547,12 @@ export function readPlanningDrafts(projectId: string): PlanningDrafts {
         validModelSelection(request.selection)) &&
       (request.proposalId === undefined ||
         (typeof request.proposalId === "string" &&
-          storedDiagram(request.proposalDiagram)))
+          (request.proposalDiagram !== undefined ||
+            request.proposalBrief !== undefined) &&
+          (request.proposalDiagram === undefined ||
+            storedDiagram(request.proposalDiagram)) &&
+          (request.proposalBrief === undefined ||
+            storedBrief(request.proposalBrief))))
         ? {
             mutationId: request.mutationId,
             text: request.text,
@@ -522,7 +564,12 @@ export function readPlanningDrafts(projectId: string): PlanningDrafts {
             ...(request.proposalId
               ? {
                   proposalId: request.proposalId,
-                  proposalDiagram: request.proposalDiagram,
+                  ...(request.proposalDiagram
+                    ? { proposalDiagram: request.proposalDiagram }
+                    : {}),
+                  ...(request.proposalBrief
+                    ? { proposalBrief: request.proposalBrief }
+                    : {}),
                 }
               : {}),
           }

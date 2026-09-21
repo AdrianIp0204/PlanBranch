@@ -10,10 +10,12 @@ export function Dialog({
   title,
   children,
   onClose,
+  className,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
+  className?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   // Capture before a child control's React autoFocus moves focus into the dialog.
@@ -44,6 +46,7 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
+      className={className}
       aria-label={title}
       onCancel={(event) => {
         event.preventDefault();

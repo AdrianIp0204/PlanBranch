@@ -21,6 +21,7 @@ import Canvas, {
   type FlowNode,
 } from "./Canvas";
 import Inspector from "./Inspector";
+import BriefFields from "./BriefFields";
 import { ResizeHandle } from "./layout";
 import { samePlan, type PlanProposal } from "./planning";
 import {
@@ -43,6 +44,8 @@ import {
 import {
   copy,
   createNode,
+  emptyBrief,
+  type ProjectBrief,
   nodeKinds,
   statuses,
   type Content,
@@ -68,7 +71,7 @@ export type ProposalWorkspaceProps = {
     draft?: DraftReference,
   ) => Promise<void>;
   onCancelApply?: () => void;
-  onRevise: (diagram: Diagram) => void;
+  onRevise: (diagram: Diagram, brief?: ProjectBrief) => void;
   onDiscard: () => Promise<void>;
   onClose: () => void;
   stale: boolean;
@@ -111,6 +114,7 @@ export default function ProposalWorkspace(props: ProposalWorkspaceProps) {
       storageKey={storageKey}
       proposalId={detail.proposal.id}
       contentHash={detail.contentHash}
+      editableSections={detail.proposal.editableSections}
       readOnly={["accepted", "rejected"].includes(detail.proposal.state)}
     >
       <Workspace {...props} storageKey={storageKey} />
@@ -138,6 +142,18 @@ function Workspace({
     durable.draft?.state === "applying" ||
     (durable.draft?.state === "applied" && detail.proposal.state === "pending");
   const { proposal } = detail;
+  const editableSections = proposal.editableSections ?? ["diagram"];
+  const canEditDiagram = editableSections.includes("diagram");
+  const canEditBrief = editableSections.includes("brief");
+  const [section, setSection] = useState<"diagram" | "brief">(
+    canEditDiagram ? "diagram" : "brief",
+  );
+  const brief = session.content.brief ?? emptyBrief();
+  const beforeBrief = detail.baseContent?.brief ?? emptyBrief();
+  const briefFields = Object.keys(emptyBrief()) as (keyof ProjectBrief)[];
+  const changedBriefFields = briefFields.filter(
+    (field) => brief[field] !== beforeBrief[field],
+  );
   const diagram = session.content.diagrams.find(
     (d) => d.id === proposal.diagramId,
   )!;
@@ -202,7 +218,11 @@ function Workspace({
   const selectedExists =
     shown.nodes.some((n) => n.id === currentSelection) ||
     shown.edges.some((e) => e.id === currentSelection);
-  const edited = !samePlan(diagram, original);
+  const editedDiagram = canEditDiagram && !samePlan(diagram, original);
+  const editedBrief =
+    canEditBrief && !samePlan(brief, detail.content.brief ?? emptyBrief());
+  const edited = editedDiagram || editedBrief;
+  const manualDiagram = manual && canEditDiagram && section === "diagram";
   const canApply = proposal.state === "pending" && !stale;
   const editLocked = busy || recovering || durable.switching;
   const reviewable = proposal.state === "pending" || proposal.state === "stale";
@@ -218,7 +238,8 @@ function Workspace({
     select(id);
     setDetailsOpen(true);
   };
-  const viewKey = manual && side === "after" ? "manual" : `${side}-preview`;
+  const viewKey =
+    manualDiagram && side === "after" ? "manual" : `${side}-preview`;
   const fitTarget = (
     instance: ReactFlowInstance<FlowNode>,
     target: ReviewTarget,
@@ -242,7 +263,9 @@ function Workspace({
     setSelected((previous) => ({ ...previous, [target.side]: target.id }));
     pendingReveal.current = target;
     const targetKey =
-      manual && target.side === "after" ? "manual" : `${target.side}-preview`;
+      manualDiagram && target.side === "after"
+        ? "manual"
+        : `${target.side}-preview`;
     const instance =
       targetKey === "manual" ? manualInstance.current : previewInstance.current;
     if (mountedView.current === targetKey && instance)
@@ -325,7 +348,9 @@ function Workspace({
         if (!reference)
           throw new Error("Save the proposal draft before applying it.");
         await onApply(
-          samePlan(candidate, original) ? undefined : copy(candidate),
+          !canEditDiagram || samePlan(candidate, original)
+            ? undefined
+            : copy(candidate),
           reference,
         );
       } else await onDiscard();
@@ -452,14 +477,21 @@ function Workspace({
                     (d) => d.id === diagram.id,
                   )!,
                 ),
+                ...(canEditBrief
+                  ? [copy(getSnapshot().content.brief ?? emptyBrief())]
+                  : []),
               );
             }}
           >
             Ask Codex
           </button>
           <button
-            disabled={editLocked || !reviewable}
             aria-pressed={manual}
+            disabled={
+              editLocked ||
+              !reviewable ||
+              (section === "diagram" ? !canEditDiagram : !canEditBrief)
+            }
             onClick={() => {
               commit();
               setSide("after");
@@ -609,6 +641,32 @@ function Workspace({
         )}
       </div>
       <div className="proposal-tools">
+        {canEditBrief && (
+          <div
+            className="proposal-sections"
+            role="group"
+            aria-label="Proposal sections"
+          >
+            <button
+              aria-pressed={section === "diagram"}
+              onClick={() => {
+                commit();
+                setSection("diagram");
+              }}
+            >
+              Diagram
+            </button>
+            <button
+              aria-pressed={section === "brief"}
+              onClick={() => {
+                commit();
+                setSection("brief");
+              }}
+            >
+              Brief
+            </button>
+          </div>
+        )}
         <div className="proposal-compare" aria-label="Compare proposal">
           <button
             aria-pressed={side === "after"}
@@ -617,10 +675,13 @@ function Workspace({
               setSide("after");
             }}
           >
-            Proposed{edited ? " · edited" : ""}
+            Proposed
+            {(section === "brief" ? editedBrief : editedDiagram)
+              ? " · edited"
+              : ""}
           </button>
           <button
-            disabled={!before}
+            disabled={section === "brief" ? !detail.baseContent : !before}
             aria-pressed={side === "before"}
             onClick={() => {
               commit();
@@ -630,7 +691,7 @@ function Workspace({
             Before
           </button>
         </div>
-        {manual && side === "after" ? (
+        {manualDiagram && side === "after" ? (
           <div className="proposal-edit-tools">
             <select
               aria-label="New node type"
@@ -673,272 +734,345 @@ function Workspace({
             </button>
           </div>
         ) : null}
-        <div
-          className="proposal-navigator"
-          role="group"
-          aria-label="Review changes"
-          data-current-change={currentChange.key ?? ""}
-          onKeyDown={navigatorKeys}
-        >
-          <button
-            className="quiet"
-            aria-label="Previous change"
-            title="Previous change (Left arrow)"
-            disabled={!changes.length || busy || durable.switching}
-            onClick={previousChange}
-          >
-            ←
-          </button>
-          <select
-            aria-label="Review change"
-            value={currentChange.key ?? ""}
-            disabled={!changes.length || busy || durable.switching}
-            onChange={(event) =>
-              navigateChange(
-                changes.findIndex((item) => item.key === event.target.value),
-              )
-            }
-          >
-            <option value="" disabled>
-              {changes.length ? "Choose a change" : "No diagram changes"}
-            </option>
-            {changes.map((item) => (
-              <option key={item.key} value={item.key}>
-                {item.kind[0].toUpperCase() + item.kind.slice(1)}{" "}
-                {item.entity === "node" ? "node" : "connection"}: {item.title}
-              </option>
-            ))}
-          </select>
-          <span
-            data-testid="review-change-position"
-            className="proposal-change-position"
-            aria-live="polite"
-            aria-atomic="true"
-          >
-            {currentChange.index + 1} of {changes.length}
-          </span>
-          <button
-            className="quiet"
-            aria-label="Next change"
-            title="Next change (Right arrow)"
-            disabled={!changes.length || busy || durable.switching}
-            onClick={nextChange}
-          >
-            →
-          </button>
-        </div>
-        <div
-          className="proposal-legend"
-          aria-label="Change counts"
-          data-testid="review-change-counts"
-        >
-          <span className="added">{counts.added} added</span>
-          <span className="changed">{counts.changed} changed</span>
-          <span className="removed">{counts.removed} removed</span>
-        </div>
-        <details
-          className="proposal-hints"
-          onKeyDown={(event) => {
-            if (event.key !== "Escape") return;
-            event.preventDefault();
-            event.stopPropagation();
-            event.currentTarget.open = false;
-            event.currentTarget.querySelector("summary")?.focus();
-          }}
-        >
-          <summary>
-            {hints.length
-              ? `Review hints (${hints.length})`
-              : "Review hints · none"}
-          </summary>
-          <div className="proposal-hints-content">
-            <p>
-              Suggestions only. Separate flows and unlabeled branches can be
-              intentional.
-            </p>
-            {hints.length ? (
-              <ul>
-                {hints.map((hint) => (
-                  <li key={hint.key}>
-                    <button
-                      className="quiet"
-                      disabled={busy || durable.switching}
-                      onClick={(event) => {
-                        reveal(hint);
-                        const disclosure =
-                          event.currentTarget.closest("details");
-                        if (disclosure) {
-                          disclosure.open = false;
-                          disclosure
-                            .querySelector("summary")
-                            ?.focus({ preventScroll: true });
-                        }
-                      }}
-                    >
-                      {hint.label}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>
-                No missing criteria, unlabeled decision branches, or separate
-                flows found. This does not verify the plan.
-              </p>
-            )}
-          </div>
-        </details>
-        <button
-          ref={detailsToggle}
-          className="quiet proposal-details-toggle"
-          aria-expanded={detailsOpen}
-          aria-controls="proposal-details"
-          onClick={(event) => {
-            if (detailsOpen) closeDetails();
-            else {
-              focusDetailsOnOpen.current = event.detail === 0;
-              setDetailsOpen(true);
-            }
-          }}
-        >
-          Details
-        </button>
-      </div>
-      <div
-        className={`proposal-body ${detailsOpen ? "details-open" : ""}`}
-        style={
-          { "--proposal-details-width": `${detailsWidth}px` } as CSSProperties
-        }
-      >
-        <div
-          className="proposal-canvas"
-          inert={editLocked}
-          aria-label={side === "before" ? "Before diagram" : "Proposed diagram"}
-        >
-          {manual && side === "after" ? (
-            <Canvas
-              diagram={diagram}
-              selected={currentSelection}
-              onSelect={select}
-              onInspect={inspect}
-              filter="all"
-              connectRequest={connect}
-              onConnected={() => setConnect(false)}
-              onAddNode={add}
-              onInstance={(instance) => {
-                manualInstance.current = instance;
-                mountedView.current = "manual";
-                if (pendingReveal.current?.side === "after")
-                  fitTarget(instance, pendingReveal.current);
-                else if (!session.views[diagram.id])
-                  requestAnimationFrame(() =>
-                    requestAnimationFrame(() => {
-                      void instance.fitView({
-                        padding: 0.2,
-                        duration: 0,
-                        maxZoom: 1,
-                      });
-                    }),
-                  );
-              }}
-            />
-          ) : (
-            <ReactFlow<FlowNode>
-              key={`${side}-preview`}
-              nodes={nodes}
-              edges={edges}
-              nodeTypes={reviewNodeTypes}
-              edgeTypes={edgeTypes}
-              nodesDraggable={false}
-              nodesConnectable={false}
-              edgesReconnectable={false}
-              deleteKeyCode={null}
-              minZoom={0.1}
-              maxZoom={2.5}
-              fitView={!previewViews.current[side] && !pendingReveal.current}
-              onInit={(instance) => {
-                previewInstance.current = instance;
-                mountedView.current = viewKey;
-                if (pendingReveal.current?.side === side)
-                  fitTarget(instance, pendingReveal.current);
-              }}
-              defaultViewport={previewViews.current[side]}
-              fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
-              onNodeClick={(_, n) => select(n.id)}
-              onNodeDoubleClick={(_, n) => inspect(n.id)}
-              onEdgeClick={(_, e) => inspect(e.id)}
-              onPaneClick={() => select(null)}
-              onMoveEnd={(_, view) => {
-                previewViews.current[side] = view;
-              }}
-            >
-              <Background gap={22} size={1} color="#c9d6d2" />
-              <Controls showInteractive={false} />
-            </ReactFlow>
-          )}
-          {!shown.nodes.length && !(manual && side === "after") && (
-            <div className="proposal-empty">
-              {side === "before"
-                ? "This diagram was empty."
-                : "This proposal leaves the diagram empty."}
-            </div>
-          )}
-        </div>
-        {detailsOpen && (
+        {section === "diagram" ? (
           <>
-            <ResizeHandle
-              label="Resize proposal details"
-              controls="proposal-details"
-              orientation="vertical"
-              value={detailsWidth}
-              min={260}
-              max={420}
-              onChange={setDetailsWidth}
-              onCollapse={closeDetails}
-            />
             <div
-              className="proposal-inspector"
-              id="proposal-details"
+              className="proposal-navigator"
+              role="group"
+              aria-label="Review changes"
+              data-current-change={currentChange.key ?? ""}
+              onKeyDown={navigatorKeys}
+            >
+              <button
+                className="quiet"
+                aria-label="Previous change"
+                title="Previous change (Left arrow)"
+                disabled={!changes.length || busy || durable.switching}
+                onClick={previousChange}
+              >
+                ←
+              </button>
+              <select
+                aria-label="Review change"
+                value={currentChange.key ?? ""}
+                disabled={!changes.length || busy || durable.switching}
+                onChange={(event) =>
+                  navigateChange(
+                    changes.findIndex(
+                      (item) => item.key === event.target.value,
+                    ),
+                  )
+                }
+              >
+                <option value="" disabled>
+                  {changes.length ? "Choose a change" : "No diagram changes"}
+                </option>
+                {changes.map((item) => (
+                  <option key={item.key} value={item.key}>
+                    {item.kind[0].toUpperCase() + item.kind.slice(1)}{" "}
+                    {item.entity === "node" ? "node" : "connection"}:{" "}
+                    {item.title}
+                  </option>
+                ))}
+              </select>
+              <span
+                data-testid="review-change-position"
+                className="proposal-change-position"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                {currentChange.index + 1} of {changes.length}
+              </span>
+              <button
+                className="quiet"
+                aria-label="Next change"
+                title="Next change (Right arrow)"
+                disabled={!changes.length || busy || durable.switching}
+                onClick={nextChange}
+              >
+                →
+              </button>
+            </div>
+            <div
+              className="proposal-legend"
+              aria-label="Change counts"
+              data-testid="review-change-counts"
+            >
+              <span className="added">{counts.added} added</span>
+              <span className="changed">{counts.changed} changed</span>
+              <span className="removed">{counts.removed} removed</span>
+            </div>
+            <details
+              className="proposal-hints"
               onKeyDown={(event) => {
                 if (event.key !== "Escape") return;
                 event.preventDefault();
                 event.stopPropagation();
-                closeDetails();
+                event.currentTarget.open = false;
+                event.currentTarget.querySelector("summary")?.focus();
               }}
             >
-              <button
-                ref={detailsClose}
-                className="quiet proposal-close-details"
-                onClick={closeDetails}
-              >
-                Close details
-              </button>
-              {selectedExists ? (
-                manual && side === "after" ? (
-                  <fieldset disabled={editLocked} className="proposal-fields">
-                    <Inspector
-                      diagram={shown}
-                      selected={currentSelection}
-                      symbols={[]}
-                      onSelect={select}
-                      onVariable={() => {}}
-                    />
-                  </fieldset>
-                ) : (
-                  <ReadOnlyDetails
-                    diagram={shown}
-                    selected={currentSelection}
-                  />
-                )
-              ) : (
-                <p className="proposal-details-empty">
-                  Select a node or connection.
+              <summary>
+                {hints.length
+                  ? `Review hints (${hints.length})`
+                  : "Review hints · none"}
+              </summary>
+              <div className="proposal-hints-content">
+                <p>
+                  Suggestions only. Separate flows and unlabeled branches can be
+                  intentional.
                 </p>
-              )}
-            </div>
+                {hints.length ? (
+                  <ul>
+                    {hints.map((hint) => (
+                      <li key={hint.key}>
+                        <button
+                          className="quiet"
+                          disabled={busy || durable.switching}
+                          onClick={(event) => {
+                            reveal(hint);
+                            const disclosure =
+                              event.currentTarget.closest("details");
+                            if (disclosure) {
+                              disclosure.open = false;
+                              disclosure
+                                .querySelector("summary")
+                                ?.focus({ preventScroll: true });
+                            }
+                          }}
+                        >
+                          {hint.label}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>
+                    No missing criteria, unlabeled decision branches, or
+                    separate flows found. This does not verify the plan.
+                  </p>
+                )}
+              </div>
+            </details>
           </>
+        ) : (
+          <div className="proposal-brief-tools">
+            <span data-testid="review-brief-count">
+              {changedBriefFields.length} changed{" "}
+              {changedBriefFields.length === 1 ? "field" : "fields"}
+            </span>
+            {manual && side === "after" && (
+              <>
+                <button
+                  aria-label="Undo manual edit"
+                  disabled={editLocked || (cursor === 0 && !session.pending)}
+                  onClick={undo}
+                >
+                  Undo
+                </button>
+                <button
+                  aria-label="Redo manual edit"
+                  disabled={
+                    editLocked ||
+                    !!session.pending ||
+                    cursor >= session.history.length - 1
+                  }
+                  onClick={redo}
+                >
+                  Redo
+                </button>
+              </>
+            )}
+          </div>
+        )}
+        {section === "diagram" && (
+          <button
+            ref={detailsToggle}
+            className="quiet proposal-details-toggle"
+            aria-expanded={detailsOpen}
+            aria-controls="proposal-details"
+            onClick={(event) => {
+              if (detailsOpen) closeDetails();
+              else {
+                focusDetailsOnOpen.current = event.detail === 0;
+                setDetailsOpen(true);
+              }
+            }}
+          >
+            Details
+          </button>
         )}
       </div>
+      {section === "brief" ? (
+        <div
+          className="proposal-brief"
+          aria-label={side === "before" ? "Before brief" : "Proposed brief"}
+        >
+          <BriefFields
+            value={side === "before" ? beforeBrief : brief}
+            readOnly={
+              !manual ||
+              side === "before" ||
+              editLocked ||
+              !reviewable ||
+              !canEditBrief
+            }
+            onCommit={commit}
+            onChange={(field, value) =>
+              change(
+                (content) => {
+                  content.brief = {
+                    ...(content.brief ?? emptyBrief()),
+                    [field]: value,
+                  };
+                  content.schemaVersion = 2;
+                },
+                `Edit brief ${field}`,
+                undefined,
+                true,
+              )
+            }
+          />
+        </div>
+      ) : (
+        <div
+          className={`proposal-body ${detailsOpen ? "details-open" : ""}`}
+          style={
+            { "--proposal-details-width": `${detailsWidth}px` } as CSSProperties
+          }
+        >
+          <div
+            className="proposal-canvas"
+            inert={editLocked}
+            aria-label={
+              side === "before" ? "Before diagram" : "Proposed diagram"
+            }
+          >
+            {manualDiagram && side === "after" ? (
+              <Canvas
+                diagram={diagram}
+                selected={currentSelection}
+                onSelect={select}
+                onInspect={inspect}
+                filter="all"
+                connectRequest={connect}
+                onConnected={() => setConnect(false)}
+                onAddNode={add}
+                onInstance={(instance) => {
+                  manualInstance.current = instance;
+                  mountedView.current = "manual";
+                  if (pendingReveal.current?.side === "after")
+                    fitTarget(instance, pendingReveal.current);
+                  else if (!session.views[diagram.id])
+                    requestAnimationFrame(() =>
+                      requestAnimationFrame(() => {
+                        void instance.fitView({
+                          padding: 0.2,
+                          duration: 0,
+                          maxZoom: 1,
+                        });
+                      }),
+                    );
+                }}
+              />
+            ) : (
+              <ReactFlow<FlowNode>
+                key={`${side}-preview`}
+                nodes={nodes}
+                edges={edges}
+                nodeTypes={reviewNodeTypes}
+                edgeTypes={edgeTypes}
+                nodesDraggable={false}
+                nodesConnectable={false}
+                edgesReconnectable={false}
+                deleteKeyCode={null}
+                minZoom={0.1}
+                maxZoom={2.5}
+                fitView={!previewViews.current[side] && !pendingReveal.current}
+                onInit={(instance) => {
+                  previewInstance.current = instance;
+                  mountedView.current = viewKey;
+                  if (pendingReveal.current?.side === side)
+                    fitTarget(instance, pendingReveal.current);
+                }}
+                defaultViewport={previewViews.current[side]}
+                fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+                onNodeClick={(_, n) => select(n.id)}
+                onNodeDoubleClick={(_, n) => inspect(n.id)}
+                onEdgeClick={(_, e) => inspect(e.id)}
+                onPaneClick={() => select(null)}
+                onMoveEnd={(_, view) => {
+                  previewViews.current[side] = view;
+                }}
+              >
+                <Background gap={22} size={1} color="#c9d6d2" />
+                <Controls showInteractive={false} />
+              </ReactFlow>
+            )}
+            {!shown.nodes.length && !(manualDiagram && side === "after") && (
+              <div className="proposal-empty">
+                {side === "before"
+                  ? "This diagram was empty."
+                  : "This proposal leaves the diagram empty."}
+              </div>
+            )}
+          </div>
+          {detailsOpen && (
+            <>
+              <ResizeHandle
+                label="Resize proposal details"
+                controls="proposal-details"
+                orientation="vertical"
+                value={detailsWidth}
+                min={260}
+                max={420}
+                onChange={setDetailsWidth}
+                onCollapse={closeDetails}
+              />
+              <div
+                className="proposal-inspector"
+                id="proposal-details"
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  closeDetails();
+                }}
+              >
+                <button
+                  ref={detailsClose}
+                  className="quiet proposal-close-details"
+                  onClick={closeDetails}
+                >
+                  Close details
+                </button>
+                {selectedExists ? (
+                  manualDiagram && side === "after" ? (
+                    <fieldset disabled={editLocked} className="proposal-fields">
+                      <Inspector
+                        diagram={shown}
+                        selected={currentSelection}
+                        symbols={[]}
+                        onSelect={select}
+                        onVariable={() => {}}
+                      />
+                    </fieldset>
+                  ) : (
+                    <ReadOnlyDetails
+                      diagram={shown}
+                      selected={currentSelection}
+                    />
+                  )
+                ) : (
+                  <p className="proposal-details-empty">
+                    Select a node or connection.
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
       <footer className="proposal-footer">
         <span>
           {proposal.state === "accepted"
@@ -946,7 +1080,9 @@ function Workspace({
             : `${edited ? (durable.status === "saved" ? "Draft saved separately" : "Draft changes pending") : "Preview only"} · saved plan unchanged`}
         </span>
         <span>
-          {shown.name} · {shown.nodes.length} nodes
+          {section === "brief"
+            ? "Project brief"
+            : `${shown.name} · ${shown.nodes.length} nodes${!canEditDiagram ? " · context only" : ""}`}
         </span>
       </footer>
     </section>

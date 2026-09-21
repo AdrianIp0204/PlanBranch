@@ -1,4 +1,4 @@
-"""Numbered, atomic SQLite upgrades; portable content remains schema version 1."""
+"""Numbered, atomic SQLite upgrades for storage and retained manual snapshots."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,7 +11,7 @@ from typing import Callable
 from ..validation import ValidationError, validate_checkpoint
 
 
-DATABASE_VERSION = 5
+DATABASE_VERSION = 6
 
 
 @dataclass(frozen=True)
@@ -64,12 +64,28 @@ def proposal_drafts(connection, store):
     apply_sql(connection, "005_proposal_drafts.sql")
 
 
+def project_briefs(connection, store):
+    apply_sql(connection, "006_project_briefs.sql")
+    # Only manual checkpoints and their current projection are normalized.
+    # Frozen requests, approvals, proposals, drafts, and retry receipts retain
+    # their exact original bytes and are upgraded as copies when read or used.
+    for project in connection.execute("SELECT id,cursor FROM projects ORDER BY id").fetchall():
+        history = [validate_checkpoint(item, store._detected_ids(connection, project["id"]))
+                   for item in store._history(connection, project["id"])]
+        current = next((item for item in history if item["id"] == project["cursor"]), None)
+        if current is None:
+            raise ValidationError("Cannot upgrade a project whose saved history cursor is missing.")
+        store._write_history(connection, project["id"], history)
+        store._write_current(connection, project["id"], current["content"])
+
+
 MIGRATIONS = (
     Migration(1, "Initial project storage", False, initial_schema),
     Migration(2, "Managed scanner schema and canonical snapshots", True, managed_scanner_and_snapshots),
     Migration(3, "Planning chat, reviews and approvals", False, planning_workspace),
     Migration(4, "Structured planning questions and durable answers", False, planning_questions),
     Migration(5, "Durable proposal drafts and recoverable apply intents", False, proposal_drafts),
+    Migration(6, "Project briefs and scoped proposal review", True, project_briefs),
 )
 
 

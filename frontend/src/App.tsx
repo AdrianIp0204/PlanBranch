@@ -20,6 +20,7 @@ import {
   type Envelope,
   type NodeKind,
   type ProjectSummary,
+  type ProjectBrief,
   type Reconciliation,
   type Scan,
   type Source,
@@ -27,7 +28,12 @@ import {
 import Canvas, { type FlowNode } from "./Canvas";
 import Inspector from "./Inspector";
 import TidyDiagram from "./TidyDiagram";
-import type { DraftReference, DraftDetail, AcceptanceRequest } from "./durableDrafts";
+import ProjectBriefDialog from "./ProjectBriefDialog";
+import type {
+  DraftReference,
+  DraftDetail,
+  AcceptanceRequest,
+} from "./durableDrafts";
 import PlanningPanel from "./PlanningPanel";
 import ProposalWorkspace, {
   type ProposalLeaveGuard,
@@ -326,6 +332,7 @@ function Workbench({
   } = useProject();
   const content = session.content;
   const [active, setActive] = useState(content.diagrams[0]?.id ?? "");
+  const [briefOpen, setBriefOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [tidy, setTidy] = useState<{
     diagram: Diagram;
@@ -455,23 +462,34 @@ function Workbench({
     await synchronize(async (snapshot) => {
       const base = `/projects/${snapshot.id}/planning/proposals/${proposalId}`;
       let request: AcceptanceRequest | Record<string, unknown> = {
-        baseRevision: snapshot.revision, mutationId,
+        baseRevision: snapshot.revision,
+        mutationId,
         ...(candidate ? { diagram: candidate } : {}),
         ...(contentHash ? { contentHash } : {}),
       };
       if (draft) {
-        const { draft: saved } = await api<{ draft: DraftDetail }>(`${base}/drafts/${draft.draftId}`);
+        const { draft: saved } = await api<{ draft: DraftDetail }>(
+          `${base}/drafts/${draft.draftId}`,
+        );
         // A prior Apply may have committed or stopped after preparing its intent.
         // Only this explicit user action replays that frozen receipt.
         if (saved.applyRequest) request = saved.applyRequest;
         else {
-          const prepared = await post<{ applyRequest: AcceptanceRequest }>(`${base}/drafts/${draft.draftId}/prepare-apply`, {
-            baseDraftRevision: draft.draftRevision, baseRevision: snapshot.revision, mutationId,
-          });
+          const prepared = await post<{ applyRequest: AcceptanceRequest }>(
+            `${base}/drafts/${draft.draftId}/prepare-apply`,
+            {
+              baseDraftRevision: draft.draftRevision,
+              baseRevision: snapshot.revision,
+              mutationId,
+            },
+          );
           request = prepared.applyRequest;
         }
       }
-      const result = await post<{ project: Envelope }>(`${base}/accept`, request);
+      const result = await post<{ project: Envelope }>(
+        `${base}/accept`,
+        request,
+      );
       return result.project;
     });
   };
@@ -593,12 +611,14 @@ function Workbench({
     closeProposal();
     setPlanningRefresh((v) => v + 1);
   };
-  const revisePreview = (candidate: Diagram) => {
+  const revisePreview = (candidate: Diagram, brief?: ProjectBrief) => {
     if (!proposalPreview) return;
     setProposalRevision({
       proposalId: proposalPreview.proposal.id,
       title: proposalPreview.proposal.title,
       diagram: candidate,
+      editableSections: proposalPreview.proposal.editableSections ?? ["diagram"],
+      ...(brief ? { brief: copy(brief) } : {}),
       nonce: uid(),
     });
     openPlanning();
@@ -928,6 +948,17 @@ function Workbench({
           <span>/</span>
           <span>{diagram?.name}</span>
         </div>
+        <button
+          className="quiet project-brief-toggle"
+          aria-label="Project brief"
+          disabled={Boolean(proposalPreview)}
+          onClick={() => {
+            commit();
+            setBriefOpen(true);
+          }}
+        >
+          Brief
+        </button>
         <div
           className={`save-state ${saveStatus}`}
           data-testid="save-state"
@@ -1779,6 +1810,7 @@ function Workbench({
           }}
         />
       )}
+      {briefOpen && <ProjectBriefDialog onClose={() => setBriefOpen(false)} />}
       {scanDialog && (
         <Dialog title="Python source" onClose={() => setScanDialog(false)}>
           <p className="muted">

@@ -381,3 +381,31 @@
     order: initial;
   }
 }
+
+.proposal-sections {
+  display: flex;
+  gap: 2px;
+  border-right: 1px solid var(--line);
+  padding-right: 10px;
+}
+.proposal-sections button {
+  padding: 5px 9px;
+  background: transparent;
+  border-color: transparent;
+}
+.proposal-sections button[aria-pressed="true"] {
+  color: #194f43;
+  background: #e6eee8;
+}
+.proposal-brief {
+  flex: 1 0 220px;
+  min-height: 220px;
+  padding: 16px;
+}
+.proposal-brief-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}

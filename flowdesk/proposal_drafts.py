@@ -7,7 +7,8 @@ from contextlib import closing
 import json
 from uuid import uuid4
 
-from .planning import diagram_in, fingerprint, replace_diagram
+from .planning import fingerprint, manual_fingerprint, apply_candidate_sections, edit_candidate_sections
+from .content_versions import upgrade_content
 from .storage import ConflictError, NotFoundError, encode, now
 from .validation import ValidationError, identifier, integer, obj, string
 
@@ -57,7 +58,7 @@ class ProposalDrafts:
             db.execute("BEGIN")
             project = self.planning._current(db, project_id)
             proposal = self.planning._proposal(db, project_id, proposal_id)
-            return self._list(db, project_id, proposal, fingerprint(project["content"]))
+            return self._list(db, project_id, proposal, manual_fingerprint(project["content"]))
 
     def get(self, project_id, proposal_id, draft_id):
         with closing(self.store.connect()) as db:
@@ -65,8 +66,8 @@ class ProposalDrafts:
             project = self.planning._current(db, project_id)
             self.planning._proposal(db, project_id, proposal_id)
             row = self._row(db, project_id, proposal_id, draft_id)
-            return {"draft": {**self._summary(row, fingerprint(project["content"])),
-                              "candidate": json.loads(row["candidate"]),
+            return {"draft": {**self._summary(row, manual_fingerprint(project["content"])),
+                              "candidate": upgrade_content(json.loads(row["candidate"])),
                               "applyRequest": json.loads(row["apply_request"]) if row["apply_request"] else None}}
 
     def _operation(self, project_id, proposal_id, draft_id, payload, action, edit):
@@ -85,7 +86,7 @@ class ProposalDrafts:
                     raise ValidationError("A mutation ID cannot be reused for a different draft request.")
                 response, status = json.loads(receipt["acknowledgement"]), receipt["status_code"]
             else:
-                response, status = edit(db, project, proposal, fingerprint(project["content"]))
+                response, status = edit(db, project, proposal, manual_fingerprint(project["content"]))
                 db.execute("INSERT INTO proposal_draft_receipts VALUES(?,?,?,?,?)",
                            (project_id, payload["mutationId"], request_hash, encode(response), status))
         # A conflicting candidate and its receipt must COMMIT before returning
@@ -111,7 +112,7 @@ class ProposalDrafts:
         return self._row(db, project_id, proposal["id"], draft_id)
 
     def save(self, project_id, proposal_id, draft_id, payload):
-        obj(payload, {"baseDraftRevision", "mutationId", "contentHash", "diagram"}, "proposal draft save")
+        obj(payload, {"baseDraftRevision", "mutationId", "contentHash", "diagram", "brief"}, "proposal draft save")
         string(payload.get("contentHash"), "Proposal content hash", 64, True)
 
         def edit(db, project, proposal, current_hash):
@@ -122,8 +123,8 @@ class ProposalDrafts:
             if payload["contentHash"] != original_hash:
                 raise RuntimeError("The proposal identity changed. Reload its saved drafts before continuing.")
             baseline = self.planning._proposal_base(db, project_id, proposal)
-            candidate = replace_diagram(baseline if baseline is not None else original, payload.get("diagram"),
-                                        proposal["diagram_id"], self.store._detected_ids(db, project_id))
+            candidate = edit_candidate_sections(baseline if baseline is not None else original, original, proposal,
+                                                 payload, self.store._detected_ids(db, project_id))
             row = self._row(db, project_id, proposal_id, draft_id, required=False)
             if row is None:
                 if payload["baseDraftRevision"] != 0:
@@ -162,8 +163,7 @@ class ProposalDrafts:
                           (project_id, proposal_id)).fetchone():
                 raise RuntimeError("Another draft has an unfinished Apply. Recover or cancel it first.")
             candidate = json.loads(row["candidate"])
-            content = replace_diagram(project["content"], diagram_in(candidate, row["diagram_id"]),
-                                      row["diagram_id"], self.store._detected_ids(db, project_id))
+            content = apply_candidate_sections(project["content"], candidate, proposal, self.store._detected_ids(db, project_id))
             if content == project["content"]:
                 raise ValidationError("The edited proposal has no changes. Discard it or make a change before applying.")
             apply_request = {"baseRevision": payload["baseRevision"], "mutationId": payload["mutationId"],

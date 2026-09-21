@@ -91,7 +91,7 @@ Requests run in a disposable working directory with command execution, integrati
 
 PlanBranch explicitly loads packaged, versioned planner instructions as developer instructions on every new request. The response schema and server validation enforce the review and question contracts. Automatic skill discovery is not required, and no `SKILL.md` is needed for normal use. Mandatory behavior does not depend on the model choosing a skill.
 
-Manual proposal edits stay separate from the saved plan until **Apply changes**. They are kept best-effort in this tab's session storage and restore after reload; they are not included in database backups and are lost when the browser ends that session. Draft undo/redo is local to the open review; applying creates one durable project-history action. If storage fails, keep the review open; leaving or switching proposals asks before losing edits. After an interrupted apply response, **Retry apply** checks the original request without duplicating the change.
+Manual proposal edits stay separate from the saved plan until **Apply changes**. They save to the database, are included in database backups and recover after browser closure or server restart. Draft undo/redo is local to the open review; applying creates one durable project-history action. Failed draft saves remain visible and prevent leaving until saved. Conflicting candidates are kept as separate copies. After an interrupted Apply, **Retry apply** checks its durable request without duplicating the change.
 
 Conversation, comments, proposals, question sets, submitted answers, and approval records live outside diagram undo history. They survive restarts and are included in SQLite backups, but are intentionally omitted from portable JSON and Markdown exports. Accepted edits become ordinary content and are exported normally. Unsent composer and question-answer drafts are kept best-effort in this tab's session storage; they are not database-backed messages and are removed when submitted. Undo does not reopen replaced question sets.
 
@@ -223,3 +223,10 @@ Apply first records a durable request and then commits the candidate as one proj
 Use **Previous change**, **Next change**, or the **Review change** selector to visit changed nodes and connections. The workspace selects and brings each item into view; removed items open in Before. Arrow keys, Home and End work when a navigation button is focused. Typing in an editable field retains ordinary text navigation. Editing a candidate keeps the current review target when it still exists.
 
 The summary counts added, changed and removed items. **Review hints** offers optional links to tasks without acceptance checklist items, unlabeled decision branches and separate flow components. These are prompts to inspect the plan, not correctness checks. Notes and valid loops do not need fixing; intentional separate flows and unfinished drafts can still be applied.
+
+
+## Project brief
+
+Open **Brief** in the top bar to edit the goal, intended user, requirements, constraints, exclusions, agreed decisions and assumptions. Changes save automatically and participate in project Undo/Redo. Editing the brief makes an existing plan approval outdated. Keep uncertain assumptions in their own field until you agree to adopt them.
+
+The brief is included in each new planning request, even when older conversation messages are omitted. Codex can propose brief updates, which appear in the existing review workspace alongside any diagram changes. Compare Before and Proposed, edit the candidate, request a revision, Apply or Discard. Saving a proposal draft never changes the saved brief. JSON and Markdown exports include the brief; older project files import with an empty brief.

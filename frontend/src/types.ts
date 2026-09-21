@@ -58,8 +58,27 @@ export type Match = {
   symbolId: string;
   decision: "confirmed" | "rejected";
 };
+export type ProjectBrief = {
+  goal: string;
+  audience: string;
+  requirements: string;
+  constraints: string;
+  outOfScope: string;
+  decisions: string;
+  assumptions: string;
+};
+export const emptyBrief = (): ProjectBrief => ({
+  goal: "",
+  audience: "",
+  requirements: "",
+  constraints: "",
+  outOfScope: "",
+  decisions: "",
+  assumptions: "",
+});
 export type Content = {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
+  brief?: ProjectBrief;
   name: string;
   notes: string;
   diagrams: Diagram[];

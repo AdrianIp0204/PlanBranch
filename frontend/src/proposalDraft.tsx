@@ -14,6 +14,8 @@ import { StoreContext, type Store } from "./store";
 import { api } from "./api";
 import {
   DraftSaveQueue,
+  draftCandidateValues,
+  type DraftSection,
   type DraftConflict,
   type DraftDetail,
   type DraftList,
@@ -202,6 +204,7 @@ type DraftProviderProps = {
   diagramId: string;
   storageKey: string;
   readOnly?: boolean;
+  editableSections?: readonly DraftSection[];
   children: ReactNode;
 };
 const reasonText = (reason: unknown) =>
@@ -274,6 +277,7 @@ function LoadedProposalDraft({
   diagramId,
   storageKey,
   readOnly = false,
+  editableSections = ["diagram"],
   children,
   initial,
   initialList,
@@ -288,7 +292,9 @@ function LoadedProposalDraft({
     () => {
       const restored =
         initial?.candidate.diagrams.find((item) => item.id === diagramId) ??
-        (!readOnly && !initialList.length
+        (!readOnly &&
+        editableSections.includes("diagram") &&
+        !initialList.length
           ? readProposalDraft(storageKey, original)
           : null);
       const value = proposalSession(
@@ -376,11 +382,16 @@ function LoadedProposalDraft({
           method: "PUT",
           body: JSON.stringify(body),
         }),
-      (ack, generation, diagram) => {
+      (ack, generation, values) => {
         const candidate = copy(ref.current.content);
-        candidate.diagrams = candidate.diagrams.map((item) =>
-          item.id === diagramId ? copy(diagram) : item,
-        );
+        if (values.diagram)
+          candidate.diagrams = candidate.diagrams.map((item) =>
+            item.id === diagramId ? copy(values.diagram!) : item,
+          );
+        if (values.brief) {
+          candidate.brief = copy(values.brief);
+          candidate.schemaVersion = 2;
+        }
         const previous = draftRef.current;
         updateDraft({
           ...previous,
@@ -399,6 +410,7 @@ function LoadedProposalDraft({
         clearProposalDraft(storageKey);
       },
       report,
+      editableSections,
     );
   const queueRef = useRef<DraftSaveQueue | null>(null);
   if (!queueRef.current) queueRef.current = createQueue(draft);
@@ -608,14 +620,23 @@ function LoadedProposalDraft({
       change(edit, label, _diagramId, group = false) {
         const edited = copy(ref.current.content);
         edit(edited);
-        const candidate = edited.diagrams.find((item) => item.id === diagramId);
-        if (!candidate) return;
+        const values = draftCandidateValues(
+          edited,
+          diagramId,
+          editableSections,
+        );
         const restricted = copy(ref.current.content);
-        const diagram = restricted.diagrams.find(
-          (item) => item.id === diagramId,
-        )!;
-        diagram.nodes = candidate.nodes;
-        diagram.edges = candidate.edges;
+        if (values.diagram) {
+          const diagram = restricted.diagrams.find(
+            (item) => item.id === diagramId,
+          )!;
+          diagram.nodes = values.diagram.nodes;
+          diagram.edges = values.diagram.edges;
+        }
+        if (values.brief) {
+          restricted.brief = values.brief;
+          restricted.schemaVersion = 2;
+        }
         send({ type: "edit", content: restricted, label, diagramId, group });
       },
       commit: () => send({ type: "commit" }),

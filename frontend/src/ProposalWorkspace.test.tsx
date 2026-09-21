@@ -14,7 +14,7 @@ import ProposalWorkspace, {
 } from "./ProposalWorkspace";
 import { api } from "./api";
 import type { DraftDetail } from "./durableDrafts";
-import { copy, createNode, type Content } from "./types";
+import { copy, createNode, emptyBrief, type Content } from "./types";
 import {
   diagramMarks,
   proposalDraftKey,
@@ -161,7 +161,11 @@ async function mockDraftApi(path: string, options: RequestInit = {}) {
       if (failSaves) throw new Error("Draft storage unavailable.");
       const body = JSON.parse(options.body as string);
       const candidate = detail().content;
-      candidate.diagrams[0] = body.diagram;
+      if (body.diagram) candidate.diagrams[0] = body.diagram;
+      if (body.brief) {
+        candidate.brief = body.brief;
+        candidate.schemaVersion = 2;
+      }
       const draft: DraftDetail = {
         id,
         proposalId: "proposal",
@@ -804,5 +808,117 @@ describe("change navigation and advisory review", () => {
     );
     expect(disclosure.open).toBe(false);
     expect(document.activeElement).toBe(disclosure.querySelector("summary"));
+  });
+});
+
+describe("reviewable project brief proposals", () => {
+  function briefDetail(combined = false) {
+    const fixture = detail();
+    fixture.proposal.editableSections = combined
+      ? ["diagram", "brief"]
+      : ["brief"];
+    fixture.baseContent!.schemaVersion = 2;
+    fixture.baseContent!.brief = { ...emptyBrief(), goal: "Saved human goal" };
+    fixture.content.schemaVersion = 2;
+    fixture.content.brief = {
+      ...emptyBrief(),
+      goal: "Agent proposed goal",
+      constraints: "Local use only",
+    };
+    if (!combined)
+      fixture.content.diagrams = copy(fixture.baseContent!.diagrams);
+    return fixture;
+  }
+  it("starts a brief-only proposal in explicit comparison and keeps its diagram readonly", async () => {
+    const fixture = briefDetail();
+    await setup({ detail: fixture });
+    expect(
+      screen
+        .getByRole("button", { name: "Brief" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(screen.getByTestId("review-brief-count").textContent).toBe(
+      "2 changed fields",
+    );
+    expect(screen.getByText("Agent proposed goal")).toBeTruthy();
+    expect(screen.queryByLabelText("Goal")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Before" }));
+    expect(screen.getByText("Saved human goal")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Diagram" }));
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Edit manually",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(screen.queryByRole("button", { name: "Add node" })).toBeNull();
+    expect(
+      vi
+        .mocked(api)
+        .mock.calls.some(([, options]) => options?.method === "PUT"),
+    ).toBe(false);
+  });
+  it("keeps manual brief edits through undo, revision and Apply without changing the saved plan", async () => {
+    const fixture = briefDetail();
+    const { props } = await setup({ detail: fixture });
+    fireEvent.click(screen.getByRole("button", { name: "Edit manually" }));
+    fireEvent.change(screen.getByLabelText("Goal"), {
+      target: { value: "My reviewed goal" },
+    });
+    fireEvent.blur(screen.getByLabelText("Goal"));
+    expect(
+      screen.getByRole("button", { name: "Proposed · edited" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Undo manual edit" }));
+    expect((screen.getByLabelText("Goal") as HTMLTextAreaElement).value).toBe(
+      "Agent proposed goal",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Redo manual edit" }));
+    expect((screen.getByLabelText("Goal") as HTMLTextAreaElement).value).toBe(
+      "My reviewed goal",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Ask Codex" }));
+    expect(props.onRevise).toHaveBeenCalledWith(fixture.content.diagrams[0], {
+      ...fixture.content.brief,
+      goal: "My reviewed goal",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
+    await waitFor(() => expect(props.onApply).toHaveBeenCalledOnce());
+    expect(vi.mocked(props.onApply).mock.calls[0][0]).toBeUndefined();
+    expect(vi.mocked(props.onApply).mock.calls[0][1]?.draftRevision).toBe(1);
+    expect([...savedDrafts.values()][0].candidate.brief?.goal).toBe(
+      "My reviewed goal",
+    );
+    const body = JSON.parse(
+      vi
+        .mocked(api)
+        .mock.calls.find(([, options]) => options?.method === "PUT")![1]!
+        .body as string,
+    );
+    expect(body).not.toHaveProperty("diagram");
+    expect(fixture.baseContent!.brief!.goal).toBe("Saved human goal");
+    expect(fixture.content.brief!.goal).toBe("Agent proposed goal");
+  });
+  it("retains independent manual diagram and brief changes while switching sections", async () => {
+    const { props } = await setup({ detail: briefDetail(true) });
+    editTitle("My graph title");
+    fireEvent.click(screen.getByRole("button", { name: "Brief" }));
+    fireEvent.change(screen.getByLabelText("Goal"), {
+      target: { value: "My second-section edit" },
+    });
+    fireEvent.blur(screen.getByLabelText("Goal"));
+    fireEvent.click(screen.getByRole("button", { name: "Diagram" }));
+    expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe(
+      "My graph title",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
+    await waitFor(() => expect(props.onApply).toHaveBeenCalledOnce());
+    expect(vi.mocked(props.onApply).mock.calls[0][0]?.nodes[0].title).toBe(
+      "My graph title",
+    );
+    expect([...savedDrafts.values()][0].candidate.brief?.goal).toBe(
+      "My second-section edit",
+    );
   });
 });

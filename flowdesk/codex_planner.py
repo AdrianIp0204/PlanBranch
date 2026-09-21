@@ -76,8 +76,22 @@ OUTPUT_SCHEMA_V2 = _object({
     "questions": {"type": "array", "items": QUESTION_SCHEMA},
     "proposal": OUTPUT_SCHEMA_V1["properties"]["proposal"],
 })
-OUTPUT_SCHEMAS = {1: OUTPUT_SCHEMA_V1, 2: OUTPUT_SCHEMA_V2}
-OUTPUT_SCHEMA = OUTPUT_SCHEMA_V2
+BRIEF_SCHEMA = _object({key: _text for key in (
+    "goal", "audience", "requirements", "constraints", "outOfScope", "decisions", "assumptions")})
+OUTPUT_SCHEMA_V3 = _object({
+    "protocolVersion": {"type": "integer", "enum": [3]},
+    "kind": {"type": "string", "enum": ["reply", "questions", "proposal"]},
+    "message": _text,
+    "questions": {"type": "array", "items": QUESTION_SCHEMA},
+    "proposal": {"anyOf": [{"type": "null"}, _object({
+        "title": _text, "summary": _text, "diagramId": _text,
+        "nodes": {"anyOf": [{"type": "null"}, {"type": "array", "items": NODE_SCHEMA}]},
+        "edges": {"anyOf": [{"type": "null"}, {"type": "array", "items": EDGE_SCHEMA}]},
+        "brief": {"anyOf": [{"type": "null"}, BRIEF_SCHEMA]},
+    })]},
+})
+OUTPUT_SCHEMAS = {1: OUTPUT_SCHEMA_V1, 2: OUTPUT_SCHEMA_V2, 3: OUTPUT_SCHEMA_V3}
+OUTPUT_SCHEMA = OUTPUT_SCHEMA_V3
 
 DISABLED_FEATURES = (
     "shell_tool", "unified_exec", "shell_snapshot", "apps", "plugins", "remote_plugin",
@@ -92,9 +106,9 @@ CONFIG_OVERRIDES = (
     'notify=[]', 'history.persistence="none"', 'analytics.enabled=false',
     'feedback.enabled=false', 'check_for_update_on_startup=false',
 )
-INSTRUCTION_VERSION = "planner-v3"
-PROTOCOL_VERSION = 2
-INSTRUCTION_PROTOCOLS = {"planner-v1": 1, "planner-v2": 2, "planner-v3": 2}
+INSTRUCTION_VERSION = "planner-v4"
+PROTOCOL_VERSION = 3
+INSTRUCTION_PROTOCOLS = {"planner-v1": 1, "planner-v2": 2, "planner-v3": 2, "planner-v4": 3}
 
 
 def instruction_resource(version=None):
@@ -420,9 +434,9 @@ class CodexPlanner:
                     raise ValueError
                 value = json.loads(raw, parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
                 _validate_shape(value, schema)
-                if generation["protocolVersion"] == 2:
+                if generation["protocolVersion"] >= 2:
                     from .planning_questions import validate_envelope
-                    validate_envelope(value, 2)
+                    validate_envelope(value, generation["protocolVersion"])
                 elif not value["message"].strip() or len(value["message"]) > 32768:
                     raise ValueError
                 if value["proposal"] and value["proposal"]["diagramId"] != context.get("activeDiagramId"):

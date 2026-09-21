@@ -263,7 +263,7 @@ def test_configure_freezes_packaged_policy_and_pair(ready):
     import hashlib
     config = ready.configure({"mode": "explicit", "model": "quick-model", "reasoningEffort": "high"})
     assert config["selection"] == {"mode": "explicit", "model": "quick-model", "reasoningEffort": "high"}
-    assert config["protocolVersion"] == 2 and config["instructionVersion"] == "planner-v3"
+    assert config["protocolVersion"] == 3 and config["instructionVersion"] == "planner-v4"
     assert config["cliVersion"] == "0.144.1"
     assert config["instructionHash"] == hashlib.sha256(config["instructions"].encode()).hexdigest()
     assert "Never execute the plan" in config["instructions"]
@@ -275,7 +275,7 @@ def test_configure_freezes_packaged_policy_and_pair(ready):
 def test_frozen_v2_policy_is_still_supported(ready, context, monkeypatch):
     import hashlib
     instructions = adapter.instruction_resource("planner-v2")
-    context["generation"] = {**ready.configure({"mode": "default"}), "instructionVersion": "planner-v2",
+    context["generation"] = {**ready.configure({"mode": "default"}), "instructionVersion": "planner-v2", "protocolVersion": 2,
                              "instructions": instructions, "instructionHash": hashlib.sha256(instructions.encode()).hexdigest()}
     def run(args, **kwargs):
         assert 'developer_instructions=' + json.dumps(instructions, ensure_ascii=False) in args
@@ -295,7 +295,7 @@ def test_review_candidate_crosses_only_the_context_boundary(ready, context, monk
         data = json.loads(kwargs["prompt"].split(b"\n", 1)[1])
         assert data["reviewProposal"] == review
         assert "Retain manual edits" not in str(args)
-        kwargs["output_path"].write_text(json.dumps({"protocolVersion": 2, "kind": "reply", "message": "Ready",
+        kwargs["output_path"].write_text(json.dumps({"protocolVersion": 3, "kind": "reply", "message": "Ready",
                                                   "questions": [], "proposal": None}), encoding="utf-8")
         return adapter._Result(0, b"", b"")
     monkeypatch.setattr(adapter, "_run", run)
@@ -388,7 +388,7 @@ def question_reply(*, text="", kind="choice"):
 
 @pytest.mark.parametrize("kind", ["choice", "text"])
 def test_v2_questions_allow_empty_message_without_applying(ready, context, monkeypatch, kind):
-    context["generation"] = ready.configure({"mode": "default"})
+    context["generation"] = configure_v2(ready)
     response = question_reply(kind=kind)
     observed = copy.deepcopy(context["content"])
     def run(args, **kwargs):
@@ -405,7 +405,7 @@ def test_v2_questions_allow_empty_message_without_applying(ready, context, monke
 
 @pytest.mark.parametrize("invalid", ["empty_questions", "reply_questions", "questions_proposal", "bad_recommendation", "duplicate_options", "text_options", "old_contract", "non_integer_version"])
 def test_v2_rejects_malformed_or_mixed_responses(ready, context, monkeypatch, invalid):
-    context["generation"] = ready.configure({"mode": "default"})
+    context["generation"] = configure_v2(ready)
     response = question_reply()
     if invalid == "empty_questions": response["questions"] = []
     elif invalid == "reply_questions": response.update(kind="reply", message="A reply")
@@ -421,7 +421,7 @@ def test_v2_rejects_malformed_or_mixed_responses(ready, context, monkeypatch, in
 
 
 def test_v2_question_history_crosses_manual_context_boundary(ready, context, monkeypatch):
-    context["generation"] = ready.configure({"mode": "default"})
+    context["generation"] = configure_v2(ready)
     context["questionSets"] = [{"id": "q-set", "state": "answered", "questions": question_reply()["questions"],
                                 "answers": [{"questionId": "storage", "optionId": "sqlite", "text": None}]}]
     context["sourceAttachments"] = [{"path": "do-not-send"}]
@@ -436,7 +436,31 @@ def test_v2_question_history_crosses_manual_context_boundary(ready, context, mon
 
 
 def test_v2_reply_requires_message(ready, context, monkeypatch):
-    context["generation"] = ready.configure({"mode": "default"})
+    context["generation"] = configure_v2(ready)
     fake_response(monkeypatch, {"protocolVersion": 2, "kind": "reply", "message": "", "questions": [], "proposal": None})
     with pytest.raises(adapter.CodexPlannerError, match="invalid planning response"):
         ready.generate(context)
+
+
+def configure_v2(ready):
+    instructions = adapter.instruction_resource("planner-v3")
+    return {**ready.configure({"mode": "default"}), "protocolVersion": 2, "instructionVersion": "planner-v3",
+            "instructions": instructions, "instructionHash": hashlib.sha256(instructions.encode()).hexdigest()}
+
+
+def test_v3_brief_proposal_uses_new_schema_and_frozen_policy(ready, context, monkeypatch):
+    context["generation"] = ready.configure({"mode": "default"})
+    brief = {key: "" for key in adapter.BRIEF_SCHEMA["properties"]}
+    brief.update(goal="Plan an offline CLI", assumptions="SQLite is still tentative")
+    response = {"protocolVersion": 3, "kind": "proposal", "message": "Review this brief.", "questions": [],
+                "proposal": {"title": "Project brief", "summary": "Keep assumptions explicit", "diagramId": "diagram-1",
+                             "nodes": None, "edges": None, "brief": brief}}
+    def run(args, **kwargs):
+        schema = json.loads(Path(args[args.index("--output-schema") + 1]).read_text())
+        assert schema == adapter.OUTPUT_SCHEMA_V3
+        assert "content.brief" in context["generation"]["instructions"]
+        assert "Never promote an assumption" in context["generation"]["instructions"]
+        kwargs["output_path"].write_text(json.dumps(response), encoding="utf-8")
+        return adapter._Result(0, b"", b"")
+    monkeypatch.setattr(adapter, "_run", run)
+    assert ready.generate(context) == response

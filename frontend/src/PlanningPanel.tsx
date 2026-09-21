@@ -440,7 +440,16 @@ export default function PlanningPanel({
       nodeId: revision ? null : aboutNode ? (node?.id ?? null) : null,
       selection: modelSettings.selection,
       ...(revision
-        ? { proposalId: revision.proposalId, proposalDiagram: revision.diagram }
+        ? {
+            proposalId: revision.proposalId,
+            ...((revision.editableSections ?? ["diagram"]).includes("diagram")
+              ? { proposalDiagram: revision.diagram }
+              : {}),
+            ...((revision.editableSections ?? ["diagram"]).includes("brief") &&
+            revision.brief
+              ? { proposalBrief: revision.brief }
+              : {}),
+          }
         : {}),
     };
     if (!captured.text) return;
@@ -456,6 +465,10 @@ export default function PlanningPanel({
       samePlan(
         captured.proposalDiagram ?? null,
         failedPrompt.proposalDiagram ?? null,
+      ) &&
+      samePlan(
+        captured.proposalBrief ?? null,
+        failedPrompt.proposalBrief ?? null,
       )
         ? failedPrompt
         : captured;
@@ -502,23 +515,47 @@ export default function PlanningPanel({
     (revision ? null : aboutNode ? (node?.id ?? null) : null) ===
       failedPrompt.nodeId &&
     revision?.proposalId === failedPrompt.proposalId &&
-    samePlan(revision?.diagram ?? null, failedPrompt.proposalDiagram ?? null),
+    samePlan(
+      revision && (revision.editableSections ?? ["diagram"]).includes("diagram")
+        ? revision.diagram
+        : null,
+      failedPrompt.proposalDiagram ?? null,
+    ) &&
+    samePlan(
+      revision && (revision.editableSections ?? ["diagram"]).includes("brief")
+        ? (revision.brief ?? null)
+        : null,
+      failedPrompt.proposalBrief ?? null,
+    ),
   );
   function startNewFromFailure() {
     if (!failedRequest) return;
     setDraft((current) => (current.trim() ? current : failedRequest.text));
     setFailedPrompt(null);
+    const failedDiagram =
+      failedRequest.proposalDiagram ??
+      getSnapshot().content.diagrams.find(
+        (item) => item.id === failedRequest.diagramId,
+      );
     if (
       !revision &&
       failedRequest.proposalId &&
-      failedRequest.proposalDiagram
+      failedDiagram &&
+      (failedRequest.proposalDiagram || failedRequest.proposalBrief)
     ) {
       setRevision({
         proposalId: failedRequest.proposalId,
         title:
           state?.proposals.find((item) => item.id === failedRequest.proposalId)
             ?.title ?? "Reviewed proposal",
-        diagram: failedRequest.proposalDiagram,
+        diagram: failedDiagram,
+        editableSections: [
+          ...(failedRequest.proposalDiagram ? ["diagram" as const] : []),
+          ...(failedRequest.proposalBrief ? ["brief" as const] : []),
+        ],
+        ...(failedRequest.proposalBrief
+          ? { brief: failedRequest.proposalBrief }
+          : {}),
         nonce: uid(),
       });
       setAboutNode(false);

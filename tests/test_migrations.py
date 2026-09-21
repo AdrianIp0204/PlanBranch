@@ -11,7 +11,7 @@ import pytest
 from flowdesk import migrations
 from flowdesk.sample import sample_content
 from flowdesk.storage import Store, encode, now
-from flowdesk.validation import ValidationError
+from flowdesk.validation import CONTENT_VERSION, ValidationError
 
 
 class VersionOneStore(Store):
@@ -121,7 +121,7 @@ def test_upgrade_canonicalizes_current_and_all_history_preserving_redo_and_sourc
     assert source.read_bytes() == b"count = 0\n"
     with closing(upgraded.connect()) as connection:
         assert migrations.applied_versions(connection) == tuple(range(1, migrations.DATABASE_VERSION + 1))
-        assert {row[0] for row in connection.execute("SELECT schema_version FROM history_checkpoints")} == {1}
+        assert {row[0] for row in connection.execute("SELECT schema_version FROM history_checkpoints")} == {CONTENT_VERSION}
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         for row in connection.execute("SELECT data FROM nodes"):
             assert "why" in json.loads(row["data"])

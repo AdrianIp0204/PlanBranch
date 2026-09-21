@@ -10,6 +10,8 @@ import json
 import math
 import re
 
+from .content_versions import BRIEF_FIELDS, CONTENT_VERSION, empty_brief, upgrade_content
+
 
 class ValidationError(ValueError):
     pass
@@ -18,7 +20,6 @@ class ValidationError(ValueError):
 STATUSES = {"not_started", "in_progress", "blocked", "done"}
 NODE_TYPES = {"start", "end", "process", "decision", "io", "note"}
 RELATIONSHIPS = {"unspecified", "reads", "writes", "creates"}
-CONTENT_VERSION = 1
 MAX_HISTORY = 101
 MAX_CONTENT_BYTES = 2_000_000
 
@@ -84,6 +85,14 @@ def relative_file(value, context):
     return value
 
 
+def validate_brief(raw):
+    obj(raw, set(BRIEF_FIELDS), "project brief")
+    result = copy.deepcopy(raw)
+    for field in BRIEF_FIELDS:
+        string(result.setdefault(field, ""), f"Brief {field}")
+    return result
+
+
 def validate_content(raw, detected_ids=None):
     """Normalize a manual snapshot; optionally verify scanner-owned references."""
     try:
@@ -93,10 +102,12 @@ def validate_content(raw, detected_ids=None):
         if isinstance(exc, ValidationError):
             raise
         fail("Project content must contain finite, JSON-compatible values.")
-    content = copy.deepcopy(raw)
-    obj(content, {"schemaVersion", "name", "notes", "diagrams", "variables", "nodeLinks", "matches"}, "project")
-    if type(content.get("schemaVersion")) is not int or content["schemaVersion"] != CONTENT_VERSION:
-        fail("Unsupported project schema version; expected 1.")
+    try:
+        content = upgrade_content(raw)
+    except ValueError as exc:
+        fail(str(exc))
+    obj(content, {"schemaVersion", "name", "notes", "brief", "diagrams", "variables", "nodeLinks", "matches"}, "project")
+    content["brief"] = validate_brief(content.get("brief", empty_brief()))
     string(content.get("name"), "Project name", 200, True)
     string(content.setdefault("notes", ""), "Project notes", 100000)
     diagrams = array(content.get("diagrams"), "Diagrams", 100)

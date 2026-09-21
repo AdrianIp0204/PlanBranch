@@ -1,4 +1,11 @@
-import { copy, uid, type Content, type Diagram } from "./types";
+import {
+  copy,
+  uid,
+  emptyBrief,
+  type Content,
+  type Diagram,
+  type ProjectBrief,
+} from "./types";
 import type { Session } from "./history";
 
 export type AcceptanceRequest = {
@@ -38,11 +45,31 @@ export type DraftConflict = {
   latestDraft: DraftSummary | null;
   recoveryDraft: DraftSummary | null;
 };
-export type DraftSaveBody = {
+export type DraftSection = "diagram" | "brief";
+export type DraftCandidateValues = { diagram?: Diagram; brief?: ProjectBrief };
+export function draftCandidateValues(
+  content: Content,
+  diagramId: string,
+  sections: readonly DraftSection[],
+): DraftCandidateValues {
+  const values: DraftCandidateValues = {};
+  if (sections.includes("diagram")) {
+    const diagram = content.diagrams.find((item) => item.id === diagramId);
+    if (!diagram) throw new Error("The proposed diagram is unavailable.");
+    values.diagram = copy(diagram);
+  }
+  if (sections.includes("brief")) {
+    const brief = emptyBrief();
+    for (const field of Object.keys(brief) as (keyof ProjectBrief)[])
+      brief[field] = content.brief?.[field] ?? "";
+    values.brief = brief;
+  }
+  return values;
+}
+export type DraftSaveBody = DraftCandidateValues & {
   baseDraftRevision: number;
   mutationId: string;
   contentHash: string;
-  diagram: Diagram;
 };
 export type DraftBatch = {
   draftId: string;
@@ -71,13 +98,14 @@ export class DraftSaveQueue {
     private acknowledge: (
       summary: DraftSummary,
       generation: number,
-      diagram: Diagram,
+      candidate: DraftCandidateValues,
     ) => void,
     private report: (
       status: DraftStatus,
       error?: string,
       conflict?: DraftConflict | null,
     ) => void,
+    private sections: readonly DraftSection[] = ["diagram"],
   ) {}
   summary() {
     return this.metadata;
@@ -111,10 +139,11 @@ export class DraftSaveQueue {
       return !!this.conflict?.recoveryDraft;
     if (this.metadata.state !== "active") return false;
     const session = this.get();
-    const diagram = session.content.diagrams.find(
-      (item) => item.id === this.metadata.diagramId,
+    const values = draftCandidateValues(
+      session.content,
+      this.metadata.diagramId,
+      this.sections,
     );
-    if (!diagram) return false;
     this.batch = {
       draftId: this.metadata.id,
       generation: session.generation,
@@ -122,7 +151,7 @@ export class DraftSaveQueue {
         baseDraftRevision: this.metadata.draftRevision,
         mutationId: uid(),
         contentHash: this.metadata.proposalHash,
-        diagram: copy(diagram),
+        ...values,
       },
     };
     this.conflict = null;
@@ -149,11 +178,15 @@ export class DraftSaveQueue {
     ) {
       if (!this.batch) {
         const session = this.get();
-        const diagram = session.content.diagrams.find(
-          (item) => item.id === this.metadata.diagramId,
-        );
-        if (!diagram) {
-          this.report("failed", "The proposed diagram is unavailable.");
+        let values: DraftCandidateValues;
+        try {
+          values = draftCandidateValues(
+            session.content,
+            this.metadata.diagramId,
+            this.sections,
+          );
+        } catch (reason) {
+          this.report("failed", messageOf(reason));
           return false;
         }
         this.batch = {
@@ -163,7 +196,7 @@ export class DraftSaveQueue {
             baseDraftRevision: this.metadata.draftRevision,
             mutationId: uid(),
             contentHash: this.metadata.proposalHash,
-            diagram: copy(diagram),
+            ...values,
           },
         };
       }
@@ -174,7 +207,7 @@ export class DraftSaveQueue {
         if (this.disposed) return false;
         this.metadata = draft;
         this.batch = null;
-        this.acknowledge(draft, batch.generation, batch.body.diagram);
+        this.acknowledge(draft, batch.generation, batch.body);
       } catch (reason) {
         if (this.disposed) return false;
         const error = reason as {
@@ -209,7 +242,7 @@ export class DraftSaveQueue {
     this.batch = null;
     this.conflict = null;
     this.failed = false;
-    this.acknowledge(draft, savedBatch.generation, savedBatch.body.diagram);
+    this.acknowledge(draft, savedBatch.generation, savedBatch.body);
     this.report(this.pending() ? "dirty" : "saved");
     return true;
   }

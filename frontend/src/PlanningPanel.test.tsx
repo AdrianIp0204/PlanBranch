@@ -11,7 +11,7 @@ import {
 import PlanningPanel from "./PlanningPanel";
 import { MODEL_PREFERENCE_KEY, PLANNING_SERVER_RESTART } from "./ModelControls";
 import { api } from "./api";
-import { createNode, copy, type Content } from "./types";
+import { createNode, copy, emptyBrief, type Content } from "./types";
 import type { Session } from "./history";
 import {
   samePlan,
@@ -118,6 +118,8 @@ it("sends the reviewed candidate and retains its exact revision context after an
     proposalId: "proposal",
     title: "Candidate plan",
     diagram,
+    brief: { ...emptyBrief(), goal: "Manually reviewed brief" },
+    editableSections: ["diagram", "brief"] as ("diagram" | "brief")[],
     nonce: "revision-1",
   };
   const view = render(
@@ -133,6 +135,7 @@ it("sends the reviewed candidate and retains its exact revision context after an
   expect(captured).toMatchObject({
     proposalId: "proposal",
     proposalDiagram: diagram,
+    proposalBrief: revision.brief,
     nodeId: null,
   });
   expect(session.content.diagrams[0].nodes[0].title).toBe("Validate the input");
@@ -164,6 +167,7 @@ it("keeps a failed revision candidate when trying another model with a fresh req
       selection: { mode: "explicit", model: "quick", reasoningEffort: "low" },
       proposalId: "original-proposal",
       proposalDiagram: candidate,
+      proposalBrief: { ...emptyBrief(), goal: "Keep the reviewed brief" },
     },
   };
   await mount();
@@ -182,6 +186,7 @@ it("keeps a failed revision candidate when trying another model with a fresh req
     text: "Clarify the next step",
     proposalId: "original-proposal",
     proposalDiagram: candidate,
+    proposalBrief: { ...emptyBrief(), goal: "Keep the reviewed brief" },
     nodeId: null,
     selection: { mode: "explicit", model: "careful", reasoningEffort: "high" },
   });
@@ -1374,4 +1379,46 @@ it("does not focus a hidden planning pane after a delayed acknowledgement", asyn
   input.blur();
   await act(async () => acknowledge(copy(state)));
   expect(document.activeElement).not.toBe(input);
+});
+
+it("omits uneditable diagram context when sending a brief-only revision and preserves that boundary after failure", async () => {
+  let calls = 0;
+  withModels((path, options) => {
+    if (
+      path.endsWith("/messages") &&
+      options?.method === "POST" &&
+      ++calls === 1
+    )
+      throw new Error("Brief acknowledgement lost");
+    return copy(state);
+  });
+  const brief = { ...emptyBrief(), goal: "Review this brief only" };
+  const view = render(
+    <PlanningPanel
+      {...props()}
+      revisionRequest={{
+        proposalId: "brief-proposal",
+        title: "Brief revision",
+        diagram: copy(session.content.diagrams[0]),
+        brief,
+        editableSections: ["brief"],
+        nonce: "brief-revision",
+      }}
+    />,
+  );
+  await screen.findByText("Brief revision");
+  fireEvent.change(screen.getByLabelText("Message Codex"), {
+    target: { value: "Clarify the goal" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await screen.findByText("Brief acknowledgement lost");
+  const first = JSON.parse(posts("/messages")[0][1]!.body as string);
+  expect(first.proposalBrief).toEqual(brief);
+  expect(first).not.toHaveProperty("proposalDiagram");
+  view.unmount();
+  render(<PlanningPanel {...props()} />);
+  await screen.findByText("Brief revision");
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(posts("/messages")).toHaveLength(2));
+  expect(JSON.parse(posts("/messages")[1][1]!.body as string)).toEqual(first);
 });
