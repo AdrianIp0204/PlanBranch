@@ -2,43 +2,52 @@
 
 **Visual planning for AI-assisted coding.**
 
-Turn a coding goal into a diagram you can discuss, correct, and approve. PlanBranch puts Codex chat beside an editable canvas, so proposed changes are visible before they become your plan.
+Discuss a coding goal beside an editable diagram. Review the proposed changes, agree on the plan, then build one explicitly selected task in an isolated Git worktree.
 
 [![Checks](https://github.com/AdrianIp0204/PlanBranch/actions/workflows/checks.yml/badge.svg)](https://github.com/AdrianIp0204/PlanBranch/actions/workflows/checks.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-![PlanBranch showing a proposed diagram beside a planning conversation](docs/images/planbranch-workspace.png)
-*The working app with sample data and a deterministic example conversation.*
+![An editable proposal beside a planning conversation](docs/images/planbranch-workspace.png)
+*The working app with disposable sample data and a deterministic example conversation.*
 
-## The workflow
+## From an idea to a reviewed change
 
-1. **Describe the goal.** Chat through requirements; answer clarification cards with a choice or your own words.
-2. **See the proposal.** Review nodes, branches, connections, and details on the canvas. Compare Before and Proposed.
-3. **Refine it.** Ask Codex for changes, leave comments on individual nodes, or edit the candidate yourself.
-4. **Apply and approve.** Apply changes as one undoable action, then approve the saved plan when it is ready.
-5. **Build one step.** Define implementation tasks, select an execution repository, preview one task and explicitly Run. Review its isolated changes before accepting, completing or applying them.
+1. **Describe the goal.** Keep requirements, constraints, decisions and assumptions in the project brief. Answer the agent's clarification cards with a choice or your own words.
+2. **Review the plan visually.** Compare Before and Proposed, visit each changed item, edit the candidate or ask for a revision. Proposal drafts recover after restart.
+3. **Apply and approve.** Apply a proposal as one undoable edit. Approve the saved plan when it reflects your intent.
+4. **Define implementation work.** Use Build tasks for deliverables, expected files, acceptance checks and prerequisites. Diagram connections describe program behaviour and may loop; task prerequisites must be acyclic.
+5. **Run one step explicitly.** Select an execution repository and review the task, source revision and model settings before Run. Inspect its diff and observed command results, then separately accept changes, complete the task and apply to your checkout.
 
-Approving a plan does **not** authorize code execution. **Run step** is separate. Program-flow connections can loop; Build prerequisites are a separate acyclic task graph. There is no autonomous full-plan execution or automatic merge.
+**Plan approval never authorizes code execution.** There is no autonomous full-plan execution, automatic merge, commit or push. Each run starts from a committed revision; review and commit applied work yourself before running a dependent task.
 
-| Capability | What you can do |
+| Workspace | What it provides |
 | --- | --- |
-| Visual planning | Build branching and looping diagrams; preview Tidy arrangements with pinned nodes and single-action Undo. |
-| Durable review | Recover proposal drafts after restart, navigate each change, inspect advisory hints, and maintain a reviewed project brief. |
-| Controlled coding | Plan Build tasks with prerequisites, execute one in an isolated worktree, inspect observed commands and diffs, then accept explicitly. |
-| Codex collaboration | Use your existing CLI sign-in, choose a model and reasoning level, answer structured questions, and review proposed edits. |
-| Plan versus code | Keep intended variables separate from read-only Python scan results. Review and confirm links explicitly. |
-| Local workspace | Work across projects and diagrams with autosave, restart-safe undo/redo, SQLite backups, and JSON, PNG, and Markdown exports. |
+| Diagram | Branches, merges, loops, notes, checklists, blockers and implementation targets. Tidy previews horizontal or vertical arrangements with pins and single-action Undo. |
+| Chat and review | Existing Codex CLI sign-in, available model/reasoning choices, node comments, structured questions, durable drafts and navigable review hints. |
+| Brief and Build | Persistent requirements and separate implementation tasks, including explicit review of agent-proposed edits. |
+| Plan versus code | Human-authored variables kept separate from read-only Python evidence. Confirm links yourself; scans do not mark work complete. |
+| Local storage | Multiple projects and diagrams, autosave, restart-safe Undo/Redo, SQLite backups, JSON/Markdown sharing and full-diagram PNG. |
 
-## Get started
+## Windows portable package
 
-Requires **Python 3.14** and **Node 24** to build. After setup, the Python application serves both the API and UI; a separate frontend server is unnecessary.
+Extract a prepared **PlanBranch 0.2.0 Windows x64** ZIP to an ordinary folder and run `planbranch.cmd`. Open **[127.0.0.1:4310](http://127.0.0.1:4310)**. The package contains Python and the built interface; Node, a Python installation and a frontend build are unnecessary. `flowdesk.cmd` remains a compatible alias.
+
+The first screen checks Codex availability and sign-in. **New project** and **Load example** remain usable without Codex. Reopen the check through **Layout → Codex connection**. Setup links do not install anything automatically.
+
+Portable artifacts are built locally with `scripts/build_windows_portable.py`; CI is configured to generate them on Windows. This repository also supports source and wheel installations below.
+
+For AI features, separately [install Codex CLI](https://developers.openai.com/codex/cli/) and sign in with `codex login`. Retry the connection check afterward; restart PlanBranch if your installation changed the system PATH. Coding execution also needs Git and Codex's configured sandbox. Model choices come from your installed CLI and account. No API key or PlanBranch account is required.
+
+## Source or wheel installation
+
+Building from source requires **Python 3.14** and **Node 24**:
 
 ```sh
 git clone https://github.com/AdrianIp0204/PlanBranch.git
 cd PlanBranch
 ```
 
-<details open>
+<details>
 <summary><strong>Windows · PowerShell</strong></summary>
 
 ```powershell
@@ -64,46 +73,46 @@ npm run build --prefix frontend
 
 </details>
 
-Open **[127.0.0.1:4310](http://127.0.0.1:4310)**, create a project, or load the removable example. The editor, scanner, and exports work offline. Installing dependencies needs internet access unless you supply a package cache.
+For an already-built wheel, install `flowdesk-0.2.0-py3-none-any.whl` in a Python 3.14 environment, then run `planbranch`, `flowdesk` or `python -m flowdesk`. Node and the source checkout are unnecessary. The distribution and module retain the `flowdesk` name for compatibility.
 
-For AI chat, separately [install Codex CLI](https://developers.openai.com/codex/cli/), run `codex login`, and restart PlanBranch. Chat uses your existing ChatGPT sign-in and requires internet access; PlanBranch does not require an API key. The connector has been tested with Codex CLI **0.144.1**. Available models and reasoning levels come from your installed CLI; account access may vary.
-
-**Already using FlowDesk?** PlanBranch is the new name. The `flowdesk` Python module, database locations, export format, and browser preferences remain compatible. Stop the server before pulling and rebuilding, then restart with the same data directory and reload the browser.
+The editor, scanner and exports work offline. Dependency downloads and optional Codex requests need internet access. The Python launcher serves both the interface and API; a separate frontend server is unnecessary.
 
 ## Your data and your decisions
 
-- **Projects stay local.** SQLite stores saved plans, discussion, review records, and undo history. Choose a different location with `--data-dir`; the server binds to loopback only.
-- **Chat shares authored context.** Sending a message shares the manual plan and discussion with Codex, including a candidate when you request revisions. Attached source files and scanner observations are excluded.
-- **Changes require review.** Agent edits stay separate until you apply them. Manual proposal drafts save separately in SQLite and recover after browser or server restart; applying creates one undoable plan edit.
-- **Execution is a separate permission.** Choose a Git repository explicitly. Runs use committed source in an isolated worktree; accepting a result, completing a task and applying it to your checkout are separate actions. No automatic commit, merge or push occurs.
-- **Evidence is read-only.** Python scanning requires an explicitly attached folder. It does not import or execute that code, change source files, or mark tasks complete.
+- **Saved locally.** The default data folder remains `%LOCALAPPDATA%\FlowDesk` on Windows, or `$XDG_DATA_HOME/flowdesk` / `~/.local/share/flowdesk` on Linux. Use `--data-dir` and `--port` to override defaults. The server binds to loopback only.
+- **Planning context is explicit.** Chat sends the manual plan, brief and discussion, including the visible candidate when requesting revisions. Scanner observations and attached source files are excluded from planning chat. Execution separately gives Codex the chosen worktree and task context.
+- **Edits require review.** Draft saving, applying a plan, approving a plan, starting code execution, accepting a diff, completing a task and applying code are distinct actions. Failed or uncertain operations preserve recovery state.
+- **The checkout is preserved.** Runs use isolated worktrees from committed source. Apply checks for conflicting file/index changes, preserves unrelated edits, and records partial progress for deliberate recovery. It does not stage or commit.
+- **Evidence stays evidence.** Python scanning is static, read-only and explicitly authorized. It neither imports the scanned code nor proves correctness. Agent summaries are shown separately from observed command output and exit codes.
 
-See the [user guide](docs/User_Guide.md) for backups, draft recovery, sharing boundaries, scanner limits, keyboard controls, and exports. [Validation notes](VALIDATION.md) distinguish tested behavior from remaining platform and live-model checks.
+Execution uses separate versioned instructions and documented Codex sandbox settings. On Windows it requests Codex's elevated sandbox, without automatic setup or fallback. Connection checks are not proof of OS sandbox enforcement; see [validation notes](VALIDATION.md) for actual checks and limitations. Repositories containing symlinks or submodules and oversized snapshots are unsupported in this release.
 
-## Development
+## Upgrade, backup and uninstall
 
-The application uses **Flask, SQLite, React, TypeScript, Vite, and free React Flow**. No cloud backend or PlanBranch account is required.
+Stop PlanBranch before upgrading. Extract a new portable package to a **new folder**, or update your source/wheel installation, then start with the same data directory. Existing FlowDesk data locations and launchers remain compatible. Numbered migrations preserve retained history; destructive upgrades create a database backup first.
 
-```text
-flowdesk/       Local API, storage, migrations, scanning, Codex connector
-frontend/src/   Canvas, chat, review workspace, history, autosave
-tests/          Backend tests and disposable browser acceptance fixtures
-docs/           User guide and design/validation records
-```
+`planbranch.cmd backup` (portable) or `python -m flowdesk backup` creates a consistent SQLite backup. **That database backup does not contain coding worktrees.** To preserve execution recovery, stop PlanBranch and copy its entire data directory, plus your source repositories. Portable JSON exports omit machine permissions, execution records and undo history.
 
-Run these from the repository root using your virtual environment's Python:
+To uninstall the portable app, stop it and remove its extracted application folder. Data is stored separately and remains until you deliberately remove it. Retained worktrees may contain unaccepted code; preserve that work before removing the data folder. Codex and Git are separate installations.
+
+See the [user guide](docs/User_Guide.md) for keyboard controls, draft recovery, scanner/execution limits and detailed workflow instructions.
+
+## Development and verification
+
+PlanBranch uses **Flask, SQLite, React, TypeScript, Vite and free React Flow**. No cloud backend is required.
 
 ```sh
 python -m pytest -q
 npm test --prefix frontend
 npm run build --prefix frontend
+python scripts/build_release.py
 ```
 
-For browser checks, install Chromium once with `cd frontend && npx playwright install chromium`, return to the root, then run `npm run test:e2e --prefix frontend`. Tests use disposable databases and deterministic planning and execution providers in disposable Git repositories, with external browser requests blocked.
+Browser tests use disposable data, repositories and deterministic agents; external browser requests are blocked. Install Playwright Chromium once, then run `npm run test:e2e --prefix frontend`. Set `FLOWDESK_PYTHON` and `FLOWDESK_APP_ROOT` to test an installed package. See [VALIDATION.md](VALIDATION.md) for results, platform gaps and release receipts.
 
-Build an installable wheel with `python scripts/build_release.py` after building the frontend. Install `dist/flowdesk-0.1.0-py3-none-any.whl` in a Python 3.14 environment; launch with `planbranch` or `python -m flowdesk`. Node is unnecessary for the installed application. The distribution keeps its original `flowdesk` name for compatibility; this repository is the release source.
+After the wheel build, `python scripts/build_windows_portable.py` prepares the portable archive using pinned, hash-checked runtime inputs. The build supports a verified cache for offline reuse. `scripts/smoke_windows_portable.py` checks the extracted application outside the source checkout. CI retains Linux source/wheel checks and generates Windows portable artifacts without publishing a release.
 
-Bug reports and focused pull requests are welcome. Include reproduction steps and your platform; use sample projects when sharing screenshots or exports.
+Focused bug reports and pull requests are welcome. Include reproduction steps and your platform; use sample projects when sharing data or screenshots.
 
 ## License
 

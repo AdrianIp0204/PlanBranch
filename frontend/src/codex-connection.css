@@ -1,0 +1,69 @@
+.codex-connection {
+  min-width: 0;
+  max-width: 620px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.welcome .codex-connection {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.codex-connection-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.codex-connection-heading h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.codex-connection button {
+  min-height: 36px;
+  font-size: 13px;
+}
+.codex-connection p {
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+}
+.codex-connection-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.codex-connection-status.ready {
+  color: #315d48;
+}
+.codex-connection-status.unavailable {
+  color: #785225;
+}
+.codex-connection-version,
+.codex-connection-manual {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+.codex-connection a {
+  color: var(--accent);
+}
+dialog.codex-connection-dialog {
+  width: min(580px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+}
+.codex-connection-dialog .codex-connection-heading h2 {
+  display: none;
+}
+.codex-connection-dialog .codex-connection-heading {
+  justify-content: flex-end;
+}
+.welcome .codex-connection + .welcome-flow {
+  margin-top: 32px;
+}

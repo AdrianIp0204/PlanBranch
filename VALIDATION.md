@@ -1,3 +1,54 @@
+# PlanBranch 0.2.0 release verification — 21 September 2026
+
+This pass implements all seven requested milestones: explicit Tidy previews and pins; database-backed proposal drafts; guided review; the project brief; separate Build tasks; deliberate one-step execution; and a Windows portable package with a read-only first-run Codex check. Work is isolated on `codex/next-major-pass` in `output/next-major-pass`. The original checkout remains clean. No user database, attached source folder, existing server, or real execution repository was used; nothing was pushed or published.
+
+## Final build and backend checks
+
+| Check | Windows | Linux (Ubuntu under WSL2) |
+| --- | --- | --- |
+| Backend | Broad run: 467 passed, 9 platform skips, one fixture-readiness failure; corrected execution-adapter file: 20/20 passed | 474 passed, 3 Windows-specific skips; final changed adapter/smoke gate: 34 passed, 1 Windows-only skip |
+| Frontend | 219 tests passed across 22 files | 219 tests passed across 22 files |
+| TypeScript / production build | Passed | Passed |
+| Release wheel / isolated installation | Passed; also installed inside the portable package | Passed from an unrelated installed-package directory |
+| Portable builder and helper tests | 21 builder tests and 15 smoke-input tests passed | Included in the backend gate |
+| Standalone portable smoke | All seven checks passed with bundled Python 3.14.7 | Windows package is not a Linux distribution |
+
+The Windows backend failure was a test fixture that let its parent exit after a fixed 150 ms, before the child necessarily wrote its readiness marker. It now waits for the first heartbeat with a bounded deadline; the original process-cleanup assertion is unchanged. The final 20-case adapter rerun passes. An earlier backend run collected packaging fixtures before their final corrections; its obsolete CRLF and ZIP-name fixture failures are retained in the logs and superseded by the frozen-source run and focused gates above.
+
+Production assets are `index-DiIQadbT.js` and `index-DwWJ11p3.css`. All 40 application/resource files in the Windows wheel match the source/build bytes, and all 289 file hashes in the portable manifest match the ZIP. Version metadata, both console aliases, required workers, frozen prompts, migrations and license bytes were checked. Two offline portable builds produced identical archives. The bundle includes CPython, the production frontend and eight runtime dependencies; it includes no Node, Git, Codex, credentials, user data, pip or test dependencies.
+
+The standalone smoke starts both actual `.cmd` aliases from an unrelated directory with spaces and Unicode in its paths, poisoned host Python settings and fake host modules/commands. It verifies bundled imports, production assets, persisted edits and Undo/Redo after restart, a read-only scanner worker, valid HTTP/CLI SQLite backups, observed command output and execution cancellation. A blocked-start Windows job owns each fixture server before launch and verifies its socket closes on cleanup. Its seven-check receipt is `output/portable-smoke/portable smoke 計劃 ny0dtwp1/result.json`.
+
+## Installed browser and visual checks
+
+Both final installed-package runs exercised **71 browser cases** with external requests blocked: the Windows portable runtime from an unrelated working directory, and the Linux wheel installation from its separate directory. Each initial run passed 69 cases and exposed two test synchronization assumptions, corrected without changing application bytes. On Windows the affected zoom case passed its focused rerun, and the final planning file passed 3/3. On Linux both affected files passed 16/16, followed by the final planning-file revision passing 3/3.
+
+The fixtures now wait for a restored proposal before selecting its saved canvas, bind replies to exact request/proposal identities, wait for retry route completion, and observe both the scheduled autosave failure and explicit Send-flush failure before testing recovery. This removes duplicate-canvas selection, previous-request polling and a disappearing Retry control from the test procedure; assertions about retained drafts, explicit recovery and one-action application remain intact. The original failure logs and corrected reruns are retained.
+
+Coverage includes all milestone acceptance paths, save/conflict/restart recovery, cancellation and stale execution approvals, immutable diff review, separate acceptance/completion/checkout Apply, migrations and portable relationships, scan evidence, native input behavior, pointer/keyboard panel resizing, focus, reduced motion and full-diagram PNG bounds. Production views were captured at 1280×800 and 1440×900, narrower windows and genuine 200% browser zoom. The portable fixture audit records 59 browser reports, zero runtime errors and zero external requests, with target-size and full-diagram export images. Baseline captures remain under `output/playwright/ux-before-QyiP8e`; final captures include `ux-after-D27J6N`, `agent-workspace-after-sFFMk6`, `execution-ZKAhVe` and the final Tidy directories. Representative screenshots and the refreshed README image were visually inspected.
+
+Receipts include `output/final-browser-audit.json`, `output/windows-planning-final-rerun.log` and Linux `verification-summary.json`, `changed-browser.log`, `planning-final-browser.log`, source/test-delta manifests and captured-artifact archives. No pending application failures remain in the checked workflows. These results are combined full-run and focused-rerun evidence, not a claim that the initial broad logs were failure-free.
+
+## Artifacts and evidence
+
+| Artifact | Size / SHA-256 |
+| --- | --- |
+| `dist/PlanBranch-0.2.0-windows-x64.zip` | 13,712,958 bytes; `dcabbb1b8666a6b40df582bd7436e9137fed2b6c0b9adda12d6a54c4ef5f6b1d` |
+| `dist/flowdesk-0.2.0-py3-none-any.whl` (Windows build) | `5aa84cec45174442a734ef1246edc4a46b9b70bbbbefd303be70201d1a7a90f9` |
+| Linux wheel in `output/linux-major-verification/planbranch-major.eOfL3r/` | `df440847ab88f9e122305012f3afa8d7bda3c0c027ed01bf8a234e36929c0620` |
+
+The portable receipt is adjacent to the ZIP. Source/package matching is recorded in `output/final-package-verification.json`; Windows logs include `output/final-windows-backend-frozen.log`, `output/final-release-build.log` and `output/final-portable-browser.log`. Linux source hashes, test-only deltas, runtime versions, phase logs, wheel and browser captures are retained under `output/linux-major-verification/`. Linux used Python 3.14.3, Node 24.14.0, Git 2.43.0 and Chromium 153 in an isolated `/var/tmp/planbranch-major.*` tree. Windows source checks used Python 3.14.3 and Node 24.14.0; the portable runtime is Python 3.14.7.
+
+## Boundaries and remaining limitations
+
+Execution tests use deterministic agents and disposable repositories. Real processes verify observed command results, Windows job cleanup and Linux process-group cleanup; no live coding agent ran. Native Codex sandbox enforcement remains unverified: the earlier direct Windows sandbox probe returned CreateRestrictedToken error 87. The application requests the documented elevated Windows sandbox and does not fall back or install it. CLI connection readiness is not proof of OS sandbox enforcement. The setup-guide links resolve to the current official Codex CLI documentation.
+
+Linux checks ran under WSL2, not a native Linux desktop. Other browser engines, screen readers and touch input were not verified. The existing Vite chunk-size advisory remains; a non-failing React warning is isolated to a BuildTasksEditor unit-test harness, with no browser runtime errors in the recorded workflows. Tidy does not promise globally optimal edge routing or move already-overlapping fixed nodes. Documented repository/file/output limits remain in effect. CI now generates wheels and Windows portable artifacts, but its updated workflow has not been run on GitHub because this pass is local only.
+
+The dated entries below describe milestone-time checks and earlier releases; this release record supersedes their pending platform checks.
+
+---
+
 ## Controlled one-step execution — 21 September 2026
 
 Milestone 6 adds explicit execution-repository selection, frozen Run previews, one owned execution at a time, isolated Git worktrees, durable run records, cancellation/restart recovery, observed command evidence, immutable diffs, separate code acceptance/task completion/checkout Apply, and a recovery journal. Migration 8 keeps these permissions and machine-specific records outside manual history and portable exports. The planning connector remains read-only. Git preparation avoids repository hooks and filters; checkout application leaves the index and unrelated edits untouched.

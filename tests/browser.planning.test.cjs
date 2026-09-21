@@ -29,23 +29,33 @@ async function open(p) {
   await until(
     async () =>
       (await p.getByLabel("Message Codex", { exact: true }).count()) &&
-      !(await planning(p).getByText("Loading conversation…").count()),
+      !(await planning(p).getByText("Loading conversationâ€¦").count()),
   );
 }
 async function send(p, text) {
   await conversation(p).click();
   await p.getByLabel("Message Codex", { exact: true }).fill(text);
-  await p.getByRole("button", { name: "Send", exact: true }).click();
+  return submit(p);
 }
-async function settled(h) {
+async function submit(p) {
+  const posted = p.waitForResponse((response) =>
+    response.request().method() === "POST" &&
+    response.url().endsWith("/planning/messages"),
+  );
+  await p.getByRole("button", { name: "Send", exact: true }).click();
+  const response = await posted;
+  assert.equal(response.ok(), true);
+  return (await response.json()).request.id;
+}
+async function settled(h, requestId) {
   return until(async () => {
     const s = await h.api(`/projects/${h.initial.id}/planning`);
-    return s.request && s.request.status !== "running" ? s : false;
+    return s.request?.id === requestId && s.request.status === "succeeded" ? s : false;
   });
 }
-async function proposal(p) {
+async function proposal(p, proposalId) {
   await review(p).click();
-  const item = p.getByRole("article", { name: "Add a review step" }).first();
+  const item = p.locator(`#proposal-${proposalId}`);
   await item.waitFor();
   return item;
 }
@@ -67,9 +77,9 @@ test(
     const url = `/projects/${h.initial.id}`;
     await open(p);
     const original = await h.api(url);
-    await send(p, "Add a review step");
-    await settled(h);
-    const item = await proposal(p);
+    const initialRequest = await send(p, "Add a review step");
+    const initialReply = await settled(h, initialRequest);
+    const item = await proposal(p, initialReply.proposals.at(-1).id);
     assert.deepEqual(
       (await h.api(url)).content,
       original.content,
@@ -101,25 +111,29 @@ test(
         .isDisabled(),
       true,
     );
-    await send(p, "Add a review step fail once");
+    const retriedRequest = await send(p, "Add a review step fail once");
     await p
       .getByRole("button", { name: "Retry agent reply", exact: true })
       .waitFor();
     await p
       .getByRole("button", { name: "Retry agent reply", exact: true })
       .click();
-    await settled(h);
-    await review(p).click();
-    const next = p.getByRole("article", { name: "Add a review step" }).first();
+    const retriedReply = await settled(h, retriedRequest);
+    const next = await proposal(p, retriedReply.proposals.at(-1).id);
     // Drop the first response after the backend has committed acceptance.
     let lost = false;
+    let retryHandled;
+    const handled = new Promise((resolve) => { retryHandled = resolve; });
     const acceptRoute = "**/planning/proposals/*/accept";
     await p.route(acceptRoute, async (route) => {
       if (!lost) {
         lost = true;
         await route.fetch();
         await route.abort("failed");
-      } else await route.continue();
+      } else {
+        await route.continue();
+        retryHandled();
+      }
     });
     await next.getByRole("button", { name: "Review on canvas" }).click();
     await p.getByRole("button", { name: "Apply changes", exact: true }).click();
@@ -136,7 +150,13 @@ test(
       .getByRole("button", { name: "Toggle planning chat", exact: true })
       .click();
     await next.getByText("Accepted", { exact: true }).waitFor();
+    const retriedApply = p.waitForResponse((response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith("/accept") && response.ok(),
+    );
     await p.getByRole("button", { name: "Retry apply", exact: true }).click();
+    await retriedApply;
+    await handled;
     await p.unroute(acceptRoute);
     await next.getByText("Accepted", { exact: true }).waitFor();
     await h.saved();
@@ -198,12 +218,12 @@ test(
       }),
       p = h.page;
     await open(p);
-    await send(p, "Add a review step slow");
+    const initialRequest = await send(p, "Add a review step slow");
     await p.getByRole("button", { name: "Add Process", exact: true }).click();
     await save(h);
     const latest = await h.api(`/projects/${h.initial.id}`);
-    await settled(h);
-    const item = await proposal(p);
+    const initialReply = await settled(h, initialRequest);
+    const item = await proposal(p, initialReply.proposals.at(-1).id);
     await item.getByText("Plan changed", { exact: true }).waitFor();
     assert.equal(
       await item.getByRole("button", { name: "Accept changes" }).count(),
@@ -223,7 +243,6 @@ test(
       await p.getByLabel("Message Codex", { exact: true }).inputValue(),
       /update your proposal/,
     );
-    await p.getByRole("button", { name: "Add Process", exact: true }).click();
     const fault = `**/api/projects/${h.initial.id}`;
     await p.route(fault, (route) =>
       route.request().method() === "PUT"
@@ -234,7 +253,24 @@ test(
           })
         : route.continue(),
     );
+    const refusedAutosave = p.waitForResponse((response) =>
+      response.request().method() === "PUT" &&
+      response.url().endsWith(`/api/projects/${h.initial.id}`) &&
+      response.status() === 503,
+    );
+    await p.getByRole("button", { name: "Add Process", exact: true }).click();
+    await refusedAutosave;
+    // Let this edit's scheduled autosave fail before Send explicitly flushes it.
+    // Otherwise that still-pending timer can save after interception is removed,
+    // making the retry control disappear before the recovery click.
+    await p.getByRole("button", { name: "Retry save", exact: true }).waitFor();
+    const refusedSendSave = p.waitForResponse((response) =>
+      response.request().method() === "PUT" &&
+      response.url().endsWith(`/api/projects/${h.initial.id}`) &&
+      response.status() === 503,
+    );
     await p.getByRole("button", { name: "Send", exact: true }).click();
+    await refusedSendSave;
     await p.getByRole("button", { name: "Retry save", exact: true }).waitFor();
     assert.match(
       await p.getByLabel("Message Codex", { exact: true }).inputValue(),
@@ -243,13 +279,13 @@ test(
     await p
       .getByRole("button", { name: "Close planning conversation", exact: true })
       .click();
-    await p.unroute(fault);
+    await p.unrouteAll({ behavior: "wait" });
     await p.getByRole("button", { name: "Retry save", exact: true }).click();
     await h.saved();
     await open(p);
-    await p.getByRole("button", { name: "Send", exact: true }).click();
-    await settled(h);
-    const updated = await proposal(p);
+    const updatedRequest = await submit(p);
+    const updatedReply = await settled(h, updatedRequest);
+    const updated = await proposal(p, updatedReply.proposals.at(-1).id);
     await updated.getByRole("button", { name: "Review on canvas" }).click();
     await p.getByRole("button", { name: "Discard", exact: true }).click();
     await updated.getByText("Rejected", { exact: true }).waitFor();

@@ -53,7 +53,7 @@ The service binds only to `127.0.0.1`. Debug mode is disabled. If assets have no
 
 Create a project or explicitly load the removable example. A project contains multiple named diagrams. Use the palette to add start/end, process, decision, input/output, and note nodes. Drag nodes and connect their handles, or use the Connect controls. Branches, merges, and cycles are valid. Select a connection to label it; double-click a node to inspect it.
 
-The inspector holds description, notes, pseudocode, target file/scope, a checklist, status, blocker details, and decision reasoning. Notes are plain text, rendered without HTML execution. Completion checkboxes update status; checklist items do not. Task totals exclude note nodes.
+The inspector holds description, notes, pseudocode, target file/scope, a checklist, status, blocker details, and decision reasoning. Notes are plain text, rendered without HTML execution. Completion checkboxes update status; checklist items do not. Diagram totals exclude note nodes; Build task completion is separate.
 
 Use the navigation button beside PlanBranch to hide or show projects and diagrams. Add nodes from the palette or the **Add node** menu above the canvas. The **Inspector** button shows or hides details. Title, status, description, and blockers stay at the top; expand the named sections for checklists, notes, pseudocode, targets, decisions, and links. Section indicators show existing content and checklist counts.
 
@@ -118,9 +118,9 @@ Use the Backup action or the command below for a consistent SQLite backup. Backu
 .\.venv\Scripts\python.exe -m flowdesk backup
 ```
 
-To restore, stop PlanBranch, keep a copy of the existing data directory, then put the backup **inside a new data directory as `flowdesk.sqlite3`** and launch with `--data-dir` pointing there. This avoids mixing a restored database with an old SQLite WAL file. Backups include local source attachment settings; portable JSON exports do not.
+To restore, stop PlanBranch, keep a copy of the existing data directory, then put the backup **inside a new data directory as `flowdesk.sqlite3`** and launch with `--data-dir` pointing there. This avoids mixing a restored database with an old SQLite WAL file. Backups include local source attachment settings and execution records; portable JSON exports do not. A database backup alone does not contain execution worktrees or diff artifacts. Preserve the entire stopped data directory for coding-work recovery, and keep your source repositories backed up separately.
 
-Startup applies numbered database migrations. Database version 2 adopts existing version-1 scanner tables and normalizes current content and every retained undo/redo checkpoint together. Database version 3 adds the separate planning conversation, comments, proposal, approval, and retry tables. Version 4 adds durable question sets and answers without rewriting existing history. Manual content and portable JSON remain at schema version 1. Before an upgrade that rewrites existing data, PlanBranch creates and verifies a SQLite backup, including committed data still in the WAL. Backup failure stops the upgrade. A migration failure rolls back schema, content, and history together. IDs, redo position, links, and source attachment settings are preserved. Stop other PlanBranch servers before upgrading; if the database changes during backup, startup stops and asks you to retry. An unknown newer schema is rejected.
+Startup applies numbered database migrations. Database version 2 adopts existing version-1 scanner tables and normalizes current content and every retained undo/redo checkpoint together. Database version 3 adds the separate planning conversation, comments, proposal, approval, and retry tables. Version 4 adds durable question sets and answers without rewriting existing history. Version 5 adds durable proposal drafts, version 6 adds the brief, version 7 adds Build tasks, and version 8 adds execution records. Manual content is now schema version 3; portable projects preserve the brief and Build tasks, while older formats are upgraded on import. Before an upgrade that rewrites existing data, PlanBranch creates and verifies a SQLite backup, including committed data still in the WAL. Backup failure stops the upgrade. A migration failure rolls back schema, content, and history together. IDs, redo position, links, and source attachment settings are preserved. Stop other PlanBranch servers before upgrading; if the database changes during backup, startup stops and asks you to retry. An unknown newer schema is rejected.
 
 ## Read-only Python scanning
 
@@ -204,7 +204,7 @@ After building the frontend, create a wheel containing the Python application an
 .\.venv\Scripts\python.exe scripts/build_release.py
 ```
 
-Install `dist/flowdesk-0.1.0-py3-none-any.whl` in a Python 3.14 environment with `python -m pip install path/to/flowdesk-0.1.0-py3-none-any.whl`, then run `python -m flowdesk`. Node and the source checkout are unnecessary for this installed application. Installing Python dependencies requires internet access unless you provide a local package cache; the editor, scanner, and exports work offline. Optional Codex chat still requires internet access.
+Install `dist/flowdesk-0.2.0-py3-none-any.whl` in a Python 3.14 environment with `python -m pip install path/to/flowdesk-0.2.0-py3-none-any.whl`, then run `python -m flowdesk`. Node and the source checkout are unnecessary for this installed application. Installing Python dependencies requires internet access unless you provide a local package cache; the editor, scanner, and exports work offline. Optional Codex chat still requires internet access.
 
 Dependency versions are recorded in `requirements.lock`, `pyproject.toml`, and `frontend/package-lock.json`. Runtime/test results and platform limitations are recorded in [VALIDATION.md](../VALIDATION.md). The Windows/Linux CI workflow builds a wheel and runs the browser suites against that installed package.
 
@@ -260,3 +260,16 @@ Execution uses the separately installed Codex CLI and existing sign-in, with sep
 This release supports ordinary local Git repositories with at most 5,000 tracked files and 128 MiB in the source snapshot. Source symlinks, junctions and submodules are rejected. Reviews permit at most 512 changed files, 2 MiB per changed file, and 16 MiB combined before/after content. Newly generated ignored files are omitted. Runs are bounded to 30 minutes with bounded output. Unsupported or oversized work remains on disk for manual recovery.
 
 Execution permissions and machine paths are not portable project content. JSON exports and SQLite backups do not contain the worktrees or diff artifacts. Stop PlanBranch and back up the **entire data directory**, plus your repositories, to preserve execution recovery. Removing a project does not remove its retained worktree files; remove them deliberately only after preserving any work you need.
+
+
+## Windows portable installation and first run
+
+The prepared Windows x64 ZIP includes Python and the production frontend. Extract it into a new ordinary folder and run `planbranch.cmd` or the compatible `flowdesk.cmd`, then open the printed loopback address. Neither a Python installation nor Node is required. Optional Codex CLI and Git remain separate installations; no credentials are bundled.
+
+The welcome screen checks Codex's local availability and ChatGPT sign-in without sending a planning or coding request. Use **Retry connection** after setup, or reopen the check from **Layout → Codex connection** in a project. If the installation changed PATH, restart PlanBranch. Manual projects, diagrams, variables, scans and exports remain usable when Codex is unavailable. Setup links open only when selected.
+
+Use `planbranch.cmd --port 4320 --data-dir "D:\PlanBranch data"` for a different port or data folder. The default remains `%LOCALAPPDATA%\FlowDesk`; extracting the app never relocates existing data. Stop the server before upgrading. Extract a new version into a new folder, then run it with the same data directory. Keep the previous package and a backup until you have checked the upgrade. The package is Windows x64 only; Linux retains source and wheel installations.
+
+`planbranch.cmd backup` backs up SQLite into the configured data folder. It does not copy execution worktrees. For complete recovery, stop the server and copy the entire data directory and relevant repositories. Removing the extracted app folder uninstalls the portable app but does not delete your data, Codex or Git. Retained coding worktrees may contain unaccepted work; do not delete them without reviewing it.
+
+Maintainers build the wheel with `python scripts/build_release.py`, then create the portable archive with `python scripts/build_windows_portable.py`. Runtime and dependency downloads are pinned and checked by hash; a verified local cache supports offline rebuilding. The package includes licenses and an input/file manifest. Run `scripts/smoke_windows_portable.py` against the artifact to verify it from a separate disposable directory. CI is configured to upload build artifacts; local builds do not publish releases.

@@ -105,7 +105,15 @@ def create_app(data_dir=None, *, testing=False, planner=None, executor=None, exe
 
     @app.get("/api/bootstrap")
     def bootstrap():
-        return jsonify(token=token, version="0.1.0")
+        from . import __version__
+        return jsonify(token=token, version=__version__)
+
+    @app.get("/api/connection")
+    def connection():
+        # Local capability/sign-in checks only; no prompt or agent run is sent.
+        check = getattr(planning.planner, "connection_status", None)
+        agent = check(refresh=request.args.get("refresh") == "1") if callable(check) else planning.planner.status()
+        return jsonify(agent=agent)
 
     @app.get("/api/projects")
     def projects():

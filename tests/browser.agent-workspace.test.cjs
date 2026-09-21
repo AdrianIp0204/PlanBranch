@@ -11,7 +11,7 @@ const conversation = (p) =>
 const review = (p) => p.getByRole("tab", { name: /^(Review|Changes)/ });
 const panel = (p) =>
   p.getByRole("complementary", { name: "Planning conversation" });
-async function openChat(p) {
+async function openChat(p, { waitForRestoredProposal = false } = {}) {
   await p
     .getByRole("button", { name: "Toggle planning chat", exact: true })
     .waitFor();
@@ -35,6 +35,14 @@ async function openChat(p) {
     async () => !(await panel(p).getByText("Loading conversation…").count()),
   );
   const back = p.getByRole("button", { name: "Back to plan", exact: true });
+  if (waitForRestoredProposal) {
+    // A fresh browser restores the pending proposal after loading chat. Wait
+    // for its draft before leaving, rather than racing the asynchronous fetch.
+    await back.waitFor();
+    const draftState = p.getByTestId("proposal-draft-state");
+    await draftState.waitFor();
+    await until(async () => (await draftState.innerText()) !== "Loading draft…");
+  }
   if (await back.isVisible()) await back.click();
   if (!(await panel(p).isVisible()))
     await p
@@ -83,8 +91,9 @@ async function compactCommentsAndChanges(h, nodeId, label) {
     .getByRole("group", { name: "Workspace views" })
     .getByRole("button", { name: "Canvas", exact: true })
     .click();
-  await p.locator(".react-flow__controls-fitview").click();
-  await p.locator(`.react-flow__node[data-id="${nodeId}"]`).click();
+  const savedCanvas = p.getByTestId("diagram-canvas");
+  await savedCanvas.locator(".react-flow__controls-fitview").click();
+  await savedCanvas.locator(`.react-flow__node[data-id="${nodeId}"]`).click();
   await openChat(p);
   await p.getByRole("tab", { name: /^Comments/ }).click();
   const input = p.getByLabel(/^Comment on:/);
@@ -317,7 +326,7 @@ test(
     );
     if (mode === "after") await compactCommentsAndChanges(h, node.id, "narrow");
     await withBrowserZoom(h, async (zoomed, setZoom) => {
-      await openChat(zoomed.page);
+      await openChat(zoomed.page, { waitForRestoredProposal: mode === "after" });
       const factor = await setZoom(2);
       assert.equal(factor, 2);
       // Closing the proposal returns to Canvas; select Chat in the compact view.

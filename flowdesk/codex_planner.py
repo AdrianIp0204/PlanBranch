@@ -370,9 +370,12 @@ class CodexPlanner:
             "instructionVersion": INSTRUCTION_VERSION, "instructionHash": hashlib.sha256(instructions.encode("utf-8")).hexdigest(),
             "instructions": instructions, "protocolVersion": PROTOCOL_VERSION})
 
-    def status(self) -> dict:
+    def connection_status(self, refresh=False) -> dict:
+        return self.status(refresh=refresh)
+
+    def status(self, *, refresh=False) -> dict:
         with self._status_lock:
-            if self._status is not None and time.monotonic() - self._status_time < STATUS_TTL:
+            if not refresh and self._status is not None and time.monotonic() - self._status_time < STATUS_TTL:
                 return dict(self._status)
             result = {"available": False, "label": "Codex CLI"}
             executable = _executable()

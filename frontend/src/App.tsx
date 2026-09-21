@@ -32,6 +32,7 @@ import TidyDiagram from "./TidyDiagram";
 import BuildView from "./BuildView";
 import { deletionNotice } from "./buildTasks";
 import ProjectBriefDialog from "./ProjectBriefDialog";
+import CodexConnection, { CodexConnectionDialog } from "./CodexConnection";
 import type {
   DraftReference,
   DraftDetail,
@@ -253,6 +254,7 @@ export default function App() {
                 Import JSON
               </button>
             </div>
+            <CodexConnection />
             <div className="welcome-flow" aria-hidden="true">
               <span>Start</span>
               <i>→</i>
@@ -336,6 +338,7 @@ function Workbench({
   const content = session.content;
   const [active, setActive] = useState(content.diagrams[0]?.id ?? "");
   const [briefOpen, setBriefOpen] = useState(false);
+  const [connectionOpen, setConnectionOpen] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<"diagram" | "build">(
     "diagram",
   );
@@ -1193,6 +1196,18 @@ function Workbench({
             >
               Restore default layout
             </button>
+            <button
+              onClick={(event) => {
+                const menu = event.currentTarget.closest("details");
+                if (menu) {
+                  menu.open = false;
+                  menu.querySelector("summary")?.focus();
+                }
+                setConnectionOpen(true);
+              }}
+            >
+              Codex connection
+            </button>
           </div>
         </details>
       </header>
@@ -1899,6 +1914,9 @@ function Workbench({
         />
       )}
       {briefOpen && <ProjectBriefDialog onClose={() => setBriefOpen(false)} />}
+      {connectionOpen && (
+        <CodexConnectionDialog onClose={() => setConnectionOpen(false)} />
+      )}
       {scanDialog && (
         <Dialog title="Python source" onClose={() => setScanDialog(false)}>
           <p className="muted">
