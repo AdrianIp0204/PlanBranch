@@ -123,7 +123,7 @@ def validate_content(raw, detected_ids=None):
         total_edges += len(edges)
         local_nodes = set()
         for node in nodes:
-            obj(node, {"id", "type", "title", "position", "description", "notes", "pseudocode", "status", "checklist", "targetFile", "targetScope", "why", "alternatives", "blocker"}, "node")
+            obj(node, {"id", "type", "title", "position", "description", "notes", "pseudocode", "status", "checklist", "targetFile", "targetScope", "why", "alternatives", "blocker", "pinned"}, "node")
             claim(node.get("id"), "Node ID")
             local_nodes.add(node["id"])
             node_ids.add(node["id"])
@@ -132,6 +132,10 @@ def validate_content(raw, detected_ids=None):
             position = obj(node.get("position"), {"x", "y"}, "Node position")
             number(position.get("x"), "Node x")
             number(position.get("y"), "Node y")
+            # Keep this optional: populating old snapshots would change their
+            # content identity and invalidate frozen planning requests/approvals.
+            if "pinned" in node and type(node["pinned"]) is not bool:
+                fail("Node pinned must be true or false.")
             for key in ("description", "notes", "pseudocode", "targetScope", "why", "alternatives", "blocker"):
                 string(node.setdefault(key, ""), f"Node {key}")
             relative_file(node.setdefault("targetFile", ""), "Node target file")

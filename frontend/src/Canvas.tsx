@@ -43,7 +43,15 @@ export const TaskShape = memo(function TaskShape({
     >
       {<Handle type="target" position={Position.Top} id="in" />}
       <div className="task-kind">
-        <span>{nodeKinds[n.type]}</span>
+        <span>
+          {nodeKinds[n.type]}
+          {n.pinned && (
+            <span title="Pinned for Tidy" aria-label="Pinned for Tidy">
+              {" "}
+              · Pin
+            </span>
+          )}
+        </span>
         {n.type !== "note" && (
           <input
             className="nodrag nopan"

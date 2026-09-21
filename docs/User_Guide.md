@@ -61,6 +61,12 @@ Drag the divider beside the right dock or above the catalogue to resize it. A fo
 
 The variable panel supports plans for files that do not exist yet. A planned variable's type, scope, expression, purpose, notes, and status are yours to edit. Expressions are text and never evaluated. Linking a variable to a node records a user-authored reads/writes/creates relationship; it does not prove program data flow.
 
+## Tidy a diagram
+
+Choose **Tidy diagram** above the canvas to preview a horizontal or vertical arrangement. Choose the entire diagram or the nodes selected with Ctrl/Cmd+click. **Pin position for Tidy** in a node's inspector keeps that node fixed; dragging it manually is still allowed. Unselected nodes are also fixed in selected scope.
+
+The preview is separate from your working canvas. Cancel changes nothing; **Apply arrangement** changes only positions in one undoable action. Pins, metadata, handles, connections, selection and saved viewports are preserved. Tidy handles branches, merges, disconnected components and loops. It reduces obvious crossings and keeps movable nodes clear of fixed nodes; fixed nodes that already overlap remain as placed. It does not promise optimal connection routing. Existing diagrams are never rearranged automatically.
+
 ## Plan with Codex
 
 Open **Chat** in the workspace controls. The right dock spans the workspace height; opening the variable catalogue beside it keeps the conversation and composer available. Switch between chat and the inspector without losing selection, view, or edits. Drag the divider above the composer to change the balance between message history and input. Describe a goal or correction and press **Send** (Ctrl/Cmd+Enter). You can continue editing while the agent replies. If you scroll up to read earlier messages, **Jump to latest** returns to new replies.

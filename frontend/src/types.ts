@@ -7,6 +7,7 @@ export type TaskNode = {
   type: NodeKind;
   title: string;
   position: Position;
+  pinned?: boolean;
   description: string;
   notes: string;
   pseudocode: string;

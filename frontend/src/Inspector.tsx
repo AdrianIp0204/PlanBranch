@@ -225,6 +225,14 @@ export default function Inspector({
       {n.status === "blocked" &&
         textField("What is blocking this?", "blocker", true)}
       {textField("Description", "description", true)}
+      <label className="pin-control">
+        <input
+          type="checkbox"
+          checked={!!n.pinned}
+          onChange={(event) => editNode("pinned", event.target.checked, false)}
+        />
+        Pin position for Tidy
+      </label>
       <InspectorSection
         name="checklist"
         title="Checklist"

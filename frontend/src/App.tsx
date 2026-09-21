@@ -26,6 +26,7 @@ import {
 } from "./types";
 import Canvas, { type FlowNode } from "./Canvas";
 import Inspector from "./Inspector";
+import TidyDiagram from "./TidyDiagram";
 import PlanningPanel from "./PlanningPanel";
 import ProposalWorkspace, {
   type ProposalLeaveGuard,
@@ -325,6 +326,10 @@ function Workbench({
   const content = session.content;
   const [active, setActive] = useState(content.diagrams[0]?.id ?? "");
   const [selected, setSelected] = useState<string | null>(null);
+  const [tidy, setTidy] = useState<{
+    diagram: Diagram;
+    selectedIds: string[];
+  } | null>(null);
   const { layout, preference, reset, windowSize } = useLayout();
   const stacked = windowSize.width <= 900 || windowSize.height <= 650;
   const [narrowNavigationOpen, setNarrowNavigationOpen] = useState(false);
@@ -1379,6 +1384,22 @@ function Workbench({
               </h1>
             </div>
             <div className="toolbar-actions">
+              <button
+                className="quiet"
+                disabled={!diagram?.nodes.length}
+                onClick={() =>
+                  setTidy({
+                    diagram: copy(diagram),
+                    selectedIds:
+                      instance.current
+                        ?.getNodes()
+                        .filter((n) => n.selected)
+                        .map((n) => n.id) ?? [],
+                  })
+                }
+              >
+                Tidy diagram
+              </button>
               <details
                 className="add-menu popup-menu"
                 data-popup
@@ -1707,6 +1728,38 @@ function Workbench({
             </div>
           </form>
         </Dialog>
+      )}
+      {tidy && (
+        <TidyDiagram
+          diagram={tidy.diagram}
+          selectedIds={tidy.selectedIds}
+          onClose={() => setTidy(null)}
+          onApply={(candidate) => {
+            const current = content.diagrams.find(
+              (d) => d.id === tidy.diagram.id,
+            );
+            if (!samePlan(current, tidy.diagram)) {
+              setTidy(null);
+              setError(
+                "The diagram changed. Open Tidy again to preview the latest plan.",
+              );
+              return;
+            }
+            change(
+              (c) => {
+                const target = c.diagrams.find((d) => d.id === candidate.id)!;
+                target.nodes = target.nodes.map((n) => ({
+                  ...n,
+                  position: candidate.nodes.find((item) => item.id === n.id)!
+                    .position,
+                }));
+              },
+              "Tidy diagram",
+              candidate.id,
+            );
+            setTidy(null);
+          }}
+        />
       )}
       {scanDialog && (
         <Dialog title="Python source" onClose={() => setScanDialog(false)}>

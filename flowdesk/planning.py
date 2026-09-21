@@ -508,6 +508,15 @@ class PlanningService:
                     # links must keep their exact authored relationship and ID.
                     if not isinstance(diagram["nodes"], list):
                         raise ValidationError("Proposed nodes must be a list.")
+                    # Frozen planner protocols predate the optional layout pin.
+                    # Their exact output schema cannot express it, so retained
+                    # nodes keep the human's layout preference when omitted.
+                    prior_nodes = {node["id"]: node for node in before["nodes"]}
+                    for node in diagram["nodes"]:
+                        if isinstance(node, dict) and isinstance(node.get("id"), str):
+                            previous = prior_nodes.get(node["id"], {})
+                            if "pinned" not in node and "pinned" in previous:
+                                node["pinned"] = previous["pinned"]
                     new_ids = {n.get("id") for n in diagram["nodes"] if isinstance(n, dict) and isinstance(n.get("id"), str)}
                     deleted = {n["id"] for n in before["nodes"]} - new_ids
                     content["nodeLinks"] = [link for link in content["nodeLinks"] if link["nodeId"] not in deleted]

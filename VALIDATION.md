@@ -1,3 +1,13 @@
+# Validation
+
+## Next major pass — milestone 1, 21 September 2026
+
+Tidy provides an explicit isolated preview with both orientations, whole/selected scope and optional persisted pins. Apply changes positions in one manual-history action; Cancel has no effect on project content or view. A deterministic SCC/ranking and obstacle-clearance algorithm handles cycles without adding dependencies. Existing overlap between fixed nodes and globally optimal edge routing remain outside its guarantee.
+
+Windows: 125 frontend tests and production build passed; 66 focused backend tests passed. Four disposable browser scenarios passed for both arrangements, preview/cancel, pins, selection, links/metadata and restart-safe Undo/Redo. Default Vertical preview measurement was fixed after visual checks exposed a blank initial preview. Comparable Tidy captures are in `output/playwright/tidy-preview-sizes-ucQ8of` at both target sizes. The existing connection-label browser regression passed through movement, proposal review and full-diagram PNG export. External browser requests were blocked. Further milestone and final release checks are recorded below as completed; previous results are historical, not rerun claims.
+
+The isolated checkout is `output/next-major-pass`. Baseline artifacts are under its `output/playwright/ux-before-QyiP8e`. All app instances used new data directories/random ports; the existing running user service and data were untouched.
+
 # PlanBranch validation
 
 ## Connection-label overlap fix — 21 September 2026
