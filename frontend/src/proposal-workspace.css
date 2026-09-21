@@ -260,7 +260,124 @@
   }
 }
 
-.proposal-draft-bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:6px 14px; border-bottom:1px solid var(--line); font-size:13px; }
-.proposal-draft-bar button, .proposal-draft-bar select { padding:4px 8px; min-height:30px; font-size:13px; }
-.proposal-draft-bar small { color:var(--muted); }
-.proposal-notice button { margin-left:8px; }
+.proposal-draft-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.proposal-draft-bar button,
+.proposal-draft-bar select {
+  padding: 4px 8px;
+  min-height: 30px;
+  font-size: 13px;
+}
+.proposal-draft-bar small {
+  color: var(--muted);
+}
+.proposal-notice button {
+  margin-left: 8px;
+}
+
+/* Keep a useful canvas when browser zoom or wrapped controls consume height. */
+.proposal-workspace {
+  overflow-y: auto;
+}
+.proposal-body {
+  flex: 1 0 220px;
+  min-height: 220px;
+}
+.proposal-tools {
+  position: relative;
+  gap: 6px 12px;
+}
+.proposal-navigator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 270px;
+  min-width: 0;
+  max-width: 440px;
+}
+.proposal-navigator button {
+  padding: 4px 8px;
+  flex: 0 0 32px;
+}
+.proposal-navigator select {
+  flex: 1;
+  min-width: 0;
+  width: 0;
+  text-overflow: ellipsis;
+  padding: 5px 7px;
+}
+.proposal-change-position {
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.proposal-legend {
+  font-size: 13px;
+  gap: 8px;
+}
+.proposal-hints {
+  flex: 0 0 auto;
+  font-size: 13px;
+}
+.proposal-hints summary {
+  cursor: pointer;
+  padding: 7px 4px;
+  color: #365e51;
+  border-radius: 4px;
+}
+.proposal-hints-content {
+  position: absolute;
+  right: 14px;
+  top: calc(100% - 1px);
+  width: min(420px, calc(100cqw - 28px));
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 12;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 10px 12px;
+  box-shadow: 0 5px 16px #183e251a;
+}
+.proposal-hints-content p {
+  margin: 0 0 8px;
+  color: #52665e;
+  line-height: 1.45;
+}
+.proposal-hints-content p:last-child {
+  margin-bottom: 0;
+}
+.proposal-hints-content ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.proposal-hints-content button {
+  text-align: left;
+  width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  padding: 6px 4px;
+}
+@container proposal (max-width: 680px) {
+  .proposal-navigator {
+    max-width: none;
+  }
+}
+@container proposal (max-width: 420px) {
+  .proposal-navigator {
+    flex-basis: 100%;
+  }
+  .proposal-tools .proposal-legend {
+    width: auto;
+    order: initial;
+  }
+}

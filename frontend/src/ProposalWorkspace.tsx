@@ -1,4 +1,11 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+} from "react";
 import {
   Background,
   Controls,
@@ -27,6 +34,13 @@ import {
 import { useProject } from "./store";
 import type { DraftReference } from "./durableDrafts";
 import {
+  reviewChanges,
+  reviewHints,
+  retainReviewCursor,
+  type ReviewCursor,
+  type ReviewTarget,
+} from "./reviewChanges";
+import {
   copy,
   createNode,
   nodeKinds,
@@ -49,7 +63,10 @@ export type ProposalLeaveGuard = () => Promise<boolean>;
 export type ProposalWorkspaceProps = {
   detail: ProposalDetail;
   projectId: string;
-  onApply: (diagram: Diagram | undefined, draft?: DraftReference) => Promise<void>;
+  onApply: (
+    diagram: Diagram | undefined,
+    draft?: DraftReference,
+  ) => Promise<void>;
   onCancelApply?: () => void;
   onRevise: (diagram: Diagram) => void;
   onDiscard: () => Promise<void>;
@@ -116,7 +133,10 @@ function Workspace({
   const { session, change, commit, undo, redo, getSnapshot, saveError, flush } =
     useProject();
   const durable = useProposalDraft();
-  const recovering = retryingApply || durable.draft?.state === "applying" || (durable.draft?.state === "applied" && detail.proposal.state === "pending");
+  const recovering =
+    retryingApply ||
+    durable.draft?.state === "applying" ||
+    (durable.draft?.state === "applied" && detail.proposal.state === "pending");
   const { proposal } = detail;
   const diagram = session.content.diagrams.find(
     (d) => d.id === proposal.diagramId,
@@ -149,6 +169,31 @@ function Workspace({
   const busyRef = useRef(false);
   const [error, setError] = useState("");
   const manualInstance = useRef<ReactFlowInstance<FlowNode> | null>(null);
+  const previewInstance = useRef<ReactFlowInstance<FlowNode> | null>(null);
+  const mountedView = useRef("");
+  const pendingReveal = useRef<ReviewTarget | null>(null);
+  const [reviewCursor, setReviewCursor] = useState<ReviewCursor>({
+    key: null,
+    index: -1,
+  });
+  const { changes, counts } = useMemo(
+    () => reviewChanges(before, diagram),
+    [before, diagram],
+  );
+  const hints = useMemo(() => reviewHints(diagram), [diagram]);
+  const currentChange = retainReviewCursor(changes, reviewCursor);
+  useLayoutEffect(() => {
+    if (
+      currentChange.key !== reviewCursor.key ||
+      currentChange.index !== reviewCursor.index
+    )
+      setReviewCursor(currentChange);
+  }, [
+    currentChange.key,
+    currentChange.index,
+    reviewCursor.key,
+    reviewCursor.index,
+  ]);
   const previewViews = useRef<Partial<Record<"before" | "after", Viewport>>>(
     {},
   );
@@ -172,6 +217,64 @@ function Workspace({
   const inspect = (id: string) => {
     select(id);
     setDetailsOpen(true);
+  };
+  const viewKey = manual && side === "after" ? "manual" : `${side}-preview`;
+  const fitTarget = (
+    instance: ReactFlowInstance<FlowNode>,
+    target: ReviewTarget,
+  ) => {
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (pendingReveal.current !== target) return;
+        pendingReveal.current = null;
+        void instance.fitView({
+          nodes: target.nodeIds.map((id) => ({ id })),
+          padding: 0.55,
+          duration: 0,
+          maxZoom: 1,
+        });
+      }),
+    );
+  };
+  const reveal = (target: ReviewTarget) => {
+    commit();
+    setSide(target.side);
+    setSelected((previous) => ({ ...previous, [target.side]: target.id }));
+    pendingReveal.current = target;
+    const targetKey =
+      manual && target.side === "after" ? "manual" : `${target.side}-preview`;
+    const instance =
+      targetKey === "manual" ? manualInstance.current : previewInstance.current;
+    if (mountedView.current === targetKey && instance)
+      fitTarget(instance, target);
+  };
+  const navigateChange = (index: number) => {
+    const item = changes[index];
+    if (!item) return;
+    setReviewCursor({ key: item.key, index });
+    reveal(item);
+  };
+  const previousChange = () =>
+    navigateChange(
+      currentChange.index <= 0 ? changes.length - 1 : currentChange.index - 1,
+    );
+  const nextChange = () =>
+    navigateChange((currentChange.index + 1) % changes.length);
+  const navigatorKeys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (
+      !(event.target instanceof HTMLButtonElement) ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.altKey ||
+      !changes.length
+    )
+      return;
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === "ArrowLeft") previousChange();
+    else if (event.key === "ArrowRight") nextChange();
+    else navigateChange(event.key === "Home" ? 0 : changes.length - 1);
   };
   const closeDetails = () => {
     commit();
@@ -219,8 +322,12 @@ function Workspace({
       if (action === "apply") {
         if (!recovering && !(await flush())) return;
         const reference = durable.getReference();
-        if (!reference) throw new Error("Save the proposal draft before applying it.");
-        await onApply(samePlan(candidate, original) ? undefined : copy(candidate), reference);
+        if (!reference)
+          throw new Error("Save the proposal draft before applying it.");
+        await onApply(
+          samePlan(candidate, original) ? undefined : copy(candidate),
+          reference,
+        );
       } else await onDiscard();
       clearProposalDraft(storageKey);
     } catch (reason) {
@@ -250,7 +357,11 @@ function Workspace({
   };
   const recoverAction = async (action: () => Promise<boolean>) => {
     setError("");
-    try { await action(); } catch (reason) { setError((reason as Error).message); }
+    try {
+      await action();
+    } catch (reason) {
+      setError((reason as Error).message);
+    }
   };
   const nodes = flowNodes(shown).map((n) => ({
     ...n,
@@ -318,17 +429,18 @@ function Workspace({
         <div className="proposal-review-actions">
           <button
             className="primary"
-            disabled={busy || durable.switching || durable.status === "conflict" || (!canApply && !recovering)}
+            disabled={
+              busy ||
+              durable.switching ||
+              durable.status === "conflict" ||
+              (!canApply && !recovering)
+            }
             aria-describedby={
               recovering ? "proposal-apply-recovery" : undefined
             }
             onClick={() => void run("apply")}
           >
-            {busy
-              ? "Working…"
-              : recovering
-                ? "Retry apply"
-                : "Apply changes"}
+            {busy ? "Working…" : recovering ? "Retry apply" : "Apply changes"}
           </button>
           <button
             disabled={editLocked || !reviewable}
@@ -378,13 +490,27 @@ function Workspace({
           role="status"
           id="proposal-apply-recovery"
         >
-          Apply is awaiting confirmation. Retry checks the saved receipt without duplicating changes.
-          {durable.draft?.state === "applying" && <button onClick={() => void recoverAction(async () => {
-            if (!window.confirm("Cancel this pending Apply and return to editing?")) return false;
-            const cancelled = await durable.cancelApply();
-            if (cancelled) onCancelApply?.();
-            return cancelled;
-          })}>Cancel pending apply</button>}
+          Apply is awaiting confirmation. Retry checks the saved receipt without
+          duplicating changes.
+          {durable.draft?.state === "applying" && (
+            <button
+              onClick={() =>
+                void recoverAction(async () => {
+                  if (
+                    !window.confirm(
+                      "Cancel this pending Apply and return to editing?",
+                    )
+                  )
+                    return false;
+                  const cancelled = await durable.cancelApply();
+                  if (cancelled) onCancelApply?.();
+                  return cancelled;
+                })
+              }
+            >
+              Cancel pending apply
+            </button>
+          )}
         </p>
       )}
       {stale && !recovering && (
@@ -402,22 +528,85 @@ function Workspace({
         </p>
       )}
       <div className="proposal-draft-bar">
-        <span role="status" data-testid="proposal-draft-state">{
-          durable.switching ? "Loading draft…" : recovering ? "Apply recorded" : durable.status === "saved" ? (durable.draft.draftRevision ? "Draft saved" : "Original proposal") :
-          durable.status === "saving" ? "Saving draft…" : durable.status === "conflict" ? "Draft conflict" :
-          durable.status === "failed" ? "Draft not saved" : "Unsaved draft"
-        }{durable.draft?.updatedAt && durable.status === "saved" && <small> · {new Date(durable.draft.updatedAt).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</small>}</span>
-        {durable.status === "failed" && !recovering && <button onClick={() => void recoverAction(durable.retry)}>Retry draft save</button>}
-        {durable.conflict && <>
-          <span>Both versions were kept.</span>
-          <button onClick={() => void recoverAction(durable.useRecovery)}>Use my copy</button>
-          <button onClick={() => void recoverAction(async () => window.confirm("Load the other saved draft and discard any newer unsaved edits in this window?") && durable.loadLatest())}>Load other draft</button>
-        </>}
-        {(durable.drafts.filter(d => d.state !== "discarded").length > 1 || (durable.drafts.some(d => d.state !== "discarded") && !durable.draft.draftRevision)) && <select aria-label="Saved proposal draft" value={durable.draft.draftRevision ? durable.draft.id : ""} disabled={busy || durable.switching}
-          onChange={event => { const id = event.target.value; void recoverAction(async () => (await canLeave()) && durable.selectDraft(id)); }}>
-          {!durable.draft.draftRevision && <option value="">Original proposal</option>}
-          {durable.drafts.filter(d => d.state !== "discarded").map((draft, index) => <option key={draft.id} value={draft.id}>{draft.conflictOf ? "Recovered copy" : "Draft"} {index + 1} · {new Date(draft.updatedAt).toLocaleTimeString()}</option>)}
-        </select>}
+        <span role="status" data-testid="proposal-draft-state">
+          {durable.switching
+            ? "Loading draft…"
+            : recovering
+              ? "Apply recorded"
+              : durable.status === "saved"
+                ? durable.draft.draftRevision
+                  ? "Draft saved"
+                  : "Original proposal"
+                : durable.status === "saving"
+                  ? "Saving draft…"
+                  : durable.status === "conflict"
+                    ? "Draft conflict"
+                    : durable.status === "failed"
+                      ? "Draft not saved"
+                      : "Unsaved draft"}
+          {durable.draft?.updatedAt && durable.status === "saved" && (
+            <small>
+              {" "}
+              ·{" "}
+              {new Date(durable.draft.updatedAt).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </small>
+          )}
+        </span>
+        {durable.status === "failed" && !recovering && (
+          <button onClick={() => void recoverAction(durable.retry)}>
+            Retry draft save
+          </button>
+        )}
+        {durable.conflict && (
+          <>
+            <span>Both versions were kept.</span>
+            <button onClick={() => void recoverAction(durable.useRecovery)}>
+              Use my copy
+            </button>
+            <button
+              onClick={() =>
+                void recoverAction(
+                  async () =>
+                    window.confirm(
+                      "Load the other saved draft and discard any newer unsaved edits in this window?",
+                    ) && durable.loadLatest(),
+                )
+              }
+            >
+              Load other draft
+            </button>
+          </>
+        )}
+        {(durable.drafts.filter((d) => d.state !== "discarded").length > 1 ||
+          (durable.drafts.some((d) => d.state !== "discarded") &&
+            !durable.draft.draftRevision)) && (
+          <select
+            aria-label="Saved proposal draft"
+            value={durable.draft.draftRevision ? durable.draft.id : ""}
+            disabled={busy || durable.switching}
+            onChange={(event) => {
+              const id = event.target.value;
+              void recoverAction(
+                async () => (await canLeave()) && durable.selectDraft(id),
+              );
+            }}
+          >
+            {!durable.draft.draftRevision && (
+              <option value="">Original proposal</option>
+            )}
+            {durable.drafts
+              .filter((d) => d.state !== "discarded")
+              .map((draft, index) => (
+                <option key={draft.id} value={draft.id}>
+                  {draft.conflictOf ? "Recovered copy" : "Draft"} {index + 1} ·{" "}
+                  {new Date(draft.updatedAt).toLocaleTimeString()}
+                </option>
+              ))}
+          </select>
+        )}
       </div>
       <div className="proposal-tools">
         <div className="proposal-compare" aria-label="Compare proposal">
@@ -483,13 +672,122 @@ function Workspace({
               Redo
             </button>
           </div>
-        ) : (
-          <div className="proposal-legend" aria-label="Change legend">
-            <span className="added">+ Added</span>
-            <span className="changed">~ Changed</span>
-            <span className="removed">− Removed in Before</span>
+        ) : null}
+        <div
+          className="proposal-navigator"
+          role="group"
+          aria-label="Review changes"
+          data-current-change={currentChange.key ?? ""}
+          onKeyDown={navigatorKeys}
+        >
+          <button
+            className="quiet"
+            aria-label="Previous change"
+            title="Previous change (Left arrow)"
+            disabled={!changes.length || busy || durable.switching}
+            onClick={previousChange}
+          >
+            ←
+          </button>
+          <select
+            aria-label="Review change"
+            value={currentChange.key ?? ""}
+            disabled={!changes.length || busy || durable.switching}
+            onChange={(event) =>
+              navigateChange(
+                changes.findIndex((item) => item.key === event.target.value),
+              )
+            }
+          >
+            <option value="" disabled>
+              {changes.length ? "Choose a change" : "No diagram changes"}
+            </option>
+            {changes.map((item) => (
+              <option key={item.key} value={item.key}>
+                {item.kind[0].toUpperCase() + item.kind.slice(1)}{" "}
+                {item.entity === "node" ? "node" : "connection"}: {item.title}
+              </option>
+            ))}
+          </select>
+          <span
+            data-testid="review-change-position"
+            className="proposal-change-position"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {currentChange.index + 1} of {changes.length}
+          </span>
+          <button
+            className="quiet"
+            aria-label="Next change"
+            title="Next change (Right arrow)"
+            disabled={!changes.length || busy || durable.switching}
+            onClick={nextChange}
+          >
+            →
+          </button>
+        </div>
+        <div
+          className="proposal-legend"
+          aria-label="Change counts"
+          data-testid="review-change-counts"
+        >
+          <span className="added">{counts.added} added</span>
+          <span className="changed">{counts.changed} changed</span>
+          <span className="removed">{counts.removed} removed</span>
+        </div>
+        <details
+          className="proposal-hints"
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            event.stopPropagation();
+            event.currentTarget.open = false;
+            event.currentTarget.querySelector("summary")?.focus();
+          }}
+        >
+          <summary>
+            {hints.length
+              ? `Review hints (${hints.length})`
+              : "Review hints · none"}
+          </summary>
+          <div className="proposal-hints-content">
+            <p>
+              Suggestions only. Separate flows and unlabeled branches can be
+              intentional.
+            </p>
+            {hints.length ? (
+              <ul>
+                {hints.map((hint) => (
+                  <li key={hint.key}>
+                    <button
+                      className="quiet"
+                      disabled={busy || durable.switching}
+                      onClick={(event) => {
+                        reveal(hint);
+                        const disclosure =
+                          event.currentTarget.closest("details");
+                        if (disclosure) {
+                          disclosure.open = false;
+                          disclosure
+                            .querySelector("summary")
+                            ?.focus({ preventScroll: true });
+                        }
+                      }}
+                    >
+                      {hint.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>
+                No missing criteria, unlabeled decision branches, or separate
+                flows found. This does not verify the plan.
+              </p>
+            )}
           </div>
-        )}
+        </details>
         <button
           ref={detailsToggle}
           className="quiet proposal-details-toggle"
@@ -529,7 +827,10 @@ function Workspace({
               onAddNode={add}
               onInstance={(instance) => {
                 manualInstance.current = instance;
-                if (!session.views[diagram.id])
+                mountedView.current = "manual";
+                if (pendingReveal.current?.side === "after")
+                  fitTarget(instance, pendingReveal.current);
+                else if (!session.views[diagram.id])
                   requestAnimationFrame(() =>
                     requestAnimationFrame(() => {
                       void instance.fitView({
@@ -554,7 +855,13 @@ function Workspace({
               deleteKeyCode={null}
               minZoom={0.1}
               maxZoom={2.5}
-              fitView={!previewViews.current[side]}
+              fitView={!previewViews.current[side] && !pendingReveal.current}
+              onInit={(instance) => {
+                previewInstance.current = instance;
+                mountedView.current = viewKey;
+                if (pendingReveal.current?.side === side)
+                  fitTarget(instance, pendingReveal.current);
+              }}
               defaultViewport={previewViews.current[side]}
               fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
               onNodeClick={(_, n) => select(n.id)}

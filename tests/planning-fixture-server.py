@@ -95,6 +95,26 @@ class FixturePlanner:
             detail = (f" Requested model: {selection['model']} / {selection['reasoningEffort']}."
                       if "model settings" in prompt.lower() and selection["mode"] == "explicit" else "")
             return self.envelope("reply", "The plan is ready for your review. No steps were executed." + detail)
+        if prompt.startswith("Review navigation fixture"):
+            diagram = deepcopy(next(d for d in context["content"]["diagrams"] if d["id"] == context["activeDiagramId"]))
+            existing = next(n for n in diagram["nodes"] if n["title"] == "Store task")
+            decision = next(n for n in diagram["nodes"] if n["title"] == "Choose action")
+            removed = next(n for n in diagram["nodes"] if n["title"] == "Deprecated export")
+            existing["description"] = "Write the task and confirm the saved identifier before continuing."
+            diagram["nodes"] = [n for n in diagram["nodes"] if n["id"] != removed["id"]]
+            diagram["edges"] = [e for e in diagram["edges"] if removed["id"] not in (e["source"], e["target"])]
+            next(e for e in diagram["edges"] if e["source"] == decision["id"] and e["target"] == existing["id"])["label"] = ""
+            added = {"id": str(uuid4()), "type": "io", "title": "Display confirmation", "position": {"x": 3500, "y": 1800},
+                     "description": "Show the result of saving a task.", "status": "not_started", "checklist": [],
+                     **{key: "" for key in ("notes", "pseudocode", "targetFile", "targetScope", "why", "alternatives", "blocker")}}
+            diagram["nodes"].append(added)
+            diagram["edges"].extend([
+                {"id": str(uuid4()), "source": existing["id"], "target": added["id"], "sourceHandle": "out", "targetHandle": "in", "label": "Saved"},
+                {"id": str(uuid4()), "source": existing["id"], "target": decision["id"], "sourceHandle": "out", "targetHandle": "in", "label": "Choose another action"},
+            ])
+            return self.envelope("proposal", "Review each diagram change and the optional planning checks.", proposal={
+                "title": "Review the task workflow", "summary": "Clarify storage, add confirmation and retire the old export branch.",
+                "diagramId": diagram["id"], "nodes": diagram["nodes"], "edges": diagram["edges"]})
         if prompt.startswith("Revise the visible proposal"):
             candidate = deepcopy(context["reviewProposal"]["diagram"])
             candidate["nodes"][0]["description"] = "Revised from the visible candidate: " + candidate["nodes"][0]["title"]

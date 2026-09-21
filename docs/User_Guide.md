@@ -216,3 +216,10 @@ Manual proposal edits save automatically to the project database, separately fro
 If another window changes the same draft, both candidates are kept. Choose **Use my copy** to continue with your recovered candidate or **Load other draft** to switch deliberately. The saved-draft selector exposes retained copies. Outdated proposals remain readable and editable; request a revised proposal before applying them to a changed plan.
 
 Apply first records a durable request and then commits the candidate as one project-history action. If the response is interrupted, **Retry apply** checks that same request without applying twice. A pending request may also be cancelled explicitly. Discarding the proposal requires confirmation and retires its drafts. Unsaved failures remain visible with **Retry draft save**; leaving the workspace waits for a successful save.
+
+
+## Reviewing a proposal
+
+Use **Previous change**, **Next change**, or the **Review change** selector to visit changed nodes and connections. The workspace selects and brings each item into view; removed items open in Before. Arrow keys, Home and End work when a navigation button is focused. Typing in an editable field retains ordinary text navigation. Editing a candidate keeps the current review target when it still exists.
+
+The summary counts added, changed and removed items. **Review hints** offers optional links to tasks without acceptance checklist items, unlabeled decision branches and separate flow components. These are prompts to inspect the plan, not correctness checks. Notes and valid loops do not need fixing; intentional separate flows and unfinished drafts can still be applied.

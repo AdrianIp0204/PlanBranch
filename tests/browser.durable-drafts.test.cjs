@@ -504,3 +504,20 @@ test(
     assert.deepEqual(await h.api(`/projects/${h.initial.id}`), original);
   },
 );
+
+
+test("draft edits reconnect after a server restart without reloading the window", {timeout:60000}, async t => {
+  const h=await setupBrowser(t,{name:"durable-draft-reconnect",seed:{name:"Reconnect"},planningFixture:true});
+  const proposal=await makeProposal(h);
+  await editTitle(h.page,"Candidate before restart");
+  await until(async () => (await workspace(h.page).getByTestId("proposal-draft-state").textContent()).startsWith("Draft saved"));
+  await h.restart({reload:false});
+  await workspace(h.page).getByLabel("Title",{exact:true}).fill("Newer edit in the open window");
+  await until(async () => {
+    const list=await h.api(proposalUrl(h,proposal)+"/drafts");
+    if(!list.defaultDraftId)return false;
+    const {draft}=await h.api(proposalUrl(h,proposal)+"/drafts/"+list.defaultDraftId);
+    return draft.candidate.diagrams[0].nodes[0].title==="Newer edit in the open window";
+  });
+  assert.equal(await workspace(h.page).getByLabel("Title",{exact:true}).inputValue(),"Newer edit in the open window");
+});

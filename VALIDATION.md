@@ -1,3 +1,9 @@
+## Guided proposal review — 21 September 2026
+
+Review now provides stable item navigation, compact added/changed/removed counts and optional navigable hints. Removed nodes and connections open in Before; other targets open in Proposed. Manual edits retain the current item when possible and native field navigation. Hints check substantive checklist criteria, decision labels and weakly connected flow components while excluding notes and accepting cycles. They never gate Apply. The canvas retains a 220 px minimum height with workspace scrolling at high zoom.
+
+Verification: full frontend suite **149 passed**, expanded focused review/workspace suites **31 passed**, TypeScript and production build passed. Three new browser scenarios passed: all seven fixture changes (nodes and connections), focus/keyboard/fit, manual-edit continuity, optional hints and intentional exceptions, 1280×800, 1440×900, narrow and genuine 200% zoom with reduced motion. Captures are under `output/playwright/guided-review-*`; zero runtime errors or external browser requests. A further restart regression confirms an open window reconnects and saves newer draft edits without reload; two API retry tests pass. This milestone changes no backend schema. All data and servers were disposable.
+
 ## Durable proposal drafts — 21 September 2026
 
 Database migration 5 adds separate proposal candidates, revision checks, recovery copies, tombstones and immutable operation receipts. Preparing Apply persists its intent before the project-history transaction; retries retain identity across browser/server restart. Draft writes leave saved content, history and approval untouched. The old session-storage candidate is imported only when no database draft record exists.
