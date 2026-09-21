@@ -15,9 +15,10 @@ from .scans import ScanService
 from .reconciliation import reconcile
 from .planning import PlanningService
 from .proposal_drafts import DraftConflictError
+from .execution import ExecutionService, ExecutionReceiptError
 
 
-def create_app(data_dir=None, *, testing=False, planner=None):
+def create_app(data_dir=None, *, testing=False, planner=None, executor=None, execution_git=None):
     from .__main__ import default_data_dir
     data_dir = Path(data_dir or default_data_dir()).resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -28,7 +29,8 @@ def create_app(data_dir=None, *, testing=False, planner=None):
     store = Store(data_dir / "flowdesk.sqlite3")
     scans = ScanService(store)
     planning = PlanningService(store, planner)
-    app.extensions.update(flowdesk_store=store, flowdesk_scans=scans, flowdesk_planning=planning)
+    execution = ExecutionService(store, planning, executor, execution_git)
+    app.extensions.update(flowdesk_store=store, flowdesk_scans=scans, flowdesk_planning=planning, flowdesk_execution=execution)
 
     @app.before_request
     def protect_local_api():
@@ -80,6 +82,10 @@ def create_app(data_dir=None, *, testing=False, planner=None):
     @app.errorhandler(RuntimeError)
     def busy(exc):
         return jsonify(error=str(exc)), 409
+
+    @app.errorhandler(ExecutionReceiptError)
+    def execution_refusal(exc):
+        return jsonify(error=str(exc), executionReceipt=exc.receipt), 409
 
     @app.errorhandler(OSError)
     @app.errorhandler(sqlite3.Error)
@@ -231,6 +237,34 @@ def create_app(data_dir=None, *, testing=False, planner=None):
     @app.post("/api/projects/<project_id>/planning/reopen")
     def reopen_plan(project_id):
         return jsonify(planning.reopen(project_id, planning_body()))
+
+    @app.get("/api/projects/<project_id>/execution")
+    def get_execution(project_id):
+        return jsonify(execution.state(project_id))
+
+    @app.post("/api/projects/<project_id>/execution/repository")
+    def select_execution_repository(project_id):
+        return jsonify(execution.repository(project_id, planning_body()))
+
+    @app.post("/api/projects/<project_id>/execution/preview")
+    def preview_execution(project_id):
+        return jsonify(execution.preview(project_id, planning_body()))
+
+    @app.post("/api/projects/<project_id>/execution/runs")
+    def run_execution(project_id):
+        return jsonify(execution.start(project_id, planning_body())), 202
+
+    @app.get("/api/projects/<project_id>/execution/runs/<run_id>")
+    def execution_detail(project_id, run_id):
+        return jsonify(execution.detail(project_id, run_id))
+
+    @app.post("/api/projects/<project_id>/execution/runs/<run_id>/<action>")
+    def execution_action(project_id, run_id, action):
+        actions = {"cancel": execution.cancel, "refresh": execution.refresh, "accept": execution.accept,
+                   "complete": execution.complete, "apply": execution.apply}
+        if action not in actions:
+            raise NotFoundError("Unknown execution action.")
+        return jsonify(actions[action](project_id, run_id, planning_body()))
 
     @app.get("/api/projects/<project_id>/source")
     def source(project_id):

@@ -95,11 +95,11 @@ def test_v7_failure_restores_version6_manual_and_frozen_records(released_v6, mon
     frozen = frozen_rows(store)
     with closing(store.connect()) as db:
         before = [tuple(row) for row in db.execute("SELECT * FROM history_checkpoints ORDER BY project_id,id")]
-    original = migrations.MIGRATIONS[-1]
+    original = next(migration for migration in migrations.MIGRATIONS if migration.version == 7)
     def interrupted(db, owner):
         original.apply(db, owner)
         raise RuntimeError("Injected Build migration failure")
-    monkeypatch.setattr(migrations, "MIGRATIONS", (*migrations.MIGRATIONS[:-1], migrations.Migration(7, original.name, True, interrupted)))
+    monkeypatch.setattr(migrations, "MIGRATIONS", tuple(migrations.Migration(7, original.name, True, interrupted) if migration.version == 7 else migration for migration in migrations.MIGRATIONS))
     with pytest.raises(RuntimeError, match="Injected"):
         Store(store.db_path)
     assert frozen_rows(store) == frozen

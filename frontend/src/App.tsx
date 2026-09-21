@@ -1482,6 +1482,7 @@ function Workbench({
           </div>
           {workspaceView === "build" && (
             <BuildView
+              onPlanning={() => openPlanning()}
               selectedId={selectedBuildTask}
               onSelect={setSelectedBuildTask}
               onRevealNode={(_diagramId, nodeId) => {

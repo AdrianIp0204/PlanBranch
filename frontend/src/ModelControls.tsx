@@ -182,10 +182,12 @@ export default function ModelControls({
   selection,
   capabilities,
   onChange,
+  problemId = "planning-model-problem",
 }: {
   selection: ModelSelection;
   capabilities: ModelCapabilities | null;
   onChange: (value: ModelSelection) => void;
+  problemId?: string;
 }) {
   const models = capabilities?.status === "ready" ? capabilities.models : [];
   const model =
@@ -199,7 +201,7 @@ export default function ModelControls({
       <select
         aria-label="Model"
         aria-invalid={Boolean(problem)}
-        aria-describedby={problem ? "planning-model-problem" : undefined}
+        aria-describedby={problem ? problemId : undefined}
         value={selectedId}
         onChange={(event) =>
           onChange(selectModel(event.target.value, selection, capabilities))

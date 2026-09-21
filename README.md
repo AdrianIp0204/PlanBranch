@@ -16,12 +16,15 @@ Turn a coding goal into a diagram you can discuss, correct, and approve. PlanBra
 2. **See the proposal.** Review nodes, branches, connections, and details on the canvas. Compare Before and Proposed.
 3. **Refine it.** Ask Codex for changes, leave comments on individual nodes, or edit the candidate yourself.
 4. **Apply and approve.** Apply changes as one undoable action, then approve the saved plan when it is ready.
+5. **Build one step.** Define implementation tasks, select an execution repository, preview one task and explicitly Run. Review its isolated changes before accepting, completing or applying them.
 
-PlanBranch currently supports planning and review. Approving a plan does **not** execute code or run its steps.
+Approving a plan does **not** authorize code execution. **Run step** is separate. Program-flow connections can loop; Build prerequisites are a separate acyclic task graph. There is no autonomous full-plan execution or automatic merge.
 
 | Capability | What you can do |
 | --- | --- |
-| Visual planning | Build branching and looping diagrams with notes, pseudocode, checklists, blockers, and implementation targets. |
+| Visual planning | Build branching and looping diagrams; preview Tidy arrangements with pinned nodes and single-action Undo. |
+| Durable review | Recover proposal drafts after restart, navigate each change, inspect advisory hints, and maintain a reviewed project brief. |
+| Controlled coding | Plan Build tasks with prerequisites, execute one in an isolated worktree, inspect observed commands and diffs, then accept explicitly. |
 | Codex collaboration | Use your existing CLI sign-in, choose a model and reasoning level, answer structured questions, and review proposed edits. |
 | Plan versus code | Keep intended variables separate from read-only Python scan results. Review and confirm links explicitly. |
 | Local workspace | Work across projects and diagrams with autosave, restart-safe undo/redo, SQLite backups, and JSON, PNG, and Markdown exports. |
@@ -72,6 +75,7 @@ For AI chat, separately [install Codex CLI](https://developers.openai.com/codex/
 - **Projects stay local.** SQLite stores saved plans, discussion, review records, and undo history. Choose a different location with `--data-dir`; the server binds to loopback only.
 - **Chat shares authored context.** Sending a message shares the manual plan and discussion with Codex, including a candidate when you request revisions. Attached source files and scanner observations are excluded.
 - **Changes require review.** Agent edits stay separate until you apply them. Manual proposal drafts save separately in SQLite and recover after browser or server restart; applying creates one undoable plan edit.
+- **Execution is a separate permission.** Choose a Git repository explicitly. Runs use committed source in an isolated worktree; accepting a result, completing a task and applying it to your checkout are separate actions. No automatic commit, merge or push occurs.
 - **Evidence is read-only.** Python scanning requires an explicitly attached folder. It does not import or execute that code, change source files, or mark tasks complete.
 
 See the [user guide](docs/User_Guide.md) for backups, draft recovery, sharing boundaries, scanner limits, keyboard controls, and exports. [Validation notes](VALIDATION.md) distinguish tested behavior from remaining platform and live-model checks.
@@ -95,7 +99,7 @@ npm test --prefix frontend
 npm run build --prefix frontend
 ```
 
-For browser checks, install Chromium once with `cd frontend && npx playwright install chromium`, return to the root, then run `npm run test:e2e --prefix frontend`. Tests use disposable databases and a deterministic planning provider, with external browser requests blocked.
+For browser checks, install Chromium once with `cd frontend && npx playwright install chromium`, return to the root, then run `npm run test:e2e --prefix frontend`. Tests use disposable databases and deterministic planning and execution providers in disposable Git repositories, with external browser requests blocked.
 
 Build an installable wheel with `python scripts/build_release.py` after building the frontend. Install `dist/flowdesk-0.1.0-py3-none-any.whl` in a Python 3.14 environment; launch with `planbranch` or `python -m flowdesk`. Node is unnecessary for the installed application. The distribution keeps its original `flowdesk` name for compatibility; this repository is the release source.
 

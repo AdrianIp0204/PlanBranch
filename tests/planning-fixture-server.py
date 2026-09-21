@@ -173,9 +173,44 @@ class FixturePlanner:
                 proposal={"title": "Add a review step", "summary": "Make the expected result explicit before proceeding.", "diagramId": diagram["id"], "nodes": diagram["nodes"], "edges": diagram["edges"]})
 
 
+class FixtureExecutor:
+    """Only edits the service-created disposable worktree; no external agent."""
+    def status(self):
+        return {"available": True, "label": "Deterministic browser executor"}
+
+    def configure(self, selection):
+        generation = FixturePlanner().configure(selection)
+        generation.pop("protocolVersion", None)
+        generation["instructionVersion"] = "fixture-execution-v1"
+        return generation
+
+    def run(self, context, worktree, cancel, on_event):
+        from pathlib import Path
+        import subprocess
+        import sys
+        root = Path(worktree)
+        if not (root / "fixture-only.marker").is_file():
+            raise RuntimeError("The browser executor requires its disposable fixture marker.")
+        (root / "main.py").write_text("value = 2\n", encoding="utf-8", newline="\n")
+        on_event({"type": "progress", "message": "Fixture worktree updated; observing its check."})
+        if "slow" in context["task"]["title"].lower():
+            if cancel.wait(90):
+                return {"status": "cancelled", "summary": "Cancelled fixture; edits preserved.", "commands": []}
+        failing = "fail" in context["task"]["title"].lower()
+        check = 'from pathlib import Path; assert "value = 2" in Path("main.py").read_text(); print("fixture check passed")'
+        if failing:
+            check = 'print("fixture check failed"); raise SystemExit(1)'
+        result = subprocess.run([sys.executable, "-I", "-c", check], cwd=root, capture_output=True, text=True,
+                                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+        command = {"id": "fixture-check", "command": "python -I fixture-check", "status": "completed",
+                   "exitCode": result.returncode, "output": result.stdout + result.stderr}
+        on_event({"type": "command", "command": command})
+        return {"status": "succeeded", "summary": "The fixture agent reports that its work is ready.", "commands": [command]}
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--data-dir", required=True)
     args = parser.parse_args()
-    serve(create_app(args.data_dir, planner=FixturePlanner()), host="127.0.0.1", port=args.port)
+    serve(create_app(args.data_dir, planner=FixturePlanner(), executor=FixtureExecutor()), host="127.0.0.1", port=args.port)

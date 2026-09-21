@@ -1,0 +1,244 @@
+dialog:has(> .execution-dialog) {
+  width: min(1000px, calc(100vw - 40px));
+  max-width: calc(100vw - 40px);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  padding: 18px;
+}
+.execution-dialog {
+  min-width: 0;
+  font-size: 14px;
+}
+.execution-dialog button,
+.execution-dialog select,
+.execution-dialog input {
+  font-size: 14px;
+}
+.execution-dialog button {
+  min-height: 36px;
+}
+.execution-dialog fieldset {
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  border: 0;
+}
+.execution-dialog code {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.execution-dialog h2 {
+  font-size: 20px;
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+.execution-dialog h3 {
+  font-size: 16px;
+  margin: 0 0 10px;
+}
+.execution-dialog h4 {
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+.execution-dialog p {
+  line-height: 1.5;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.execution-dialog ul {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+.execution-dialog li {
+  margin: 5px 0;
+  overflow-wrap: anywhere;
+}
+.execution-dialog summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 5px 0;
+  overflow-wrap: anywhere;
+}
+.execution-section {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  margin-top: 16px;
+}
+.execution-section-heading,
+.execution-topline,
+.execution-repository,
+.execution-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.execution-section-heading {
+  justify-content: space-between;
+}
+.execution-topline {
+  align-items: flex-end;
+}
+.execution-topline .field {
+  flex: 1 1 240px;
+  margin: 0;
+  min-width: 0;
+}
+.execution-topline select {
+  width: 100%;
+  min-width: 0;
+}
+.execution-repository .field {
+  margin: 0;
+  flex: 1 1 280px;
+  min-width: 0;
+}
+.execution-repository > code {
+  flex: 1 1 260px;
+}
+.execution-repository input {
+  width: 100%;
+}
+.execution-dialog .planning-model-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.execution-dialog .planning-model-controls select {
+  min-width: 120px;
+  flex: 1 1 180px;
+  width: auto;
+}
+.execution-actions {
+  margin-top: 16px;
+}
+.execution-error,
+.execution-notice,
+.execution-recovery {
+  padding: 10px 12px;
+  border-left: 3px solid #9d7134;
+  background: #fbf5e9;
+  color: #664820;
+  line-height: 1.5;
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.execution-error {
+  color: #813b31;
+  border-color: #a55444;
+  background: #fcf0eb;
+}
+.execution-issues {
+  color: #785225;
+}
+.execution-task-context {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.execution-prose {
+  white-space: pre-wrap;
+}
+.execution-run-heading {
+  margin-top: 20px;
+}
+.execution-state {
+  display: inline-block;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  text-transform: capitalize;
+  color: #375f4e;
+  background: #edf2ec;
+}
+.execution-state.failed,
+.execution-state.interrupted,
+.execution-state.cancelled {
+  background: #f7edde;
+  color: #785225;
+}
+.execution-command {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.execution-command summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 400;
+}
+.execution-command summary code {
+  flex: 1;
+  white-space: pre-wrap;
+}
+.execution-command summary span {
+  flex-shrink: 0;
+  font-size: 13px;
+}
+.execution-command pre,
+.execution-diff pre {
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: #f4f6f3;
+  color: #20362d;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre;
+  tab-size: 4;
+}
+.execution-diff {
+  min-width: 0;
+}
+.execution-dialog [aria-label="Changed files"] select {
+  width: 100%;
+  min-width: 0;
+}
+.execution-review-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.execution-review-actions button {
+  width: 100%;
+  white-space: normal;
+}
+.execution-review-actions p {
+  color: var(--muted);
+  font-size: 13px;
+}
+.execution-busy {
+  color: var(--muted);
+}
+.build-execution-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.build-execution-actions > span {
+  font-size: 13px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  dialog:has(> .execution-dialog) {
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+    padding: 12px;
+  }
+  .execution-task-context,
+  .execution-review-actions {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+}

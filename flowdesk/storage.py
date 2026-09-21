@@ -260,6 +260,11 @@ class Store:
         try:
             connection.execute("BEGIN IMMEDIATE")
             project = self._row(connection, project_id)
+            if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='execution_runs'").fetchone():
+                if connection.execute("SELECT 1 FROM execution_runs WHERE project_id=? AND state IN ('queued','running','cancelling')", (project_id,)).fetchone():
+                    raise RuntimeError("Cancel the active execution before deleting this project.")
+                if connection.execute("SELECT 1 FROM execution_receipts WHERE project_id=? AND action LIKE 'apply:%' AND state='pending'", (project_id,)).fetchone():
+                    raise RuntimeError("Recover the unfinished code Apply before deleting this project.")
             if project["revision"] != revision:
                 raise ConflictError(project["revision"])
             # Remove authored links before source evidence cascades; symbol FKs
