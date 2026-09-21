@@ -180,14 +180,15 @@ def _validate_apply_journal(journal, artifact, digest):
                 if before is None:
                     if permissions is not None:
                         raise ValueError
-                elif (type(permissions) is not int or not 0 <= permissions <= 0o7777
+                elif (type(permissions) is not int or not 0 <= permissions <= 0o777
                         or ("100755" if permissions & stat.S_IXUSR else "100644") != file["oldMode"]):
                     raise ValueError
                 expected_permissions = (permissions & 0o777) if permissions is not None else 0o644
-                if file["newMode"] == "100755":
-                    expected_permissions |= (expected_permissions & 0o444) >> 2
-                else:
-                    expected_permissions &= ~0o111
+                if file["oldMode"] != file["newMode"]:
+                    if file["newMode"] == "100755":
+                        expected_permissions |= (expected_permissions & 0o444) >> 2
+                    else:
+                        expected_permissions &= ~0o111
                 if item["afterPermissions"] != (expected_permissions if after is not None else None):
                     raise ValueError
         return journal
@@ -535,13 +536,16 @@ class GitWorkspace:
                              "beforeMode": current_mode, "afterMode": file["newMode"], "mode": file["newMode"]}
                     if os.name != "nt":
                         permissions = stat.S_IMODE(target.stat().st_mode) if current is not None else None
-                        # Preserve local read/write permissions; only the reviewed
-                        # executable-bit change may alter them.
+                        if permissions is not None and permissions & 0o7000:
+                            raise WorkspaceError(f"Special file permissions are unsupported for {file['path']}. Your checkout is unchanged.")
+                        # Preserve all local permissions for content-only edits;
+                        # only a reviewed mode change may alter executable bits.
                         after_permissions = (permissions & 0o777) if permissions is not None else 0o644
-                        if file["newMode"] == "100755":
-                            after_permissions |= (after_permissions & 0o444) >> 2
-                        else:
-                            after_permissions &= ~0o111
+                        if file["oldMode"] != file["newMode"]:
+                            if file["newMode"] == "100755":
+                                after_permissions |= (after_permissions & 0o444) >> 2
+                            else:
+                                after_permissions &= ~0o111
                         entry.update(beforePermissions=permissions, afterPermissions=after_permissions if after is not None else None)
                     entries.append(entry)
                 journal = {"state": "prepared", "digest": digest, "updatedAt": _now(), "completed": [], "fileCount": len(entries), "entries": entries}

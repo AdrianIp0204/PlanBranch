@@ -290,9 +290,17 @@ def test_normal_completion_also_cleans_background_descendants(tmp_path):
     heartbeat = tmp_path / "completed-heartbeat"
     child = tmp_path / "background.py"
     child.write_text("import pathlib,time\np=pathlib.Path(" + repr(str(heartbeat)) + ")\ndeadline=time.monotonic()+15\nwhile time.monotonic()<deadline:\n p.write_text(str(time.monotonic()))\n time.sleep(.05)\n", encoding="utf8")
-    script = "import subprocess,sys,time\nsubprocess.Popen([sys.executable,'-I'," + repr(str(child)) + "],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\ntime.sleep(.15)\n"
+    # The short-lived parent must wait until its descendant is running. A fixed
+    # sleep can let correct job cleanup kill a slow-starting child before this
+    # test observes any heartbeat, especially during concurrent browser suites.
+    script = ("import pathlib,subprocess,sys,time\n"
+        "subprocess.Popen([sys.executable,'-I'," + repr(str(child)) + "],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n"
+        "heartbeat=pathlib.Path(" + repr(str(heartbeat)) + ")\n"
+        "deadline=time.monotonic()+10\n"
+        "while not heartbeat.exists() and time.monotonic()<deadline:\n time.sleep(.01)\n"
+        "assert heartbeat.exists(), 'Background fixture did not become ready'\n")
     outcome = process_adapter.run_supervised([sys.executable, "-I", "-c", script], cwd=tmp_path,
-        env=adapter.execution_environment(), prompt=b"", cancel=threading.Event(), on_packet=lambda _: None, timeout=5)
+        env=adapter.execution_environment(), prompt=b"", cancel=threading.Event(), on_packet=lambda _: None, timeout=15)
     assert outcome == {"reason": "exited", "returncode": 0}
     assert heartbeat.exists()
     time.sleep(.2)

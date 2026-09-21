@@ -300,6 +300,35 @@ def test_apply_preserves_local_read_write_permissions_and_reviews_executable_cha
     assert (source / 'main.py').stat().st_mode & 0o777 == 0o750
 
 
+@pytest.mark.skipif(os.name == 'nt', reason='POSIX permissions are not represented by Windows filesystems')
+def test_content_only_apply_preserves_local_group_and_other_executable_permissions(fixture):
+    source, engine, result, root = workspace(fixture)
+    (source / 'main.py').chmod(0o641)
+    (root / 'main.py').write_text('value = 2\n', encoding='utf-8')
+    review = engine.capture(result)
+    file = next(item for item in review['files'] if item['path'] == 'main.py')
+    assert file['oldMode'] == file['newMode'] == '100644'
+    assert engine.apply(result, review['digest'])['applied']
+    assert (source / 'main.py').read_text() == 'value = 2\n'
+    assert (source / 'main.py').stat().st_mode & 0o777 == 0o641
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='POSIX permissions are not represented by Windows filesystems')
+@pytest.mark.parametrize('permissions', [0o4644, 0o2644, 0o1644])
+def test_apply_rejects_special_permissions_before_changing_checkout(fixture, permissions):
+    source, engine, result, root = workspace(fixture)
+    (source / 'main.py').chmod(permissions)
+    (root / 'keep.txt').write_text('accepted keep\n', encoding='utf-8')
+    (root / 'main.py').write_text('value = 2\n', encoding='utf-8')
+    review = engine.capture(result)
+    with pytest.raises(WorkspaceError, match='Special file permissions'):
+        engine.apply(result, review['digest'])
+    assert (source / 'main.py').read_text() == 'value = 1\n'
+    assert (source / 'main.py').stat().st_mode & 0o7777 == permissions
+    assert (source / 'keep.txt').read_text() == 'unrelated baseline\n'
+    assert engine.inspect_apply(result, review['digest']) is None
+
+
 def test_apply_rechecks_checkout_after_preparing_replacement(fixture, monkeypatch):
     import flowdesk.execution_git as module
     source, engine, result, root = workspace(fixture)
@@ -362,6 +391,26 @@ def recovery_record():
     journal = {'digest': 'accepted', 'state': 'applying', 'fileCount': 1, 'completed': [], 'entries': [
         {'path': 'main.py', 'before': before, 'after': after, 'mode': '100644'}]}
     return journal, artifact
+
+
+def test_recovery_record_preserves_unreviewed_executable_permissions():
+    from flowdesk.execution_git import _validate_apply_journal
+    journal, artifact = recovery_record()
+    item = journal['entries'][0]
+    item.update(beforePermissions=0o641, afterPermissions=0o641)
+    assert _validate_apply_journal(journal, artifact, 'accepted')['entries'][0]['afterPermissions'] == 0o641
+    item['afterPermissions'] = 0o640
+    with pytest.raises(WorkspaceError, match='does not match the accepted result'):
+        _validate_apply_journal(journal, artifact, 'accepted')
+
+
+@pytest.mark.parametrize('permissions', [0o4644, 0o2644, 0o1644])
+def test_recovery_record_rejects_special_permissions(permissions):
+    from flowdesk.execution_git import _validate_apply_journal
+    journal, artifact = recovery_record()
+    journal['entries'][0].update(beforePermissions=permissions, afterPermissions=0o644)
+    with pytest.raises(WorkspaceError, match='does not match the accepted result'):
+        _validate_apply_journal(journal, artifact, 'accepted')
 
 
 @pytest.mark.parametrize('mutation', ['digest', 'path-set', 'duplicate-path', 'completed', 'before', 'after', 'mode', 'before-mode', 'after-mode', 'permissions', 'applied-incomplete'])
