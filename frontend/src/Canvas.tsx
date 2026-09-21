@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -10,6 +10,7 @@ import {
   BaseEdge,
   EdgeLabelRenderer,
   getSmoothStepPath,
+  useNodes,
   type EdgeProps,
   applyNodeChanges,
   type Node,
@@ -29,6 +30,7 @@ import {
   type NodeKind,
 } from "./types";
 import { Dialog, Field, StatusMark } from "./ui";
+import { placeEdgeLabel, type Point } from "./edgeLabels";
 export type FlowNode = Node<{ task: TaskNode; toggle?: () => void }, "task">;
 export const TaskShape = memo(function TaskShape({
   data,
@@ -98,22 +100,90 @@ export function flowNodes(diagram: Diagram): FlowNode[] {
 function TaskEdgeShape(props: EdgeProps) {
   const [path, x, y] = getSmoothStepPath(props);
   const select = props.data?.onSelect as (() => void) | undefined;
+  const nodes = useNodes();
+  const pathGroup = useRef<SVGGElement>(null);
+  const label = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const [placement, setPlacement] = useState({ x, y, leader: false });
+  useLayoutEffect(() => {
+    const element = label.current;
+    if (!element) return;
+    const measure = () => {
+      const next = { width: element.offsetWidth, height: element.offsetHeight };
+      setSize((old) =>
+        old.width === next.width && old.height === next.height ? old : next,
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [props.label]);
+  useLayoutEffect(() => {
+    if (!size.width || !size.height) return;
+    const geometry = pathGroup.current?.querySelector<SVGPathElement>(
+      ".react-flow__edge-path",
+    );
+    if (!geometry) return;
+    const length = geometry.getTotalLength();
+    const steps = Math.max(2, Math.min(128, Math.ceil(length / 12)));
+    const points: Point[] = [];
+    for (let step = 1; step < steps; step++) {
+      const point = geometry.getPointAtLength((length * step) / steps);
+      points.push({ x: point.x, y: point.y });
+    }
+    const obstacles = nodes
+      .filter((n) => !n.hidden)
+      .map((n) => {
+        const badge = n.data.changeMark ? 24 : 0;
+        return {
+          x: n.position.x,
+          y: n.position.y - badge,
+          width: n.measured?.width ?? n.width ?? 220,
+          height: (n.measured?.height ?? n.height ?? 112) + badge,
+        };
+      });
+    const next = placeEdgeLabel({ x, y }, size, obstacles, points);
+    const leader =
+      (next.x !== x || next.y !== y) &&
+      !points.some((p) => p.x === next.x && p.y === next.y);
+    setPlacement((old) =>
+      old.x === next.x && old.y === next.y && old.leader === leader
+        ? old
+        : { ...next, leader },
+    );
+  }, [path, x, y, size, nodes]);
   return (
     <>
-      <BaseEdge
-        id={props.id}
-        path={path}
-        markerStart={props.markerStart}
-        markerEnd={props.markerEnd}
-        style={props.style}
-        interactionWidth={props.interactionWidth}
-      />
+      <g ref={pathGroup}>
+        <BaseEdge
+          id={props.id}
+          path={path}
+          markerStart={props.markerStart}
+          markerEnd={props.markerEnd}
+          style={props.style}
+          interactionWidth={props.interactionWidth}
+        />
+      </g>
+      {props.label && placement.leader && (
+        <path
+          className="flow-edge-label-leader"
+          d={`M ${x},${y} L ${placement.x},${placement.y}`}
+          fill="none"
+          stroke={props.style?.stroke ?? "#7a9390"}
+          strokeWidth={1}
+          strokeDasharray="3 3"
+          pointerEvents="none"
+          aria-hidden="true"
+        />
+      )}
       {props.label && (
         <EdgeLabelRenderer>
           <div
+            ref={label}
             className={`flow-edge-label nodrag nopan ${props.selected ? "selected" : ""}`}
             style={{
-              transform: `translate(-50%, -50%) translate(${x}px, ${y}px)`,
+              transform: `translate(-50%, -50%) translate(${placement.x}px, ${placement.y}px)`,
               pointerEvents: select ? "all" : "none",
             }}
             role={select ? "button" : undefined}

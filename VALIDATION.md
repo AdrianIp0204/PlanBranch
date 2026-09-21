@@ -1,5 +1,13 @@
 # PlanBranch validation
 
+## Connection-label overlap fix — 21 September 2026
+
+Connection labels now use their measured size and the rendered node bounds. A label that would cover a node moves to a nearby clear point on its connection; if no segment has enough room, it moves into clear space with a small dashed leader. Proposal badges reserve space too. The same renderer handles the editor, Before/Proposed previews and PNG export. This changes no node positions, saved edge data, viewport or history.
+
+Windows verification: **117 frontend tests passed**, including five placement regressions. Production and release builds passed; a fresh offline wheel installation matched all 27 application/resource files. The focused browser regression passed against both source and the installed package. It checks horizontal bottom-to-top connections, unrelated nodes, multiline labels, keyboard/pointer label selection, movement, proposal badges, Before view and the final temporary PNG surface. Label rectangles clear every node, and exported content fits within the image. Nine existing editor/export scenarios also passed against the installed wheel, including full-diagram PNG pixels, save recovery and durable history. All test fixtures are disposable and record zero runtime errors or external HTTP requests.
+
+Screenshots and PNGs were visually inspected; the README sample capture was refreshed. Installed overlap artifacts are in `output/playwright/edge-labels-DrMS27`, including `export-layout.json`. Logs: `output/edge-labels-frontend.log`, `edge-labels-build.log`, `edge-labels-release.log`, `edge-labels-installed-browser.log`, and `edge-labels-core-browser.log`. The new browser regression is included in the normal browser test command. Backend code, dependencies and schema are unchanged; backend and Linux suites were not rerun locally for this renderer-only fix.
+
 ## PlanBranch public release polish — 21 September 2026
 
 FlowDesk is now branded as **PlanBranch — Visual planning for AI-assisted coding**. The app, favicon, README, repository metadata, and MIT license use the new identity. Existing Python imports, distribution name, data directories, database name, browser preferences, API header, export format, and immutable planner instruction versions remain compatible. Installed packages add a `planbranch` command alongside `flowdesk`.
