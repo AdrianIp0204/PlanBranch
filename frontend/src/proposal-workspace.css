@@ -259,3 +259,8 @@
     order: 3;
   }
 }
+
+.proposal-draft-bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:6px 14px; border-bottom:1px solid var(--line); font-size:13px; }
+.proposal-draft-bar button, .proposal-draft-bar select { padding:4px 8px; min-height:30px; font-size:13px; }
+.proposal-draft-bar small { color:var(--muted); }
+.proposal-notice button { margin-left:8px; }

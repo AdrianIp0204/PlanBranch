@@ -105,7 +105,7 @@ def test_blank_database_creates_numbered_schemas_without_backup(tmp_path, monkey
     monkeypatch.setattr(Store, "backup", unexpected_backup)
     store = Store(tmp_path / "new.sqlite3")
     with closing(store.connect()) as connection:
-        assert migrations.applied_versions(connection) == (1, 2, 3, 4)
+        assert migrations.applied_versions(connection) == tuple(range(1, migrations.DATABASE_VERSION + 1))
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"projects", "history_checkpoints", "source_attachments", "source_files", "scan_runs", "detected_symbols"} <= tables
     assert not (tmp_path / "backups").exists()
@@ -120,7 +120,7 @@ def test_upgrade_canonicalizes_current_and_all_history_preserving_redo_and_sourc
     assert scanner_rows(old.db_path) == before_scanner
     assert source.read_bytes() == b"count = 0\n"
     with closing(upgraded.connect()) as connection:
-        assert migrations.applied_versions(connection) == (1, 2, 3, 4)
+        assert migrations.applied_versions(connection) == tuple(range(1, migrations.DATABASE_VERSION + 1))
         assert {row[0] for row in connection.execute("SELECT schema_version FROM history_checkpoints")} == {1}
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         for row in connection.execute("SELECT data FROM nodes"):
@@ -177,13 +177,13 @@ def test_later_upgrade_failure_rolls_back_schema_ledger_history_current_and_atta
     old, expected, source = legacy
     before_dump, before_scanner = database_dump(old.db_path), scanner_rows(old.db_path)
     def fail_after_real_upgrade(connection, store):
-        assert migrations.applied_versions(connection) == (1, 2, 3, 4)
+        assert migrations.applied_versions(connection) == tuple(range(1, migrations.DATABASE_VERSION + 1))
         assert store._envelope(connection, expected["id"]) == expected
         connection.execute("ALTER TABLE projects ADD COLUMN failed_upgrade TEXT")
         connection.execute("UPDATE source_attachments SET root='should never persist'")
         raise RuntimeError("Injected failure after current and history migration")
     monkeypatch.setattr(migrations, "MIGRATIONS", migrations.MIGRATIONS + (
-        migrations.Migration(4, "Failure injection", True, fail_after_real_upgrade),))
+        migrations.Migration(migrations.DATABASE_VERSION + 1, "Failure injection", True, fail_after_real_upgrade),))
     with pytest.raises(RuntimeError, match="after current and history"):
         Store(old.db_path)
     assert database_dump(old.db_path) == before_dump

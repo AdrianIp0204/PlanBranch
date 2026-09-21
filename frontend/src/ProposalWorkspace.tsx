@@ -20,10 +20,12 @@ import {
   clearProposalDraft,
   diagramMarks,
   ProposalDraftProvider,
+  useProposalDraft,
   proposalDraftKey,
   type ChangeMark,
 } from "./proposalDraft";
 import { useProject } from "./store";
+import type { DraftReference } from "./durableDrafts";
 import {
   copy,
   createNode,
@@ -42,12 +44,13 @@ export type ProposalDetail = {
   baseContent: Content | null;
   contentHash: string;
 };
-export type ProposalLeaveGuard = () => boolean;
+export type ProposalLeaveGuard = () => Promise<boolean>;
 
 export type ProposalWorkspaceProps = {
   detail: ProposalDetail;
   projectId: string;
-  onApply: (diagram: Diagram | undefined) => Promise<void>;
+  onApply: (diagram: Diagram | undefined, draft?: DraftReference) => Promise<void>;
+  onCancelApply?: () => void;
   onRevise: (diagram: Diagram) => void;
   onDiscard: () => Promise<void>;
   onClose: () => void;
@@ -89,6 +92,9 @@ export default function ProposalWorkspace(props: ProposalWorkspaceProps) {
       content={detail.content}
       diagramId={detail.proposal.diagramId}
       storageKey={storageKey}
+      proposalId={detail.proposal.id}
+      contentHash={detail.contentHash}
+      readOnly={["accepted", "rejected"].includes(detail.proposal.state)}
     >
       <Workspace {...props} storageKey={storageKey} />
     </ProposalDraftProvider>
@@ -98,6 +104,7 @@ export default function ProposalWorkspace(props: ProposalWorkspaceProps) {
 function Workspace({
   detail,
   onApply,
+  onCancelApply,
   onRevise,
   onDiscard,
   onClose,
@@ -106,8 +113,10 @@ function Workspace({
   onRegisterLeaveGuard,
   storageKey,
 }: ProposalWorkspaceProps & { storageKey: string }) {
-  const { session, change, commit, undo, redo, getSnapshot, saveError } =
+  const { session, change, commit, undo, redo, getSnapshot, saveError, flush } =
     useProject();
+  const durable = useProposalDraft();
+  const recovering = retryingApply || durable.draft?.state === "applying" || (durable.draft?.state === "applied" && detail.proposal.state === "pending");
   const { proposal } = detail;
   const diagram = session.content.diagrams.find(
     (d) => d.id === proposal.diagramId,
@@ -150,7 +159,7 @@ function Workspace({
     shown.edges.some((e) => e.id === currentSelection);
   const edited = !samePlan(diagram, original);
   const canApply = proposal.state === "pending" && !stale;
-  const editLocked = busy || retryingApply;
+  const editLocked = busy || recovering || durable.switching;
   const reviewable = proposal.state === "pending" || proposal.state === "stale";
   const marks = diagramMarks(before, diagram);
   const nodeMarks = marks.nodes[side],
@@ -191,7 +200,7 @@ function Workspace({
     setDetailsOpen(true);
   };
   const run = async (action: "apply" | "discard") => {
-    if (busyRef.current) return;
+    if (busyRef.current || durable.switching) return;
     if (
       action === "discard" &&
       !window.confirm(
@@ -207,13 +216,15 @@ function Workspace({
       const candidate = getSnapshot().content.diagrams.find(
         (d) => d.id === diagram.id,
       )!;
-      if (action === "apply")
-        await onApply(
-          samePlan(candidate, original) ? undefined : copy(candidate),
-        );
-      else await onDiscard();
+      if (action === "apply") {
+        if (!recovering && !(await flush())) return;
+        const reference = durable.getReference();
+        if (!reference) throw new Error("Save the proposal draft before applying it.");
+        await onApply(samePlan(candidate, original) ? undefined : copy(candidate), reference);
+      } else await onDiscard();
       clearProposalDraft(storageKey);
     } catch (reason) {
+      await durable.refresh();
       setError(
         reason instanceof Error
           ? reason.message
@@ -224,26 +235,22 @@ function Workspace({
       setBusy(false);
     }
   };
-  const canLeave: ProposalLeaveGuard = () => {
-    // Read the current draft, including a field edit that has not blurred yet.
-    if (busyRef.current || retryingApply) return false;
-    const current = getSnapshot().content.diagrams.find(
-      (d) => d.id === diagram.id,
-    );
-    return (
-      !saveError ||
-      samePlan(current, original) ||
-      window.confirm(
-        "This browser could not keep your manual edits. Leave this preview and lose those edits?",
-      )
-    );
+  const canLeave: ProposalLeaveGuard = async () => {
+    if (busyRef.current || durable.switching) return false;
+    // Prepared/committed Apply intents are durable and recoverable on return.
+    if (recovering) return true;
+    return flush();
   };
   useLayoutEffect(() => {
     onRegisterLeaveGuard?.(canLeave);
     return () => onRegisterLeaveGuard?.(null);
-  }, [onRegisterLeaveGuard, getSnapshot, saveError, retryingApply]);
-  const leave = () => {
-    if (canLeave()) onClose();
+  }, [onRegisterLeaveGuard, flush, recovering, durable.switching]);
+  const leave = async () => {
+    if (await canLeave()) onClose();
+  };
+  const recoverAction = async (action: () => Promise<boolean>) => {
+    setError("");
+    try { await action(); } catch (reason) { setError((reason as Error).message); }
   };
   const nodes = flowNodes(shown).map((n) => ({
     ...n,
@@ -282,7 +289,7 @@ function Workspace({
         ) {
           event.preventDefault();
           event.stopPropagation();
-          commit();
+          void durable.retry();
           return;
         }
         if (target.closest('input,textarea,select,[contenteditable="true"]'))
@@ -311,15 +318,15 @@ function Workspace({
         <div className="proposal-review-actions">
           <button
             className="primary"
-            disabled={busy || (!canApply && !retryingApply)}
+            disabled={busy || durable.switching || durable.status === "conflict" || (!canApply && !recovering)}
             aria-describedby={
-              retryingApply ? "proposal-apply-recovery" : undefined
+              recovering ? "proposal-apply-recovery" : undefined
             }
             onClick={() => void run("apply")}
           >
             {busy
               ? "Working…"
-              : retryingApply
+              : recovering
                 ? "Retry apply"
                 : "Apply changes"}
           </button>
@@ -339,7 +346,7 @@ function Workspace({
             Ask Codex
           </button>
           <button
-            disabled={editLocked || !canApply}
+            disabled={editLocked || !reviewable}
             aria-pressed={manual}
             onClick={() => {
               commit();
@@ -358,27 +365,29 @@ function Workspace({
           </button>
           <button
             className="quiet"
-            disabled={editLocked}
-            aria-describedby={
-              retryingApply ? "proposal-apply-recovery" : undefined
-            }
-            onClick={leave}
+            disabled={busy || durable.switching}
+            onClick={() => void leave()}
           >
             Back to plan
           </button>
         </div>
       </header>
-      {retryingApply && (
+      {recovering && (
         <p
           className="proposal-notice"
           role="status"
           id="proposal-apply-recovery"
         >
-          Connection interrupted. Choose Retry apply to confirm whether your
-          changes were saved. Editing and navigation stay paused until then.
+          Apply is awaiting confirmation. Retry checks the saved receipt without duplicating changes.
+          {durable.draft?.state === "applying" && <button onClick={() => void recoverAction(async () => {
+            if (!window.confirm("Cancel this pending Apply and return to editing?")) return false;
+            const cancelled = await durable.cancelApply();
+            if (cancelled) onCancelApply?.();
+            return cancelled;
+          })}>Cancel pending apply</button>}
         </p>
       )}
-      {stale && !retryingApply && (
+      {stale && !recovering && (
         <p className="proposal-notice" role="status">
           The plan has changed since this proposal. Ask for a new proposal
           before applying changes.
@@ -392,6 +401,24 @@ function Workspace({
           {error || saveError}
         </p>
       )}
+      <div className="proposal-draft-bar">
+        <span role="status" data-testid="proposal-draft-state">{
+          durable.switching ? "Loading draft…" : recovering ? "Apply recorded" : durable.status === "saved" ? (durable.draft.draftRevision ? "Draft saved" : "Original proposal") :
+          durable.status === "saving" ? "Saving draft…" : durable.status === "conflict" ? "Draft conflict" :
+          durable.status === "failed" ? "Draft not saved" : "Unsaved draft"
+        }{durable.draft?.updatedAt && durable.status === "saved" && <small> · {new Date(durable.draft.updatedAt).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</small>}</span>
+        {durable.status === "failed" && !recovering && <button onClick={() => void recoverAction(durable.retry)}>Retry draft save</button>}
+        {durable.conflict && <>
+          <span>Both versions were kept.</span>
+          <button onClick={() => void recoverAction(durable.useRecovery)}>Use my copy</button>
+          <button onClick={() => void recoverAction(async () => window.confirm("Load the other saved draft and discard any newer unsaved edits in this window?") && durable.loadLatest())}>Load other draft</button>
+        </>}
+        {(durable.drafts.filter(d => d.state !== "discarded").length > 1 || (durable.drafts.some(d => d.state !== "discarded") && !durable.draft.draftRevision)) && <select aria-label="Saved proposal draft" value={durable.draft.draftRevision ? durable.draft.id : ""} disabled={busy || durable.switching}
+          onChange={event => { const id = event.target.value; void recoverAction(async () => (await canLeave()) && durable.selectDraft(id)); }}>
+          {!durable.draft.draftRevision && <option value="">Original proposal</option>}
+          {durable.drafts.filter(d => d.state !== "discarded").map((draft, index) => <option key={draft.id} value={draft.id}>{draft.conflictOf ? "Recovered copy" : "Draft"} {index + 1} · {new Date(draft.updatedAt).toLocaleTimeString()}</option>)}
+        </select>}
+      </div>
       <div className="proposal-tools">
         <div className="proposal-compare" aria-label="Compare proposal">
           <button
@@ -609,7 +636,7 @@ function Workspace({
         <span>
           {proposal.state === "accepted"
             ? "Original agent proposal · applied result may include manual edits"
-            : `${edited ? (saveError ? "Manual edits in this window" : "Manual edits kept in this browser") : "Preview only"} · saved plan unchanged`}
+            : `${edited ? (durable.status === "saved" ? "Draft saved separately" : "Draft changes pending") : "Preview only"} · saved plan unchanged`}
         </span>
         <span>
           {shown.name} · {shown.nodes.length} nodes

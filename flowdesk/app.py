@@ -14,6 +14,7 @@ from .validation import ValidationError, validate_content
 from .scans import ScanService
 from .reconciliation import reconcile
 from .planning import PlanningService
+from .proposal_drafts import DraftConflictError
 
 
 def create_app(data_dir=None, *, testing=False, planner=None):
@@ -61,6 +62,10 @@ def create_app(data_dir=None, *, testing=False, planner=None):
     def conflict(exc):
         return jsonify(error=str(exc), conflict=True,
                        revision=getattr(exc, "current_revision", None)), 409
+
+    @app.errorhandler(DraftConflictError)
+    def draft_conflict(exc):
+        return jsonify(exc.response), 409
 
     @app.errorhandler(NotFoundError)
     @app.errorhandler(KeyError)
@@ -185,6 +190,30 @@ def create_app(data_dir=None, *, testing=False, planner=None):
     @app.get("/api/projects/<project_id>/planning/proposals/<proposal_id>")
     def planning_proposal_detail(project_id, proposal_id):
         return jsonify(planning.proposal_detail(project_id, proposal_id))
+
+    @app.get("/api/projects/<project_id>/planning/proposals/<proposal_id>/drafts")
+    def list_proposal_drafts(project_id, proposal_id):
+        return jsonify(planning.drafts.list(project_id, proposal_id))
+
+    @app.get("/api/projects/<project_id>/planning/proposals/<proposal_id>/drafts/<draft_id>")
+    def get_proposal_draft(project_id, proposal_id, draft_id):
+        return jsonify(planning.drafts.get(project_id, proposal_id, draft_id))
+
+    @app.put("/api/projects/<project_id>/planning/proposals/<proposal_id>/drafts/<draft_id>")
+    def save_proposal_draft(project_id, proposal_id, draft_id):
+        return jsonify(planning.drafts.save(project_id, proposal_id, draft_id, planning_body(diagram_field="diagram")))
+
+    @app.post("/api/projects/<project_id>/planning/proposals/<proposal_id>/drafts/<draft_id>/prepare-apply")
+    def prepare_proposal_apply(project_id, proposal_id, draft_id):
+        return jsonify(planning.drafts.prepare(project_id, proposal_id, draft_id, planning_body()))
+
+    @app.post("/api/projects/<project_id>/planning/proposals/<proposal_id>/drafts/<draft_id>/cancel-apply")
+    def cancel_proposal_apply(project_id, proposal_id, draft_id):
+        return jsonify(planning.drafts.finish(project_id, proposal_id, draft_id, planning_body()))
+
+    @app.post("/api/projects/<project_id>/planning/proposals/<proposal_id>/drafts/<draft_id>/discard")
+    def discard_proposal_draft(project_id, proposal_id, draft_id):
+        return jsonify(planning.drafts.finish(project_id, proposal_id, draft_id, planning_body(), discard=True))
 
     @app.post("/api/projects/<project_id>/planning/proposals/<proposal_id>/accept")
     def accept_planning_proposal(project_id, proposal_id):

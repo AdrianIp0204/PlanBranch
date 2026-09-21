@@ -11,7 +11,7 @@ from typing import Callable
 from ..validation import ValidationError, validate_checkpoint
 
 
-DATABASE_VERSION = 4
+DATABASE_VERSION = 5
 
 
 @dataclass(frozen=True)
@@ -60,11 +60,16 @@ def planning_questions(connection, store):
     apply_sql(connection, "004_planning_questions.sql")
 
 
+def proposal_drafts(connection, store):
+    apply_sql(connection, "005_proposal_drafts.sql")
+
+
 MIGRATIONS = (
     Migration(1, "Initial project storage", False, initial_schema),
     Migration(2, "Managed scanner schema and canonical snapshots", True, managed_scanner_and_snapshots),
     Migration(3, "Planning chat, reviews and approvals", False, planning_workspace),
     Migration(4, "Structured planning questions and durable answers", False, planning_questions),
+    Migration(5, "Durable proposal drafts and recoverable apply intents", False, proposal_drafts),
 )
 
 

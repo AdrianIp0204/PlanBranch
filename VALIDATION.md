@@ -1,3 +1,9 @@
+## Durable proposal drafts — 21 September 2026
+
+Database migration 5 adds separate proposal candidates, revision checks, recovery copies, tombstones and immutable operation receipts. Preparing Apply persists its intent before the project-history transaction; retries retain identity across browser/server restart. Draft writes leave saved content, history and approval untouched. The old session-storage candidate is imported only when no database draft record exists.
+
+Verification in the isolated major-pass checkout: full backend suite **308 passed, 2 Windows skips**; full frontend suite **135 passed**, then the expanded draft/workspace suites **34 passed**; TypeScript and production build passed. Five new durable-draft browser scenarios and all four existing proposal scenarios passed (the reload test now waits for the database save acknowledgement). Browsers blocked external requests and reported zero runtime errors. Fixtures cover close/restart, delayed acknowledgements, failed-save retry, conflicting tabs, interrupted/committed Apply retry, discard/late writes, both target sizes, narrow layout and actual 200% zoom. No user data or running server was used. Linux and live Codex generation were not tested in this milestone. Existing Vite chunk-size advisory remains.
+
 # Validation
 
 ## Next major pass — milestone 1, 21 September 2026

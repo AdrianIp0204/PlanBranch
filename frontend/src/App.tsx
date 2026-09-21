@@ -27,6 +27,7 @@ import {
 import Canvas, { type FlowNode } from "./Canvas";
 import Inspector from "./Inspector";
 import TidyDiagram from "./TidyDiagram";
+import type { DraftReference, DraftDetail, AcceptanceRequest } from "./durableDrafts";
 import PlanningPanel from "./PlanningPanel";
 import ProposalWorkspace, {
   type ProposalLeaveGuard,
@@ -354,6 +355,7 @@ function Workbench({
     proposalId: string;
     mutationId: string;
     candidate?: Diagram;
+    draft?: DraftReference;
     contentHash: string;
   } | null>(null);
   const proposalPreviewRef = useRef(proposalPreview);
@@ -448,17 +450,28 @@ function Workbench({
     mutationId: string,
     candidate?: Diagram,
     contentHash?: string,
+    draft?: DraftReference,
   ) => {
     await synchronize(async (snapshot) => {
-      const result = await post<{ project: Envelope }>(
-        `/projects/${snapshot.id}/planning/proposals/${proposalId}/accept`,
-        {
-          baseRevision: snapshot.revision,
-          mutationId,
-          ...(candidate ? { diagram: candidate } : {}),
-          ...(contentHash ? { contentHash } : {}),
-        },
-      );
+      const base = `/projects/${snapshot.id}/planning/proposals/${proposalId}`;
+      let request: AcceptanceRequest | Record<string, unknown> = {
+        baseRevision: snapshot.revision, mutationId,
+        ...(candidate ? { diagram: candidate } : {}),
+        ...(contentHash ? { contentHash } : {}),
+      };
+      if (draft) {
+        const { draft: saved } = await api<{ draft: DraftDetail }>(`${base}/drafts/${draft.draftId}`);
+        // A prior Apply may have committed or stopped after preparing its intent.
+        // Only this explicit user action replays that frozen receipt.
+        if (saved.applyRequest) request = saved.applyRequest;
+        else {
+          const prepared = await post<{ applyRequest: AcceptanceRequest }>(`${base}/drafts/${draft.draftId}/prepare-apply`, {
+            baseDraftRevision: draft.draftRevision, baseRevision: snapshot.revision, mutationId,
+          });
+          request = prepared.applyRequest;
+        }
+      }
+      const result = await post<{ project: Envelope }>(`${base}/accept`, request);
       return result.project;
     });
   };
@@ -480,9 +493,10 @@ function Workbench({
         if (
           proposalPreviewRef.current &&
           proposalLeaveGuard.current &&
-          !proposalLeaveGuard.current()
+          !(await proposalLeaveGuard.current())
         )
           return;
+        if (ticket !== previewSequence.current) return;
         setProposalPreview(detail);
         setFocusPane("canvas");
         setNarrowNavigationOpen(false);
@@ -521,11 +535,12 @@ function Workbench({
       (proposalPreview.baseContent &&
         !samePlan(proposalPreview.baseContent, session.content))),
   );
-  const applyPreview = async (candidate?: Diagram) => {
+  const applyPreview = async (candidate?: Diagram, draft?: DraftReference) => {
     if (!proposalPreview) return;
     const key = JSON.stringify({
       id: proposalPreview.proposal.id,
       candidate,
+      draft,
       contentHash: proposalPreview.contentHash,
     });
     if (previewMutation.current?.key !== key)
@@ -539,6 +554,7 @@ function Workbench({
             proposalId: proposalPreview.proposal.id,
             mutationId: previewMutation.current.id,
             candidate: candidate ? copy(candidate) : undefined,
+            draft,
             contentHash: proposalPreview.contentHash,
           };
     try {
@@ -547,6 +563,7 @@ function Workbench({
         receipt.mutationId,
         receipt.candidate,
         receipt.contentHash,
+        receipt.draft,
       );
     } catch (err) {
       setUncertainApply(
@@ -1269,6 +1286,7 @@ function Workbench({
                 uncertainApply?.proposalId === proposalPreview.proposal.id
               }
               onApply={applyPreview}
+              onCancelApply={() => setUncertainApply(null)}
               onRevise={revisePreview}
               onDiscard={discardPreview}
               onClose={closeProposal}

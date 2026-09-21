@@ -113,6 +113,8 @@ class PlanningService:
             planner = CodexPlanner()
         self.store = store
         self.planner = planner
+        from .proposal_drafts import ProposalDrafts
+        self.drafts = ProposalDrafts(self)
         self._threads = {}
         self._thread_lock = threading.Lock()
         # A request interrupted by shutdown cannot be resumed blindly. It retains
@@ -237,7 +239,8 @@ class PlanningService:
                        "baseRevision": row["base_revision"], "baseCursor": row["base_cursor"], "baseHash": row["base_hash"],
                        "state": state, "createdAt": row["created_at"], "changes": json.loads(row["changes"])}
             return {"proposal": summary, "content": content, "baseContent": self._proposal_base(db, project_id, row),
-                    "contentHash": fingerprint(content)}
+                    "contentHash": fingerprint(content),
+                    **self.drafts._list(db, project_id, row, fingerprint(project["content"]))}
 
     def _review_context(self, db, project_id, project, payload):
         proposal = self._proposal(db, project_id, payload["proposalId"])
@@ -553,8 +556,13 @@ class PlanningService:
                 self._threads.pop((project_id, request_id), None)
 
     def accept(self, project_id, proposal_id, payload):
-        obj(payload, {"baseRevision", "mutationId", "diagram", "contentHash"}, "proposal acceptance")
+        obj(payload, {"baseRevision", "mutationId", "diagram", "contentHash", "draftId", "draftRevision"}, "proposal acceptance")
         integer(payload.get("baseRevision"), "Base revision")
+        if "draftId" in payload:
+            identifier(payload["draftId"], "Draft ID")
+            integer(payload.get("draftRevision"), "Draft revision", 1)
+        elif "draftRevision" in payload:
+            raise ValidationError("A draft revision requires its draft ID.")
         if "contentHash" in payload:
             string(payload["contentHash"], "Proposal content hash", 64, True)
         with closing(self.store.connect()) as db, db:
@@ -573,7 +581,14 @@ class PlanningService:
                 candidate = json.loads(proposal["content"])
                 if "contentHash" in payload and payload["contentHash"] != fingerprint(candidate):
                     raise RuntimeError("The proposal changed. Reload its preview before applying changes.")
-                edited = payload.get("diagram", diagram_in(candidate, proposal["diagram_id"]))
+                if "draftId" in payload:
+                    candidate = self.drafts.candidate_for_apply(db, project_id, proposal_id, payload)
+                    edited = diagram_in(candidate, proposal["diagram_id"])
+                else:
+                    if db.execute("SELECT 1 FROM proposal_drafts WHERE project_id=? AND proposal_id=? AND state IN ('active','applying')",
+                                  (project_id, proposal_id)).fetchone():
+                        raise RuntimeError("This proposal has saved drafts. Apply a reviewed saved draft instead.")
+                    edited = payload.get("diagram", diagram_in(candidate, proposal["diagram_id"]))
                 content = replace_diagram(project["content"], edited, proposal["diagram_id"], self.store._detected_ids(db, project_id))
                 if content == project["content"]:
                     raise ValidationError("The edited proposal has no changes. Discard it or make a change before applying.")
@@ -585,6 +600,8 @@ class PlanningService:
                 self.store._write_current(db, project_id, content)
                 db.execute("UPDATE projects SET revision=?,saved_at=?,cursor=? WHERE id=?", (project["revision"] + 1, now(), checkpoint["id"], project_id))
                 db.execute("UPDATE planning_proposals SET state='accepted' WHERE id=? AND project_id=?", (proposal_id, project_id))
+                if "draftId" in payload:
+                    self.drafts.mark_applied(db, project_id, payload["draftId"], checkpoint["id"])
                 self._revoke(db, project_id)
             result = {"project": self.store._envelope(db, project_id), "planning": self._state(db, project_id)}
         result["planning"]["agent"] = self.planner.status()
@@ -602,6 +619,7 @@ class PlanningService:
                 if proposal["state"] != "pending":
                     raise RuntimeError("This proposal has already been reviewed.")
                 db.execute("UPDATE planning_proposals SET state='rejected' WHERE project_id=? AND id=?", (project_id, proposal_id))
+                self.drafts.reject_all(db, project_id, proposal_id)
         return self.state(project_id)
 
     def approve(self, project_id, payload):

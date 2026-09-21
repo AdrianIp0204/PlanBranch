@@ -207,3 +207,12 @@ After building the frontend, create a wheel containing the Python application an
 Install `dist/flowdesk-0.1.0-py3-none-any.whl` in a Python 3.14 environment with `python -m pip install path/to/flowdesk-0.1.0-py3-none-any.whl`, then run `python -m flowdesk`. Node and the source checkout are unnecessary for this installed application. Installing Python dependencies requires internet access unless you provide a local package cache; the editor, scanner, and exports work offline. Optional Codex chat still requires internet access.
 
 Dependency versions are recorded in `requirements.lock`, `pyproject.toml`, and `frontend/package-lock.json`. Runtime/test results and platform limitations are recorded in [VALIDATION.md](../VALIDATION.md). The Windows/Linux CI workflow builds a wheel and runs the browser suites against that installed package.
+
+
+## Durable proposal drafts
+
+Manual proposal edits save automatically to the project database, separately from the saved plan. **Draft saved** confirms the candidate is durable; it does not mean the changes are applied or the plan is approved. Reopen a proposal after closing the browser or restarting PlanBranch to continue editing.
+
+If another window changes the same draft, both candidates are kept. Choose **Use my copy** to continue with your recovered candidate or **Load other draft** to switch deliberately. The saved-draft selector exposes retained copies. Outdated proposals remain readable and editable; request a revised proposal before applying them to a changed plan.
+
+Apply first records a durable request and then commits the candidate as one project-history action. If the response is interrupted, **Retry apply** checks that same request without applying twice. A pending request may also be cancelled explicitly. Discarding the proposal requires confirmation and retires its drafts. Unsaved failures remain visible with **Retry draft save**; leaving the workspace waits for a successful save.

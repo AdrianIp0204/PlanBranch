@@ -124,6 +124,7 @@ test(
       original,
       "Preview editing never autosaves into the project",
     );
+    await until(async () => (await workspace(p).getByTestId("proposal-draft-state").textContent()).startsWith("Draft saved"));
     await p.reload();
     await workspace(p).waitFor();
     await workspace(p)

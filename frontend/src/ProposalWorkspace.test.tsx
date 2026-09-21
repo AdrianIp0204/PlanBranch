@@ -13,6 +13,7 @@ import ProposalWorkspace, {
   type ProposalWorkspaceProps,
 } from "./ProposalWorkspace";
 import { api } from "./api";
+import type { DraftDetail } from "./durableDrafts";
 import { copy, createNode, type Content } from "./types";
 import {
   diagramMarks,
@@ -104,7 +105,7 @@ function detail(): ProposalDetail {
     },
   };
 }
-function setup(overrides: Partial<ProposalWorkspaceProps> = {}) {
+async function setup(overrides: Partial<ProposalWorkspaceProps> = {}) {
   const props: ProposalWorkspaceProps = {
     detail: detail(),
     projectId: "project",
@@ -116,6 +117,7 @@ function setup(overrides: Partial<ProposalWorkspaceProps> = {}) {
     ...overrides,
   };
   const result = render(<ProposalWorkspace {...props} />);
+  await screen.findByRole("region", { name: "Proposed changes workspace" });
   return { ...result, props };
 }
 function editTitle(value = "My manual title") {
@@ -124,18 +126,49 @@ function editTitle(value = "My manual title") {
   fireEvent.change(screen.getByLabelText("Title"), { target: { value } });
   fireEvent.blur(screen.getByLabelText("Title"));
 }
+const savedDrafts = new Map<string, DraftDetail>();
+let failSaves = false;
+async function mockDraftApi(path: string, options: RequestInit = {}) {
+  if (path.endsWith("/symbols")) return { symbols: [] };
+  if (path.endsWith("/drafts")) {
+    const drafts = [...savedDrafts.values()];
+    return { drafts, defaultDraftId: drafts.at(-1)?.id ?? null };
+  }
+  if (path.includes("/drafts/")) {
+    const id = path.split("/").at(-1)!;
+    if (options.method === "PUT") {
+      if (failSaves) throw new Error("Draft storage unavailable.");
+      const body = JSON.parse(options.body as string);
+      const candidate = detail().content;
+      candidate.diagrams[0] = body.diagram;
+      const draft: DraftDetail = {
+        id, proposalId: "proposal", diagramId: "main", candidate,
+        draftRevision: (savedDrafts.get(id)?.draftRevision ?? 0) + 1,
+        state: "active", createdAt: "2026-09-21T08:00:00Z", updatedAt: "2026-09-21T08:01:00Z",
+        baseRevision: 2, baseHash: "base", proposalHash: "candidate-hash", conflictOf: null,
+        stale: false, appliedCursor: null, applyRequest: null,
+      };
+      savedDrafts.set(id, copy(draft));
+      return { draft };
+    }
+    return { draft: copy(savedDrafts.get(id)!) };
+  }
+  return {};
+}
 beforeEach(() => {
   sessionStorage.clear();
   vi.clearAllMocks();
+  savedDrafts.clear(); failSaves = false;
+  vi.mocked(api).mockImplementation(mockDraftApi as typeof api);
 });
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
 
-describe("proposal canvas review", () => {
-  it("shows candidate graph, then its immutable before snapshot, including removed nodes", () => {
-    const { props } = setup();
+describe("proposal canvas review", async () => {
+  it("shows candidate graph, then its immutable before snapshot, including removed nodes", async () => {
+    const { props } = await setup();
     expect(
       screen
         .getByRole("button", { name: "Added decision" })
@@ -156,10 +189,10 @@ describe("proposal canvas review", () => {
     expect(props.detail.baseContent!.diagrams[0].nodes[0].title).toBe(
       "Original task",
     );
-    expect(api).not.toHaveBeenCalled();
+    expect(vi.mocked(api).mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false);
   });
   it("isolates manual edits, preserves IDs and metadata, and applies only the edited diagram", async () => {
-    const { props } = setup();
+    const { props } = await setup();
     editTitle();
     fireEvent.click(screen.getByRole("button", { name: "Undo manual edit" }));
     expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe(
@@ -172,7 +205,7 @@ describe("proposal canvas review", () => {
     expect(props.detail.content.diagrams[0].nodes[0].title).toBe(
       "Proposed task",
     );
-    expect(api).not.toHaveBeenCalled();
+    expect(vi.mocked(api).mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
     await waitFor(() => expect(props.onApply).toHaveBeenCalledTimes(1));
     const candidate = vi.mocked(props.onApply).mock.calls[0][0]!;
@@ -195,7 +228,7 @@ describe("proposal canvas review", () => {
     const onApply = vi.fn(async () => {
       throw new Error("Project changed. Refresh the proposal.");
     });
-    const { unmount } = setup({ onApply });
+    const { unmount } = await setup({ onApply });
     editTitle();
     fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
     await screen.findByText("Project changed. Refresh the proposal.");
@@ -203,7 +236,7 @@ describe("proposal canvas review", () => {
       "My manual title",
     );
     unmount();
-    const recovered = setup();
+    const recovered = await setup();
     expect(
       screen.getByRole("button", { name: "My manual title" }),
     ).toBeTruthy();
@@ -211,23 +244,23 @@ describe("proposal canvas review", () => {
     expect(
       vi.mocked(recovered.props.onRevise).mock.calls[0][0].nodes[0].title,
     ).toBe("My manual title");
-    expect(api).not.toHaveBeenCalled();
+    expect(savedDrafts.size).toBe(1);
   });
   it("requires discard confirmation and clears recovery only after success", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    const { props } = setup();
+    const { props } = await setup();
     editTitle();
     const key = proposalDraftKey("project", "proposal", "candidate-hash");
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     expect(props.onDiscard).not.toHaveBeenCalled();
-    expect(sessionStorage.getItem(key)).not.toBeNull();
+    expect(screen.getByRole("button", { name: "My manual title" })).toBeTruthy();
     confirm.mockReturnValue(true);
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     await waitFor(() => expect(props.onDiscard).toHaveBeenCalledTimes(1));
     expect(sessionStorage.getItem(key)).toBeNull();
   });
-  it("prevents stale apply while allowing an explicit request for a revised proposal", () => {
-    const { props } = setup({ stale: true });
+  it("prevents stale apply while allowing an explicit request for a revised proposal", async () => {
+    const { props } = await setup({ stale: true });
     expect(
       (
         screen.getByRole("button", {
@@ -240,7 +273,7 @@ describe("proposal canvas review", () => {
       props.detail.content.diagrams[0],
     );
   });
-  it("keeps browser native text undo and confines canvas undo to the draft", () => {
+  it("keeps browser native text undo and confines canvas undo to the draft", async () => {
     const parentKey = vi.fn();
     const props: ProposalWorkspaceProps = {
       detail: detail(),
@@ -256,6 +289,7 @@ describe("proposal canvas review", () => {
         <ProposalWorkspace {...props} />
       </div>,
     );
+    await screen.findByRole("region", { name: "Proposed changes workspace" });
     editTitle();
     const title = screen.getByLabelText("Title");
     fireEvent.keyDown(title, { key: "z", ctrlKey: true });
@@ -268,50 +302,41 @@ describe("proposal canvas review", () => {
     expect((title as HTMLInputElement).value).toBe("Proposed task");
     expect(parentKey).not.toHaveBeenCalled();
   });
-  it("reports unavailable draft storage and guards leaving and browser close", async () => {
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("storage full");
-    });
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    const { props } = setup();
+  it("reports failed database saves and guards leaving and browser close", async () => {
+    const { props } = await setup();
+    failSaves = true;
     editTitle();
-    await screen.findByText(/Manual edits could not be kept/);
+    fireEvent.click(screen.getByRole("button", { name: "Back to plan" }));
+    await screen.findByText("Draft storage unavailable.");
     const event = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Back to plan" }));
-    expect(confirm).toHaveBeenCalled();
     expect(props.onClose).not.toHaveBeenCalled();
+    failSaves = false;
+    fireEvent.click(screen.getByRole("button", { name: "Retry draft save" }));
+    await waitFor(() => expect(screen.getByTestId("proposal-draft-state").textContent).toContain("Draft saved"));
+    fireEvent.click(screen.getByRole("button", { name: "Back to plan" }));
+    await waitFor(() => expect(props.onClose).toHaveBeenCalledOnce());
   });
 });
 
-describe("proposal recovery and keyboard details", () => {
-  it("makes blocked navigation explicit and offers an actionable Apply retry", async () => {
-    const { props } = setup({ retryingApply: true, stale: true });
-    const back = screen.getByRole("button", {
-      name: "Back to plan",
-    }) as HTMLButtonElement;
-    const retry = screen.getByRole("button", {
-      name: "Retry apply",
-    }) as HTMLButtonElement;
-    expect(back.disabled).toBe(true);
+describe("proposal recovery and keyboard details", async () => {
+  it("offers explicit Apply retry while allowing navigation with a durable receipt", async () => {
+    const onApply = vi.fn(async () => { throw new Error("Connection lost"); });
+    const { props, rerender } = await setup({ onApply });
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
+    await screen.findByText("Connection lost");
+    rerender(<ProposalWorkspace {...props} retryingApply stale />);
+    const back = screen.getByRole("button", { name: "Back to plan" }) as HTMLButtonElement;
+    const retry = screen.getByRole("button", { name: "Retry apply" }) as HTMLButtonElement;
+    expect(back.disabled).toBe(false);
     expect(retry.disabled).toBe(false);
-    expect(back.getAttribute("aria-describedby")).toBe(
-      "proposal-apply-recovery",
-    );
-    expect(retry.getAttribute("aria-describedby")).toBe(
-      "proposal-apply-recovery",
-    );
-    expect(screen.getByRole("status").textContent).toContain(
-      "Editing and navigation stay paused",
-    );
-    fireEvent.click(back);
-    expect(props.onClose).not.toHaveBeenCalled();
+    expect(retry.getAttribute("aria-describedby")).toBe("proposal-apply-recovery");
     fireEvent.click(retry);
-    await waitFor(() => expect(props.onApply).toHaveBeenCalledOnce());
+    await waitFor(() => expect(onApply).toHaveBeenCalledTimes(2));
   });
-  it("moves keyboard focus into Details and restores it on Escape and Close", () => {
-    setup();
+  it("moves keyboard focus into Details and restores it on Escape and Close", async () => {
+    await setup();
     const toggle = screen.getByRole("button", { name: "Details" });
     toggle.focus();
     fireEvent.click(toggle, { detail: 0 });
@@ -326,8 +351,8 @@ describe("proposal recovery and keyboard details", () => {
     expect(document.activeElement).toBe(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
   });
-  it("restores focus when the details separator collapses the panel", () => {
-    setup();
+  it("restores focus when the details separator collapses the panel", async () => {
+    await setup();
     const toggle = screen.getByRole("button", { name: "Details" });
     fireEvent.click(toggle);
     const separator = screen.getByRole("separator", {
@@ -339,7 +364,7 @@ describe("proposal recovery and keyboard details", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
   });
   it("keeps an unblurred manual edit when Escape closes its details", async () => {
-    const { props } = setup();
+    const { props } = await setup();
     fireEvent.click(screen.getByRole("button", { name: "Edit manually" }));
     fireEvent.doubleClick(
       screen.getByRole("button", { name: "Proposed task" }),
@@ -361,76 +386,36 @@ describe("proposal recovery and keyboard details", () => {
 });
 
 describe("registered proposal leave guard", () => {
-  it("consults the latest unsaved field edit and unregisters on close", async () => {
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("storage full");
-    });
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  it("flushes the latest unblurred field and stays when saving fails", async () => {
     let guard: ProposalLeaveGuard | null = null;
-    const { unmount } = setup({
-      onRegisterLeaveGuard: (value) => {
-        guard = value;
-      },
-    });
-    expect(guard!()).toBe(true);
+    const { unmount } = await setup({onRegisterLeaveGuard: value => { guard = value; }});
     fireEvent.click(screen.getByRole("button", { name: "Edit manually" }));
-    fireEvent.doubleClick(
-      screen.getByRole("button", { name: "Proposed task" }),
-    );
-    fireEvent.change(screen.getByLabelText("Title"), {
-      target: { value: "Still typing" },
-    });
-    await screen.findByText(/Manual edits could not be kept/);
-    expect(guard!()).toBe(false);
-    expect(confirm).toHaveBeenCalledOnce();
-    expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe(
-      "Still typing",
-    );
-    confirm.mockReturnValue(true);
-    expect(guard!()).toBe(true);
-    unmount();
-    expect(guard).toBeNull();
+    fireEvent.doubleClick(screen.getByRole("button", { name: "Proposed task" }));
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Still typing" } });
+    failSaves = true;
+    await act(async () => { expect(await guard!()).toBe(false); });
+    expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe("Still typing");
+    failSaves = false;
+    fireEvent.click(screen.getByRole("button", { name: "Retry draft save" }));
+    await waitFor(() => expect(screen.getByTestId("proposal-draft-state").textContent).toContain("Draft saved"));
+    await act(async () => { expect(await guard!()).toBe(true); });
+    expect([...savedDrafts.values()][0].candidate.diagrams[0].nodes[0].title).toBe("Still typing");
+    unmount(); expect(guard).toBeNull();
   });
-  it("allows switching when a manual draft was kept successfully", () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    let guard: ProposalLeaveGuard | null = null;
-    setup({
-      onRegisterLeaveGuard: (value) => {
-        guard = value;
-      },
-    });
-    editTitle();
-    expect(guard!()).toBe(true);
-    expect(confirm).not.toHaveBeenCalled();
-    expect(
-      sessionStorage.getItem(
-        proposalDraftKey("project", "proposal", "candidate-hash"),
-      ),
-    ).toContain("My manual title");
-  });
-  it("prevents replacement during Apply and while its outcome is uncertain", async () => {
+  it("prevents replacement during Apply then retains durable recovery when leaving", async () => {
     let rejectApply!: (reason: Error) => void;
-    const pending = new Promise<void>((_, reject) => {
-      rejectApply = reject;
-    });
+    const pending = new Promise<void>((_, reject) => { rejectApply = reject; });
     let guard: ProposalLeaveGuard | null = null;
-    const register = (value: ProposalLeaveGuard | null) => {
-      guard = value;
-    };
-    const { props, rerender } = setup({
-      onApply: () => pending,
-      onRegisterLeaveGuard: register,
-    });
+    const onApply = vi.fn(() => pending);
+    const { props, rerender } = await setup({onApply, onRegisterLeaveGuard:value => { guard = value; }});
     fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
-    expect(guard!()).toBe(false);
-    await act(async () => {
-      rejectApply(new Error("Connection lost"));
-    });
+    await waitFor(() => expect(onApply).toHaveBeenCalledOnce());
+    expect(await guard!()).toBe(false);
+    await act(async () => rejectApply(new Error("Connection lost")));
     await screen.findByText("Connection lost");
     rerender(<ProposalWorkspace {...props} retryingApply />);
-    expect(guard!()).toBe(false);
-    rerender(<ProposalWorkspace {...props} retryingApply={false} />);
-    expect(guard!()).toBe(true);
+    expect(await guard!()).toBe(true);
+    expect(savedDrafts.size).toBe(1);
   });
 });
 
@@ -440,7 +425,7 @@ describe("local draft boundaries", () => {
     [2, 10000],
   ])(
     "restores drafts at the server limits (%i nodes, %i edges)",
-    (nodeCount, edgeCount) => {
+    async (nodeCount, edgeCount) => {
       const fixture = detail();
       const original = fixture.content.diagrams[0];
       const draft = copy(original);
@@ -467,7 +452,7 @@ describe("local draft boundaries", () => {
         );
       }
       render(
-        <ProposalDraftProvider
+        <ProposalDraftProvider proposalId="proposal" contentHash="candidate-hash"
           projectId="p"
           content={fixture.content}
           diagramId={original.id}
@@ -476,9 +461,7 @@ describe("local draft boundaries", () => {
           <DraftCount />
         </ProposalDraftProvider>,
       );
-      expect(screen.getByRole("status").textContent).toBe(
-        `${nodeCount}:${edgeCount}`,
-      );
+      await screen.findByText(`${nodeCount}:${edgeCount}`);
       expect(readProposalDraft(key, original)?.nodes.length).toBe(nodeCount);
       expect(readProposalDraft(key, original)?.edges.length).toBe(edgeCount);
       const tooLarge = copy(draft);
@@ -494,7 +477,7 @@ describe("local draft boundaries", () => {
       expect(validDraftDiagram(tooLarge, original)).toBe(false);
     },
   );
-  it("retains backend-valid IDs of 128 characters in recovered manual edits", () => {
+  it("retains backend-valid IDs of 128 characters in recovered manual edits", async () => {
     const original = detail().content.diagrams[0];
     const draft = copy(original);
     draft.nodes[0].id = "n".repeat(128);
@@ -508,7 +491,7 @@ describe("local draft boundaries", () => {
     expect(validDraftDiagram(draft, original)).toBe(false);
   });
 
-  it("ignores damaged drafts and a draft from another candidate", () => {
+  it("ignores damaged drafts and a draft from another candidate", async () => {
     const original = detail().content.diagrams[0];
     const key = proposalDraftKey("p", "proposal", "hash");
     sessionStorage.setItem(
@@ -536,7 +519,7 @@ describe("local draft boundaries", () => {
       ),
     ).toBe(false);
   });
-  it("tracks reordered and changed connections by stable ID", () => {
+  it("tracks reordered and changed connections by stable ID", async () => {
     const fixture = detail();
     const result = diagramMarks(
       fixture.baseContent!.diagrams[0],
@@ -545,7 +528,7 @@ describe("local draft boundaries", () => {
     expect(result.edges.after.edge).toBe("Changed");
     expect(result.nodes.before.removed).toBe("Removed");
   });
-  it("ignores edits outside the candidate diagram", () => {
+  it("ignores edits outside the candidate diagram", async () => {
     function Harness() {
       const { change, session } = useProject();
       return (
@@ -579,7 +562,7 @@ describe("local draft boundaries", () => {
     }
     const fixture = detail();
     render(
-      <ProposalDraftProvider
+      <ProposalDraftProvider proposalId="proposal" contentHash="candidate-hash"
         projectId="p"
         content={fixture.content}
         diagramId="main"
@@ -588,7 +571,7 @@ describe("local draft boundaries", () => {
         <Harness />
       </ProposalDraftProvider>,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Try edits" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Try edits" }));
     const value = JSON.parse(
       screen.getByRole("status").textContent!,
     ) as Content;

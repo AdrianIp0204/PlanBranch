@@ -336,7 +336,7 @@ def test_upgrade_v3_retains_manual_redo_and_discussion_records(tmp_path):
     state = PlanningService(upgraded, QuestionPlanner()).state(project["id"])
     assert state["messages"][0]["id"] == message_id and state["questionSets"] == []
     with closing(upgraded.connect()) as db:
-        assert migrations.applied_versions(db) == (1, 2, 3, 4)
+        assert migrations.applied_versions(db) == tuple(range(1, migrations.DATABASE_VERSION + 1))
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []
 
 

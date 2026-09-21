@@ -3,6 +3,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    public data?: unknown,
   ) {
     super(message);
   }
@@ -26,13 +27,15 @@ export async function api<T>(
   });
   if (!response.ok) {
     let message = `Request failed (${response.status}).`;
+    let data: unknown;
     try {
       const body = await response.json();
+      data = body;
       message = body.error?.message ?? body.error ?? body.message ?? message;
     } catch {
       /* Preserve HTTP error. */
     }
-    throw new ApiError(String(message), response.status);
+    throw new ApiError(String(message), response.status, data);
   }
   return response.status === 204 ? (undefined as T) : response.json();
 }
