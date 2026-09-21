@@ -266,7 +266,7 @@ export default function PlanningPanel({
         ? "Accept or reject pending changes before approving."
         : unresolved.length
           ? "Resolve the open node comments before approving."
-          : !hasNodes
+          : !hasNodes && !(session.content.buildTasks?.length)
             ? "Add at least one task or flow node before approving a plan."
             : "";
 
@@ -449,6 +449,11 @@ export default function PlanningPanel({
             revision.brief
               ? { proposalBrief: revision.brief }
               : {}),
+            ...((revision.editableSections ?? ["diagram"]).includes(
+              "buildTasks",
+            ) && revision.buildTasks !== undefined
+              ? { proposalBuildTasks: revision.buildTasks }
+              : {}),
           }
         : {}),
     };
@@ -469,6 +474,10 @@ export default function PlanningPanel({
       samePlan(
         captured.proposalBrief ?? null,
         failedPrompt.proposalBrief ?? null,
+      ) &&
+      samePlan(
+        captured.proposalBuildTasks ?? null,
+        failedPrompt.proposalBuildTasks ?? null,
       )
         ? failedPrompt
         : captured;
@@ -526,6 +535,13 @@ export default function PlanningPanel({
         ? (revision.brief ?? null)
         : null,
       failedPrompt.proposalBrief ?? null,
+    ) &&
+    samePlan(
+      revision &&
+        (revision.editableSections ?? ["diagram"]).includes("buildTasks")
+        ? (revision.buildTasks ?? null)
+        : null,
+      failedPrompt.proposalBuildTasks ?? null,
     ),
   );
   function startNewFromFailure() {
@@ -541,7 +557,9 @@ export default function PlanningPanel({
       !revision &&
       failedRequest.proposalId &&
       failedDiagram &&
-      (failedRequest.proposalDiagram || failedRequest.proposalBrief)
+      (failedRequest.proposalDiagram ||
+        failedRequest.proposalBrief ||
+        failedRequest.proposalBuildTasks !== undefined)
     ) {
       setRevision({
         proposalId: failedRequest.proposalId,
@@ -552,9 +570,15 @@ export default function PlanningPanel({
         editableSections: [
           ...(failedRequest.proposalDiagram ? ["diagram" as const] : []),
           ...(failedRequest.proposalBrief ? ["brief" as const] : []),
+          ...(failedRequest.proposalBuildTasks !== undefined
+            ? ["buildTasks" as const]
+            : []),
         ],
         ...(failedRequest.proposalBrief
           ? { brief: failedRequest.proposalBrief }
+          : {}),
+        ...(failedRequest.proposalBuildTasks !== undefined
+          ? { buildTasks: failedRequest.proposalBuildTasks }
           : {}),
         nonce: uid(),
       });

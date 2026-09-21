@@ -32,15 +32,15 @@ class FixturePlanner:
                 from flowdesk.validation import ValidationError
                 raise ValidationError("Choose a supported fixture model and reasoning level.")
         instructions = "Synthetic planning fixture instructions."
-        return {"selection": deepcopy(selection), "cliVersion": "fixture-1", "instructionVersion": "fixture-v3",
+        return {"selection": deepcopy(selection), "cliVersion": "fixture-1", "instructionVersion": "fixture-v4",
                 "instructionHash": hashlib.sha256(instructions.encode()).hexdigest(), "instructions": instructions,
-                "protocolVersion": 3}
+                "protocolVersion": 4}
 
     @staticmethod
     def envelope(kind, message, *, questions=None, proposal=None):
         if proposal is not None:
-            proposal = {"brief": None, **proposal}
-        return {"protocolVersion": 3, "kind": kind, "message": message,
+            proposal = {"brief": None, "buildTasks": None, **proposal}
+        return {"protocolVersion": 4, "kind": kind, "message": message,
                 "questions": questions or [], "proposal": proposal}
 
     def generate(self, context):
@@ -92,6 +92,28 @@ class FixturePlanner:
                      {"id": "personal", "label": "Personal use", "description": "One person on one computer."},
                      {"id": "team", "label": "Team use", "description": "A shared workflow for a team."}],
                  "recommendedOptionId": "personal"}])
+        if prompt.startswith("Propose build tasks"):
+            diagram = next(d for d in context["content"]["diagrams"] if d["id"] == context["activeDiagramId"])
+            selected = next((n for n in diagram["nodes"] if n["type"] == "process"), diagram["nodes"][0])
+            storage_id = str(uuid4())
+            tasks = [
+                {"id": storage_id, "title": "Implement local task storage", "deliverable": "A SQLite repository that persists and loads tasks.",
+                 "nodeLinks": [{"nodeId": selected["id"], "diagramId": diagram["id"], "title": selected["title"], "missing": False}],
+                 "prerequisiteIds": [], "expectedFiles": ["task_storage.py"],
+                 "acceptanceChecks": [{"id": str(uuid4()), "text": "Saving and reopening returns the same tasks."}], "status": "not_started"},
+                {"id": str(uuid4()), "title": "Implement command parsing", "deliverable": "A command line entry point for add and list.",
+                 "nodeLinks": [], "prerequisiteIds": [storage_id], "expectedFiles": ["cli.py"],
+                 "acceptanceChecks": [{"id": str(uuid4()), "text": "Each command produces the expected exit code and output."}], "status": "not_started"},
+            ]
+            return self.envelope("proposal", "Review these implementation tasks separately from program behaviour.", proposal={
+                "title": "Two implementation steps", "summary": "Build storage first, then expose it through the CLI.",
+                "diagramId": diagram["id"], "nodes": None, "edges": None, "buildTasks": tasks})
+        if prompt.startswith("Revise the visible build tasks"):
+            tasks = deepcopy(context["reviewProposal"]["buildTasks"])
+            tasks[0]["deliverable"] += " Keep the manually reviewed task wording."
+            return self.envelope("proposal", "The task revision keeps your manual edits and prerequisites.", proposal={
+                "title": "Refined implementation steps", "summary": "Retain task identity and clarify the first deliverable.",
+                "diagramId": context["activeDiagramId"], "nodes": None, "edges": None, "buildTasks": tasks})
         if prompt.startswith("Discuss brief context"):
             brief = context["content"]["brief"]
             return self.envelope("reply", "Current goal: " + brief["goal"] + " Agreed decisions: " + brief["decisions"])

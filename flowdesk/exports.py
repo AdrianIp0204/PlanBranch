@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from .validation import ValidationError, validate_content, validate_views, relative_file
 
-EXPORT_VERSION = 2
+EXPORT_VERSION = 3
 MAX_PORTABLE_BYTES = 10 * 1024 * 1024
 MAX_PORTABLE_SYMBOLS = 20_000
 SYMBOL_FIELDS = {"id", "name", "kind", "file", "scope", "scopeKind", "annotation", "locations", "declarations", "state", "scanTime", "hash", "heuristic", "identity", "ambiguousIdentity", "identityNote", "importedFrom"}
@@ -126,6 +126,10 @@ def remap_project(raw, symbols, views):
         human_ids.update(e["id"] for e in d["edges"])
         human_ids.update(i["id"] for n in d["nodes"] for i in n["checklist"])
     human_ids.update(i["id"] for i in content["variables"] + content["nodeLinks"] + content["matches"])
+    for task in content["buildTasks"]:
+        human_ids.add(task["id"])
+        human_ids.update(check["id"] for check in task["acceptanceChecks"])
+        human_ids.update(link[key] for link in task["nodeLinks"] for key in ("nodeId", "diagramId"))
     if human_ids.intersection(evidence_ids):
         raise ValidationError("Detected evidence IDs must be distinct from manual record IDs.")
     views = validate_views(views, {d["id"] for d in content["diagrams"]})
@@ -146,6 +150,13 @@ def remap_project(raw, symbols, views):
             assign(edge["id"])
     for item in content["variables"] + content["nodeLinks"] + content["matches"] + symbols:
         assign(item["id"])
+    for task in content["buildTasks"]:
+        assign(task["id"])
+        for check in task["acceptanceChecks"]:
+            assign(check["id"])
+        for link in task["nodeLinks"]:
+            assign(link["nodeId"])
+            assign(link["diagramId"])
     for diagram in content["diagrams"]:
         diagram["id"] = mapping[diagram["id"]]
         for node in diagram["nodes"]:
@@ -166,6 +177,14 @@ def remap_project(raw, symbols, views):
         match["id"] = mapping[match["id"]]
         match["plannedId"] = mapping[match["plannedId"]]
         match["symbolId"] = mapping[match["symbolId"]]
+    for task in content["buildTasks"]:
+        task["id"] = mapping[task["id"]]
+        task["prerequisiteIds"] = [mapping[key] for key in task["prerequisiteIds"]]
+        for check in task["acceptanceChecks"]:
+            check["id"] = mapping[check["id"]]
+        for link in task["nodeLinks"]:
+            link["nodeId"] = mapping[link["nodeId"]]
+            link["diagramId"] = mapping[link["diagramId"]]
     evidence = portable_symbols(symbols)
     for symbol in evidence:
         symbol["id"] = mapping[symbol["id"]]
@@ -177,8 +196,8 @@ def import_project(store, value):
         raise ValidationError("Portable project JSON must contain an object.")
     if set(value) - {"format", "version", "content", "views", "symbols"}:
         raise ValidationError("Unexpected fields in import. Machine settings are not portable.")
-    if value.get("format") != "flowdesk" or type(value.get("version")) is not int or value["version"] not in {1, EXPORT_VERSION}:
-        raise ValidationError("Unsupported file. Choose a PlanBranch version 1 or 2 JSON export.")
+    if value.get("format") != "flowdesk" or type(value.get("version")) is not int or value["version"] not in {1, 2, EXPORT_VERSION}:
+        raise ValidationError("Unsupported file. Choose a PlanBranch version 1, 2, or 3 JSON export.")
     _check_symbol_count(value.get("symbols", []))
     serialize_portable(value)
     content, symbols, views = remap_project(value.get("content"), value.get("symbols", []), value.get("views", {}))
@@ -228,6 +247,25 @@ def markdown_brief(content):
             lines += ["### Connections", ""]
             lines.extend(f"- {escape(titles[e['source']])} → {escape(titles[e['target']])}" + (f" — {escape(e['label'])}" if e.get("label") else "") for e in diagram["edges"])
             lines.append("")
+    if content.get("buildTasks"):
+        lines += ["## Build tasks", "", "Build completion is recorded separately from diagram-node completion.", ""]
+        task_titles = {task["id"]: task["title"] or "Untitled task" for task in content["buildTasks"]}
+        for index, task in enumerate(content["buildTasks"], 1):
+            lines += [f"### {index}. {escape(task_titles[task['id']])}", "",
+                      "Status: " + task["status"].replace("_", " "), "", escape(task["deliverable"]), ""]
+            if task["prerequisiteIds"]:
+                lines += ["Prerequisites: " + ", ".join(escape(task_titles[key]) for key in task["prerequisiteIds"]), ""]
+            if task["expectedFiles"]:
+                lines += ["Expected files or areas: " + ", ".join(escape(path) for path in task["expectedFiles"]), ""]
+            if task["nodeLinks"]:
+                lines += ["Linked flow steps:"]
+                lines.extend("- " + escape(link["title"] or "Untitled node") + (" (removed from diagram)" if link["missing"] else "")
+                             for link in task["nodeLinks"])
+                lines.append("")
+            if task["acceptanceChecks"]:
+                lines += ["Acceptance checks:"]
+                lines.extend("- " + escape(check["text"]) for check in task["acceptanceChecks"])
+                lines.append("")
     lines += ["## Planned variables", "", "| Name | Purpose | Intended type | Intended file | Scope | Status |", "| --- | --- | --- | --- | --- | --- |"]
     for v in content["variables"]:
         lines.append("| " + " | ".join(escape(v.get(k, "")).replace("\n", " / ") for k in ("name", "description", "intendedType", "intendedFile", "scope", "status")) + " |")

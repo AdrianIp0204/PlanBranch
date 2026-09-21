@@ -263,7 +263,7 @@ def test_configure_freezes_packaged_policy_and_pair(ready):
     import hashlib
     config = ready.configure({"mode": "explicit", "model": "quick-model", "reasoningEffort": "high"})
     assert config["selection"] == {"mode": "explicit", "model": "quick-model", "reasoningEffort": "high"}
-    assert config["protocolVersion"] == 3 and config["instructionVersion"] == "planner-v4"
+    assert config["protocolVersion"] == 4 and config["instructionVersion"] == "planner-v5"
     assert config["cliVersion"] == "0.144.1"
     assert config["instructionHash"] == hashlib.sha256(config["instructions"].encode()).hexdigest()
     assert "Never execute the plan" in config["instructions"]
@@ -295,7 +295,7 @@ def test_review_candidate_crosses_only_the_context_boundary(ready, context, monk
         data = json.loads(kwargs["prompt"].split(b"\n", 1)[1])
         assert data["reviewProposal"] == review
         assert "Retain manual edits" not in str(args)
-        kwargs["output_path"].write_text(json.dumps({"protocolVersion": 3, "kind": "reply", "message": "Ready",
+        kwargs["output_path"].write_text(json.dumps({"protocolVersion": adapter.PROTOCOL_VERSION, "kind": "reply", "message": "Ready",
                                                   "questions": [], "proposal": None}), encoding="utf-8")
         return adapter._Result(0, b"", b"")
     monkeypatch.setattr(adapter, "_run", run)
@@ -449,7 +449,9 @@ def configure_v2(ready):
 
 
 def test_v3_brief_proposal_uses_new_schema_and_frozen_policy(ready, context, monkeypatch):
-    context["generation"] = ready.configure({"mode": "default"})
+    instructions = adapter.instruction_resource("planner-v4")
+    context["generation"] = {**ready.configure({"mode": "default"}), "protocolVersion": 3, "instructionVersion": "planner-v4",
+                             "instructions": instructions, "instructionHash": hashlib.sha256(instructions.encode()).hexdigest()}
     brief = {key: "" for key in adapter.BRIEF_SCHEMA["properties"]}
     brief.update(goal="Plan an offline CLI", assumptions="SQLite is still tentative")
     response = {"protocolVersion": 3, "kind": "proposal", "message": "Review this brief.", "questions": [],
@@ -460,6 +462,26 @@ def test_v3_brief_proposal_uses_new_schema_and_frozen_policy(ready, context, mon
         assert schema == adapter.OUTPUT_SCHEMA_V3
         assert "content.brief" in context["generation"]["instructions"]
         assert "Never promote an assumption" in context["generation"]["instructions"]
+        kwargs["output_path"].write_text(json.dumps(response), encoding="utf-8")
+        return adapter._Result(0, b"", b"")
+    monkeypatch.setattr(adapter, "_run", run)
+    assert ready.generate(context) == response
+
+
+def test_v4_build_proposal_uses_current_contract_without_changing_frozen_schemas(ready, context, monkeypatch):
+    context["generation"] = ready.configure({"mode": "default"})
+    task = {"id": "build-1", "title": "Implement command parsing", "deliverable": "A reusable command parser",
+            "nodeLinks": [], "prerequisiteIds": [], "expectedFiles": ["cli.py"],
+            "acceptanceChecks": [{"id": "build-check-1", "text": "Unknown commands report usage"}], "status": "not_started"}
+    response = {"protocolVersion": 4, "kind": "proposal", "message": "Review implementation work.", "questions": [],
+                "proposal": {"title": "CLI work", "summary": "Separate from runtime choices", "diagramId": "diagram-1",
+                             "nodes": None, "edges": None, "brief": None, "buildTasks": [task]}}
+    def run(args, **kwargs):
+        schema = json.loads(Path(args[args.index("--output-schema") + 1]).read_text())
+        assert schema == adapter.OUTPUT_SCHEMA_V4
+        assert "buildTasks" not in adapter.OUTPUT_SCHEMA_V3["properties"]["proposal"]["anyOf"][1]["properties"]
+        assert "Do not turn every flow node" in context["generation"]["instructions"]
+        assert "Never mark work complete" in context["generation"]["instructions"]
         kwargs["output_path"].write_text(json.dumps(response), encoding="utf-8")
         return adapter._Result(0, b"", b"")
     monkeypatch.setattr(adapter, "_run", run)

@@ -11,7 +11,7 @@ from typing import Callable
 from ..validation import ValidationError, validate_checkpoint
 
 
-DATABASE_VERSION = 6
+DATABASE_VERSION = 7
 
 
 @dataclass(frozen=True)
@@ -66,6 +66,10 @@ def proposal_drafts(connection, store):
 
 def project_briefs(connection, store):
     apply_sql(connection, "006_project_briefs.sql")
+    normalize_manual_history(connection, store)
+
+
+def normalize_manual_history(connection, store):
     # Only manual checkpoints and their current projection are normalized.
     # Frozen requests, approvals, proposals, drafts, and retry receipts retain
     # their exact original bytes and are upgraded as copies when read or used.
@@ -86,6 +90,7 @@ MIGRATIONS = (
     Migration(4, "Structured planning questions and durable answers", False, planning_questions),
     Migration(5, "Durable proposal drafts and recoverable apply intents", False, proposal_drafts),
     Migration(6, "Project briefs and scoped proposal review", True, project_briefs),
+    Migration(7, "Build tasks and retained node links", True, normalize_manual_history),
 )
 
 

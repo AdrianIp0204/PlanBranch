@@ -1,3 +1,4 @@
+import { deletionNotice } from "./buildTasks";
 import { useEffect, useState, type ReactNode } from "react";
 import { symbolDescription } from "./catalogue";
 import { useProject } from "./store";
@@ -62,7 +63,7 @@ export default function Inspector({
   const deleteSelected = () => {
     if (
       !window.confirm(
-        `Delete this ${node ? "node and its connections" : "connection"}?`,
+        `Delete this ${node ? "node and its connections" : "connection"}?${node ? deletionNotice(content, [node.id]) : ""}`,
       )
     )
       return;
@@ -240,7 +241,7 @@ export default function Inspector({
         hasContent={n.checklist.length > 0}
       >
         {n.checklist.length === 0 && (
-          <p className="inspector-helper">Break this task into small checks.</p>
+          <p className="inspector-helper">Add checks for this step.</p>
         )}
         {n.checklist.map((item) => (
           <div className="checklist-item" key={item.id}>
@@ -299,7 +300,7 @@ export default function Inspector({
         >
           + Add checklist item
         </button>
-        <small>Checking items does not change task status.</small>
+        <small>Checking items does not change node or Build task status.</small>
       </InspectorSection>
       <InspectorSection name="notes" title="Notes" hasContent={!!n.notes}>
         {textField("Notes", "notes", true)}

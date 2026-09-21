@@ -7,8 +7,8 @@ from uuid import uuid4
 import pytest
 
 from flowdesk.app import create_app
-from flowdesk.content_versions import BRIEF_FIELDS, empty_brief
-from flowdesk.exports import import_project, markdown_brief, portable_project
+from flowdesk.content_versions import BRIEF_FIELDS, CONTENT_VERSION, empty_brief
+from flowdesk.exports import EXPORT_VERSION, import_project, markdown_brief, portable_project
 from flowdesk.planning import PlanningService, fingerprint, manual_fingerprint, provider_context_for
 from flowdesk.sample import sample_content
 from flowdesk.storage import Store
@@ -77,7 +77,7 @@ def test_brief_export_import_and_legacy_format_are_portable(workspace):
     content["brief"] = {field: f"{field}: <script>alert(1)</script> *plain*" for field in BRIEF_FIELDS}
     project = save(store, project, content)
     document = portable_project(project, [])
-    assert document["version"] == 2 and document["content"]["schemaVersion"] == 2
+    assert document["version"] == EXPORT_VERSION and document["content"]["schemaVersion"] == CONTENT_VERSION
     restored = import_project(store, document)
     assert restored["content"]["brief"] == content["brief"]
     markdown = markdown_brief(content)
@@ -87,7 +87,7 @@ def test_brief_export_import_and_legacy_format_are_portable(workspace):
     legacy["version"] = legacy["content"]["schemaVersion"] = 1
     legacy["content"].pop("brief")
     old = import_project(store, legacy)
-    assert old["content"]["schemaVersion"] == 2 and old["content"]["brief"] == empty_brief()
+    assert old["content"]["schemaVersion"] == CONTENT_VERSION and old["content"]["brief"] == empty_brief()
 
 
 @pytest.mark.parametrize("invalid", [None, [], {"goal": 42}, {"unexpected": "text"}, {"goal": "x" * 32769}])
@@ -222,7 +222,7 @@ def test_large_brief_only_draft_and_revision_are_allowed_by_api(tmp_path):
 
 def test_semantic_hash_preserves_empty_legacy_identity_and_detects_real_brief(workspace):
     _, project, _, _ = workspace
-    legacy = deepcopy(project["content"]); legacy["schemaVersion"] = 1; legacy.pop("brief")
+    legacy = deepcopy(project["content"]); legacy["schemaVersion"] = 1; legacy.pop("brief"); legacy.pop("buildTasks", None)
     assert manual_fingerprint(project["content"]) == fingerprint(legacy)
     changed = deepcopy(project["content"]); changed["brief"]["assumptions"] = "Not agreed"
     assert manual_fingerprint(changed) != fingerprint(legacy)

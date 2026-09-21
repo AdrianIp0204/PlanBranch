@@ -7,6 +7,7 @@ import {
   type DraftSummary,
 } from "./durableDrafts";
 import { fromEnvelope, reducer } from "./history";
+import { createBuildTask } from "./buildTasks";
 import { copy, createNode, emptyBrief, type Content } from "./types";
 
 const content = (): Content => ({
@@ -257,4 +258,30 @@ it("serializes only authorized sections and known brief fields", () => {
     diagram: candidate.diagrams[0],
     brief: { ...emptyBrief(), goal: "Human intent" },
   });
+});
+
+it("captures only authored task values, deep copies nested entries, and preserves explicit empty lists", () => {
+  const candidate = content();
+  candidate.buildTasks = [
+    {
+      ...createBuildTask(),
+      id: "task",
+      nodeLinks: [
+        { nodeId: "n", diagramId: "d", title: "Node", missing: true },
+      ],
+      acceptanceChecks: [{ id: "check", text: "Original" }],
+    },
+  ];
+  const captured = draftCandidateValues(candidate, "diagram", ["buildTasks"]);
+  expect(captured).not.toHaveProperty("diagram");
+  expect(captured).not.toHaveProperty("brief");
+  candidate.buildTasks[0].acceptanceChecks[0].text = "Newer local edit";
+  expect(captured.buildTasks?.[0].acceptanceChecks[0].text).toBe("Original");
+  candidate.buildTasks = [];
+  expect(draftCandidateValues(candidate, "diagram", ["buildTasks"])).toEqual({
+    buildTasks: [],
+  });
+  expect(
+    draftCandidateValues(candidate, "diagram", ["brief"]),
+  ).not.toHaveProperty("buildTasks");
 });

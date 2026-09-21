@@ -9,7 +9,7 @@ import pytest
 
 from flowdesk import migrations
 from flowdesk.codex_planner import instruction_resource
-from flowdesk.content_versions import empty_brief
+from flowdesk.content_versions import CONTENT_VERSION, empty_brief
 from flowdesk.planning import PlanningService, fingerprint
 from flowdesk.sample import sample_content
 from flowdesk.storage import Store, encode
@@ -21,6 +21,7 @@ def legacy(content):
     result = deepcopy(content)
     result["schemaVersion"] = 1
     result.pop("brief", None)
+    result.pop("buildTasks", None)
     return result
 
 
@@ -85,7 +86,7 @@ def released_v5(tmp_path):
         for row in db.execute("SELECT id,content FROM planning_approvals").fetchall():
             db.execute("UPDATE planning_approvals SET content=? WHERE id=?", (encode(legacy(json.loads(row["content"]))), row["id"]))
         db.execute("ALTER TABLE planning_proposals DROP COLUMN editable_sections")
-        db.execute("DELETE FROM schema_migrations WHERE version=6")
+        db.execute("DELETE FROM schema_migrations WHERE version>=6")
     return dict(store=store, project=project, proposal=proposal, diagram=diagram, summary=summary,
                 save_request=save_request, prepare_request=prepare_request, apply_request=apply_request,
                 prepared=prepared, approved_project=approved_project, approve_request=approve_request)
@@ -98,7 +99,7 @@ def test_v5_migration_keeps_frozen_records_and_prepared_apply_exact(released_v5)
     assert frozen_rows(store) == before
     restored = store.get_project(old["project"]["id"])
     assert restored == old["project"]
-    assert all(item["content"]["schemaVersion"] == 2 and item["content"]["brief"] == empty_brief() for item in restored["history"])
+    assert all(item["content"]["schemaVersion"] == CONTENT_VERSION and item["content"]["brief"] == empty_brief() for item in restored["history"])
     assert restored["cursor"] != restored["history"][-1]["id"]  # redo branch retained
     service = PlanningService(store, FakePlanner())
     assert service.state(old["approved_project"]["id"])["approval"]["current"]
@@ -106,9 +107,9 @@ def test_v5_migration_keeps_frozen_records_and_prepared_apply_exact(released_v5)
     detail = service.proposal_detail(restored["id"], old["proposal"]["id"])
     assert detail["proposal"]["editableSections"] == ["diagram"] and detail["proposal"]["state"] == "pending"
     assert detail["contentHash"] == old["apply_request"]["contentHash"]
-    assert detail["content"]["schemaVersion"] == 2 and detail["baseContent"] == restored["content"]
+    assert detail["content"]["schemaVersion"] == CONTENT_VERSION and detail["baseContent"] == restored["content"]
     loaded = service.drafts.get(restored["id"], old["proposal"]["id"], old["summary"]["id"])["draft"]
-    assert not loaded["stale"] and loaded["candidate"]["schemaVersion"] == 2
+    assert not loaded["stale"] and loaded["candidate"]["schemaVersion"] == CONTENT_VERSION
     assert loaded["applyRequest"] == old["apply_request"]
     assert service.drafts.save(restored["id"], old["proposal"]["id"], old["summary"]["id"], old["save_request"]) == {"draft": old["summary"]}
     assert service.drafts.prepare(restored["id"], old["proposal"]["id"], old["summary"]["id"], old["prepare_request"]) == old["prepared"]
@@ -125,11 +126,11 @@ def test_v5_brief_migration_failure_rolls_back_history_and_frozen_records(releas
     before = frozen_rows(old)
     with closing(old.connect()) as db:
         history = [tuple(row) for row in db.execute("SELECT * FROM history_checkpoints ORDER BY project_id,id")]
-    original = migrations.MIGRATIONS[-1]
+    original = next(migration for migration in migrations.MIGRATIONS if migration.version == 6)
     def interrupted(db, store):
         original.apply(db, store)
         raise RuntimeError("Injected after all manual snapshots upgraded")
-    monkeypatch.setattr(migrations, "MIGRATIONS", (*migrations.MIGRATIONS[:-1], migrations.Migration(6, original.name, True, interrupted)))
+    monkeypatch.setattr(migrations, "MIGRATIONS", tuple(migrations.Migration(6, original.name, True, interrupted) if migration.version == 6 else migration for migration in migrations.MIGRATIONS))
     with pytest.raises(RuntimeError, match="Injected"):
         Store(old.db_path)
     assert frozen_rows(old) == before

@@ -44,7 +44,7 @@ def validate_envelope(response, version):
         return {"protocolVersion": 1, "kind": "proposal" if response.get("proposal") is not None else "reply",
                 "message": response["message"], "proposal": response.get("proposal"), "questions": []}
     obj(response, {"protocolVersion", "kind", "message", "questions", "proposal"}, "agent reply")
-    if version not in (2, 3) or type(response.get("protocolVersion")) is not int or response["protocolVersion"] != version:
+    if version not in (2, 3, 4) or type(response.get("protocolVersion")) is not int or response["protocolVersion"] != version:
         raise ValidationError("Unsupported planning response version.")
     kind = response.get("kind")
     if kind not in ("reply", "questions", "proposal"):

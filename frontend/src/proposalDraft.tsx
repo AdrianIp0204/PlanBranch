@@ -12,6 +12,7 @@ import { fromEnvelope, reducer, type Action, type Session } from "./history";
 import { samePlan } from "./planning";
 import { StoreContext, type Store } from "./store";
 import { api } from "./api";
+import { normalizeBuildLinks } from "./buildTasks";
 import {
   DraftSaveQueue,
   draftCandidateValues,
@@ -390,8 +391,13 @@ function LoadedProposalDraft({
           );
         if (values.brief) {
           candidate.brief = copy(values.brief);
-          candidate.schemaVersion = 2;
+          if (candidate.schemaVersion === 1) candidate.schemaVersion = 2;
         }
+        if (values.buildTasks !== undefined) {
+          candidate.buildTasks = copy(values.buildTasks);
+          candidate.schemaVersion = 3;
+        }
+        normalizeBuildLinks(candidate);
         const previous = draftRef.current;
         updateDraft({
           ...previous,
@@ -635,8 +641,13 @@ function LoadedProposalDraft({
         }
         if (values.brief) {
           restricted.brief = values.brief;
-          restricted.schemaVersion = 2;
+          if (restricted.schemaVersion === 1) restricted.schemaVersion = 2;
         }
+        if (values.buildTasks !== undefined) {
+          restricted.buildTasks = values.buildTasks;
+          restricted.schemaVersion = 3;
+        }
+        normalizeBuildLinks(restricted);
         send({ type: "edit", content: restricted, label, diagramId, group });
       },
       commit: () => send({ type: "commit" }),

@@ -1,7 +1,9 @@
+import { validBuildTasks } from "./buildTasks";
 import {
   nodeKinds,
   statuses,
   type Content,
+  type BuildTask,
   type ProjectBrief,
   type Diagram,
   type NodeKind,
@@ -117,12 +119,13 @@ export type ProposedChange = {
   kind: string;
   nodeId?: string;
   edgeId?: string;
+  taskId?: string;
   field?: string;
   label: string;
   before: unknown;
   after: unknown;
 };
-export type ProposalSection = "diagram" | "brief";
+export type ProposalSection = "diagram" | "brief" | "buildTasks";
 export type PlanProposal = {
   editableSections?: ProposalSection[];
   id: string;
@@ -148,6 +151,7 @@ export type ProposalRevision = {
   title: string;
   diagram: Diagram;
   brief?: ProjectBrief;
+  buildTasks?: BuildTask[];
   nonce: string;
 };
 export type PlanningState = {
@@ -186,6 +190,7 @@ export type PlanningPrompt = {
   proposalId?: string;
   proposalDiagram?: Diagram;
   proposalBrief?: ProjectBrief;
+  proposalBuildTasks?: BuildTask[];
 };
 
 export const reviewFieldLabel = (field: string) =>
@@ -453,8 +458,11 @@ function storedSections(value: unknown) {
     value === undefined ||
     (Array.isArray(value) &&
       value.length > 0 &&
-      value.length <= 2 &&
-      value.every((item) => item === "diagram" || item === "brief"))
+      value.length <= 3 &&
+      value.every(
+        (item) =>
+          item === "diagram" || item === "brief" || item === "buildTasks",
+      ))
   );
 }
 function storedRevision(value: unknown): value is ProposalRevision {
@@ -465,6 +473,7 @@ function storedRevision(value: unknown): value is ProposalRevision {
     typeof value.nonce === "string" &&
     storedDiagram(value.diagram) &&
     (value.brief === undefined || storedBrief(value.brief)) &&
+    (value.buildTasks === undefined || validBuildTasks(value.buildTasks)) &&
     storedSections(value.editableSections)
   );
 }
@@ -548,11 +557,14 @@ export function readPlanningDrafts(projectId: string): PlanningDrafts {
       (request.proposalId === undefined ||
         (typeof request.proposalId === "string" &&
           (request.proposalDiagram !== undefined ||
-            request.proposalBrief !== undefined) &&
+            request.proposalBrief !== undefined ||
+            request.proposalBuildTasks !== undefined) &&
           (request.proposalDiagram === undefined ||
             storedDiagram(request.proposalDiagram)) &&
           (request.proposalBrief === undefined ||
-            storedBrief(request.proposalBrief))))
+            storedBrief(request.proposalBrief)) &&
+          (request.proposalBuildTasks === undefined ||
+            validBuildTasks(request.proposalBuildTasks))))
         ? {
             mutationId: request.mutationId,
             text: request.text,
@@ -566,6 +578,9 @@ export function readPlanningDrafts(projectId: string): PlanningDrafts {
                   proposalId: request.proposalId,
                   ...(request.proposalDiagram
                     ? { proposalDiagram: request.proposalDiagram }
+                    : {}),
+                  ...(request.proposalBuildTasks !== undefined
+                    ? { proposalBuildTasks: request.proposalBuildTasks }
                     : {}),
                   ...(request.proposalBrief
                     ? { proposalBrief: request.proposalBrief }

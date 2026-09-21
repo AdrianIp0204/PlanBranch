@@ -22,6 +22,9 @@ import Canvas, {
 } from "./Canvas";
 import Inspector from "./Inspector";
 import BriefFields from "./BriefFields";
+import BuildTasksEditor from "./BuildTasksEditor";
+import { buildTaskChanges } from "./buildTasks";
+import { Dialog } from "./ui";
 import { ResizeHandle } from "./layout";
 import { samePlan, type PlanProposal } from "./planning";
 import {
@@ -46,6 +49,7 @@ import {
   createNode,
   emptyBrief,
   type ProjectBrief,
+  type BuildTask,
   nodeKinds,
   statuses,
   type Content,
@@ -71,7 +75,11 @@ export type ProposalWorkspaceProps = {
     draft?: DraftReference,
   ) => Promise<void>;
   onCancelApply?: () => void;
-  onRevise: (diagram: Diagram, brief?: ProjectBrief) => void;
+  onRevise: (
+    diagram: Diagram,
+    brief?: ProjectBrief,
+    buildTasks?: BuildTask[],
+  ) => void;
   onDiscard: () => Promise<void>;
   onClose: () => void;
   stale: boolean;
@@ -145,9 +153,28 @@ function Workspace({
   const editableSections = proposal.editableSections ?? ["diagram"];
   const canEditDiagram = editableSections.includes("diagram");
   const canEditBrief = editableSections.includes("brief");
-  const [section, setSection] = useState<"diagram" | "brief">(
-    canEditDiagram ? "diagram" : "brief",
+  const canEditBuild = editableSections.includes("buildTasks");
+  const [section, setSection] = useState<"diagram" | "brief" | "buildTasks">(
+    canEditDiagram ? "diagram" : canEditBrief ? "brief" : "buildTasks",
   );
+  const buildTasks = session.content.buildTasks ?? [];
+  const beforeTasks = detail.baseContent?.buildTasks ?? [];
+  const taskReview = useMemo(
+    () => buildTaskChanges(beforeTasks, buildTasks),
+    [beforeTasks, buildTasks],
+  );
+  const showBuild = canEditBuild || taskReview.changes.length > 0;
+  const [taskReviewKey, setTaskReviewKey] = useState<string | null>(null);
+  const taskReviewIndex = taskReview.changes.findIndex(
+    (item) => item.key === taskReviewKey,
+  );
+  const [selectedTasks, setSelectedTasks] = useState<
+    Record<"before" | "after", string | null>
+  >({ before: null, after: null });
+  const [nodeContext, setNodeContext] = useState<{
+    diagram: Diagram;
+    nodeId: string;
+  } | null>(null);
   const brief = session.content.brief ?? emptyBrief();
   const beforeBrief = detail.baseContent?.brief ?? emptyBrief();
   const briefFields = Object.keys(emptyBrief()) as (keyof ProjectBrief)[];
@@ -188,6 +215,13 @@ function Workspace({
   const previewInstance = useRef<ReactFlowInstance<FlowNode> | null>(null);
   const mountedView = useRef("");
   const pendingReveal = useRef<ReviewTarget | null>(null);
+  useLayoutEffect(() => {
+    if (section !== "diagram") {
+      mountedView.current = "";
+      previewInstance.current = null;
+      manualInstance.current = null;
+    }
+  }, [section]);
   const [reviewCursor, setReviewCursor] = useState<ReviewCursor>({
     key: null,
     index: -1,
@@ -221,7 +255,15 @@ function Workspace({
   const editedDiagram = canEditDiagram && !samePlan(diagram, original);
   const editedBrief =
     canEditBrief && !samePlan(brief, detail.content.brief ?? emptyBrief());
-  const edited = editedDiagram || editedBrief;
+  const editedBuild =
+    canEditBuild && !samePlan(buildTasks, detail.content.buildTasks ?? []);
+  const edited = editedDiagram || editedBrief || editedBuild;
+  const editableSection =
+    section === "diagram"
+      ? canEditDiagram
+      : section === "brief"
+        ? canEditBrief
+        : canEditBuild;
   const manualDiagram = manual && canEditDiagram && section === "diagram";
   const canApply = proposal.state === "pending" && !stale;
   const editLocked = busy || recovering || durable.switching;
@@ -298,6 +340,14 @@ function Workspace({
     if (event.key === "ArrowLeft") previousChange();
     else if (event.key === "ArrowRight") nextChange();
     else navigateChange(event.key === "Home" ? 0 : changes.length - 1);
+  };
+  const navigateTaskChange = (index: number) => {
+    const item = taskReview.changes[index];
+    if (!item) return;
+    commit();
+    setTaskReviewKey(item.key);
+    setSide(item.side);
+    setSelectedTasks((current) => ({ ...current, [item.side]: item.id }));
   };
   const closeDetails = () => {
     commit();
@@ -477,8 +527,15 @@ function Workspace({
                     (d) => d.id === diagram.id,
                   )!,
                 ),
-                ...(canEditBrief
-                  ? [copy(getSnapshot().content.brief ?? emptyBrief())]
+                ...(canEditBrief || canEditBuild
+                  ? [
+                      canEditBrief
+                        ? copy(getSnapshot().content.brief ?? emptyBrief())
+                        : undefined,
+                    ]
+                  : []),
+                ...(canEditBuild
+                  ? [copy(getSnapshot().content.buildTasks ?? [])]
                   : []),
               );
             }}
@@ -487,11 +544,7 @@ function Workspace({
           </button>
           <button
             aria-pressed={manual}
-            disabled={
-              editLocked ||
-              !reviewable ||
-              (section === "diagram" ? !canEditDiagram : !canEditBrief)
-            }
+            disabled={editLocked || !reviewable || !editableSection}
             onClick={() => {
               commit();
               setSide("after");
@@ -641,7 +694,7 @@ function Workspace({
         )}
       </div>
       <div className="proposal-tools">
-        {canEditBrief && (
+        {(canEditBrief || showBuild) && (
           <div
             className="proposal-sections"
             role="group"
@@ -656,15 +709,31 @@ function Workspace({
             >
               Diagram
             </button>
-            <button
-              aria-pressed={section === "brief"}
-              onClick={() => {
-                commit();
-                setSection("brief");
-              }}
-            >
-              Brief
-            </button>
+            {canEditBrief && (
+              <>
+                {" "}
+                <button
+                  aria-pressed={section === "brief"}
+                  onClick={() => {
+                    commit();
+                    setSection("brief");
+                  }}
+                >
+                  Brief
+                </button>
+              </>
+            )}
+            {showBuild && (
+              <button
+                aria-pressed={section === "buildTasks"}
+                onClick={() => {
+                  commit();
+                  setSection("buildTasks");
+                }}
+              >
+                Build tasks
+              </button>
+            )}
           </div>
         )}
         <div className="proposal-compare" aria-label="Compare proposal">
@@ -676,12 +745,18 @@ function Workspace({
             }}
           >
             Proposed
-            {(section === "brief" ? editedBrief : editedDiagram)
+            {(
+              section === "brief"
+                ? editedBrief
+                : section === "buildTasks"
+                  ? editedBuild
+                  : editedDiagram
+            )
               ? " · edited"
               : ""}
           </button>
           <button
-            disabled={section === "brief" ? !detail.baseContent : !before}
+            disabled={section !== "diagram" ? !detail.baseContent : !before}
             aria-pressed={side === "before"}
             onClick={() => {
               commit();
@@ -857,11 +932,80 @@ function Workspace({
           </>
         ) : (
           <div className="proposal-brief-tools">
-            <span data-testid="review-brief-count">
-              {changedBriefFields.length} changed{" "}
-              {changedBriefFields.length === 1 ? "field" : "fields"}
-            </span>
-            {manual && side === "after" && (
+            {section === "brief" ? (
+              <span data-testid="review-brief-count">
+                {changedBriefFields.length} changed{" "}
+                {changedBriefFields.length === 1 ? "field" : "fields"}
+              </span>
+            ) : (
+              <>
+                <div
+                  className="proposal-navigator"
+                  role="group"
+                  aria-label="Review task changes"
+                >
+                  <button
+                    aria-label="Previous task change"
+                    disabled={!taskReview.changes.length}
+                    onClick={() =>
+                      navigateTaskChange(
+                        taskReviewIndex <= 0
+                          ? taskReview.changes.length - 1
+                          : taskReviewIndex - 1,
+                      )
+                    }
+                  >
+                    ←
+                  </button>
+                  <select
+                    aria-label="Review task change"
+                    value={taskReviewIndex < 0 ? "" : taskReviewKey!}
+                    disabled={!taskReview.changes.length}
+                    onChange={(event) =>
+                      navigateTaskChange(
+                        taskReview.changes.findIndex(
+                          (item) => item.key === event.target.value,
+                        ),
+                      )
+                    }
+                  >
+                    <option disabled value="">
+                      {taskReview.changes.length
+                        ? "Choose a task change"
+                        : "No task changes"}
+                    </option>
+                    {taskReview.changes.map((item) => (
+                      <option key={item.key} value={item.key}>
+                        {item.kind[0].toUpperCase() + item.kind.slice(1)}:{" "}
+                        {item.title}
+                      </option>
+                    ))}
+                  </select>
+                  <span
+                    className="proposal-change-position"
+                    data-testid="review-task-position"
+                  >
+                    {taskReviewIndex + 1} of {taskReview.changes.length}
+                  </span>
+                  <button
+                    aria-label="Next task change"
+                    disabled={!taskReview.changes.length}
+                    onClick={() =>
+                      navigateTaskChange(
+                        (taskReviewIndex + 1) % taskReview.changes.length,
+                      )
+                    }
+                  >
+                    →
+                  </button>
+                </div>
+                <span data-testid="review-task-count">
+                  {taskReview.counts.added} added · {taskReview.counts.changed}{" "}
+                  changed · {taskReview.counts.removed} removed
+                </span>
+              </>
+            )}
+            {manual && editableSection && side === "after" && (
               <>
                 <button
                   aria-label="Undo manual edit"
@@ -903,7 +1047,59 @@ function Workspace({
           </button>
         )}
       </div>
-      {section === "brief" ? (
+      {section === "buildTasks" ? (
+        <div
+          className="proposal-build"
+          aria-label={
+            side === "before" ? "Before build tasks" : "Proposed build tasks"
+          }
+        >
+          {!canEditBuild && (
+            <p className="muted">
+              Task links reflect this diagram change. Task details are read-only
+              in this proposal.
+            </p>
+          )}
+          <BuildTasksEditor
+            tasks={side === "before" ? beforeTasks : buildTasks}
+            diagrams={
+              (side === "before" ? detail.baseContent : session.content)
+                ?.diagrams ?? []
+            }
+            selectedId={selectedTasks[side]}
+            onSelect={(id) =>
+              setSelectedTasks((current) => ({ ...current, [side]: id }))
+            }
+            readOnly={
+              !manual || side === "before" || !reviewable || !canEditBuild
+            }
+            disabled={editLocked}
+            onCommit={commit}
+            onChange={(edit, label, group) =>
+              change(
+                (content) => {
+                  content.buildTasks ??= [];
+                  edit(content.buildTasks);
+                  content.schemaVersion = 3;
+                },
+                label,
+                undefined,
+                group,
+              )
+            }
+            onRevealNode={(diagramId, nodeId) => {
+              const context = (
+                side === "before" ? detail.baseContent : session.content
+              )?.diagrams.find((item) => item.id === diagramId);
+              if (!context) return;
+              if (diagramId === diagram.id) {
+                setSection("diagram");
+                reveal({ id: nodeId, side, nodeIds: [nodeId] });
+              } else setNodeContext({ diagram: copy(context), nodeId });
+            }}
+          />
+        </div>
+      ) : section === "brief" ? (
         <div
           className="proposal-brief"
           aria-label={side === "before" ? "Before brief" : "Proposed brief"}
@@ -925,7 +1121,7 @@ function Workspace({
                     ...(content.brief ?? emptyBrief()),
                     [field]: value,
                   };
-                  content.schemaVersion = 2;
+                  if (content.schemaVersion === 1) content.schemaVersion = 2;
                 },
                 `Edit brief ${field}`,
                 undefined,
@@ -1073,6 +1269,17 @@ function Workspace({
           )}
         </div>
       )}
+      {nodeContext && (
+        <Dialog
+          title={`Node context · ${nodeContext.diagram.name}`}
+          onClose={() => setNodeContext(null)}
+        >
+          <ReadOnlyDetails
+            diagram={nodeContext.diagram}
+            selected={nodeContext.nodeId}
+          />
+        </Dialog>
+      )}
       <footer className="proposal-footer">
         <span>
           {proposal.state === "accepted"
@@ -1080,9 +1287,11 @@ function Workspace({
             : `${edited ? (durable.status === "saved" ? "Draft saved separately" : "Draft changes pending") : "Preview only"} · saved plan unchanged`}
         </span>
         <span>
-          {section === "brief"
-            ? "Project brief"
-            : `${shown.name} · ${shown.nodes.length} nodes${!canEditDiagram ? " · context only" : ""}`}
+          {section === "buildTasks"
+            ? "Build tasks"
+            : section === "brief"
+              ? "Project brief"
+              : `${shown.name} · ${shown.nodes.length} nodes${!canEditDiagram ? " · context only" : ""}`}
         </span>
       </footer>
     </section>

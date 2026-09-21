@@ -1,0 +1,39 @@
+.workspace-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+}
+.workspace-mode button {
+  min-height: 32px;
+  padding: 5px 12px;
+}
+.workspace-mode button[aria-pressed="true"] {
+  background: var(--accent-soft, #e8f0e9);
+  font-weight: 650;
+}
+.workspace-mode .back-build {
+  margin-left: auto;
+}
+.build-view {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  padding: 16px;
+}
+.build-view-heading {
+  margin-bottom: 12px;
+}
+.build-view-heading h1 {
+  font-size: 20px;
+  margin: 0;
+}
+.build-view-heading p {
+  color: var(--muted);
+  margin: 4px 0;
+  font-size: 13px;
+}

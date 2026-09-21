@@ -1,6 +1,7 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "./api";
+import { createBuildTask } from "./buildTasks";
 import {
   ProposalDraftProvider,
   proposalDraftKey,
@@ -37,7 +38,7 @@ function Probe() {
   controls = useProposalDraft();
   return (
     <p data-testid="draft-state">
-      {controls.status} {store.session.content.diagrams[0].nodes[0].title}
+      {controls.status} {store.session.content.diagrams[0].nodes[0]?.title}
     </p>
   );
 }
@@ -108,6 +109,10 @@ beforeEach(() => {
       if (body.brief) {
         candidate.brief = body.brief;
         candidate.schemaVersion = 2;
+      }
+      if (body.buildTasks !== undefined) {
+        candidate.buildTasks = body.buildTasks;
+        candidate.schemaVersion = 3;
       }
       saved = {
         ...summary(body.baseDraftRevision + 1, path.split("/").at(-1)),
@@ -489,4 +494,119 @@ it("keeps legacy diagram-only drafts from changing or resending project briefs",
     expect(await controls.flush()).toBe(true);
   });
   expect(JSON.parse(edits()[0][1]!.body as string)).not.toHaveProperty("brief");
+});
+
+it("restricts task-only edits and recovers the durable task list including order and stable check IDs", async () => {
+  original.schemaVersion = 3;
+  original.buildTasks = [
+    {
+      ...createBuildTask(),
+      id: "build",
+      title: "Agent task",
+      acceptanceChecks: [{ id: "criterion", text: "Initial check" }],
+    },
+  ];
+  const view = await mount(false, ["buildTasks"]);
+  act(() =>
+    store.change((content) => {
+      content.name = "Wrong name";
+      content.diagrams[0].nodes[0].title = "Wrong graph";
+      content.buildTasks![0].title = "Manual build task";
+      content.buildTasks![0].acceptanceChecks[0].text = "Revised check";
+      content.buildTasks!.push({
+        ...createBuildTask(),
+        id: "second",
+        title: "Next task",
+        prerequisiteIds: ["build"],
+      });
+      content.buildTasks!.reverse();
+    }, "Edit tasks"),
+  );
+  await act(async () => {
+    expect(await controls.flush()).toBe(true);
+  });
+  const body = JSON.parse(edits()[0][1]!.body as string);
+  expect(body).not.toHaveProperty("diagram");
+  expect(body).not.toHaveProperty("brief");
+  expect(body.buildTasks.map((item: { id: string }) => item.id)).toEqual([
+    "second",
+    "build",
+  ]);
+  expect(store.session.content.name).toBe("Project");
+  expect(store.session.content.diagrams[0].nodes[0].title).toBe("Original");
+  view.unmount();
+  await mount(false, ["buildTasks"]);
+  expect(store.session.content.buildTasks?.[1].acceptanceChecks).toEqual([
+    { id: "criterion", text: "Revised check" },
+  ]);
+  act(() =>
+    store.change((content) => {
+      content.buildTasks = [];
+    }, "Remove all tasks"),
+  );
+  await act(async () => {
+    expect(await controls.flush()).toBe(true);
+  });
+  expect(JSON.parse(edits().at(-1)![1]!.body as string).buildTasks).toEqual([]);
+});
+
+it("derives missing task links after scoped diagram edits without authoring task details", async () => {
+  original.schemaVersion = 3;
+  original.buildTasks = [
+    {
+      ...createBuildTask(),
+      id: "build",
+      title: "Independent task",
+      status: "done",
+      nodeLinks: [
+        {
+          nodeId: "node",
+          diagramId: "diagram",
+          title: "Original",
+          missing: false,
+        },
+      ],
+    },
+  ];
+  await mount(false, ["diagram"]);
+  act(() =>
+    store.change((content) => {
+      content.diagrams[0].nodes = [];
+      content.buildTasks![0].title = "Unpermitted edit";
+    }, "Delete linked node"),
+  );
+  expect(store.session.content.buildTasks?.[0]).toMatchObject({
+    title: "Independent task",
+    status: "done",
+    nodeLinks: [{ nodeId: "node", title: "Original", missing: true }],
+  });
+  await act(async () => {
+    expect(await controls.flush()).toBe(true);
+  });
+  expect(JSON.parse(edits()[0][1]!.body as string)).not.toHaveProperty(
+    "buildTasks",
+  );
+  act(() => store.undo());
+  expect(store.session.content.buildTasks?.[0].nodeLinks[0].missing).toBe(
+    false,
+  );
+});
+
+it("does not downgrade schema 3 or change tasks while editing only a brief", async () => {
+  original.schemaVersion = 3;
+  original.brief = emptyBrief();
+  original.buildTasks = [createBuildTask()];
+  await mount(false, ["brief"]);
+  act(() =>
+    store.change((content) => {
+      content.brief!.goal = "Clarified intent";
+      content.buildTasks = [];
+    }, "Edit brief"),
+  );
+  expect(store.session.content.schemaVersion).toBe(3);
+  expect(store.session.content.buildTasks).toEqual(original.buildTasks);
+  await act(async () => {
+    expect(await controls.flush()).toBe(true);
+  });
+  expect(controls.draft.candidate.schemaVersion).toBe(3);
 });

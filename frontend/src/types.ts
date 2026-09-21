@@ -76,8 +76,24 @@ export const emptyBrief = (): ProjectBrief => ({
   decisions: "",
   assumptions: "",
 });
+export type BuildTask = {
+  id: string;
+  title: string;
+  deliverable: string;
+  nodeLinks: {
+    nodeId: string;
+    diagramId: string;
+    title: string;
+    missing: boolean;
+  }[];
+  prerequisiteIds: string[];
+  expectedFiles: string[];
+  acceptanceChecks: { id: string; text: string }[];
+  status: Status;
+};
 export type Content = {
-  schemaVersion: 1 | 2;
+  schemaVersion: 1 | 2 | 3;
+  buildTasks?: BuildTask[];
   brief?: ProjectBrief;
   name: string;
   notes: string;

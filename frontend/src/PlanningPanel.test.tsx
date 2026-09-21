@@ -11,6 +11,7 @@ import {
 import PlanningPanel from "./PlanningPanel";
 import { MODEL_PREFERENCE_KEY, PLANNING_SERVER_RESTART } from "./ModelControls";
 import { api } from "./api";
+import { createBuildTask } from "./buildTasks";
 import { createNode, copy, emptyBrief, type Content } from "./types";
 import type { Session } from "./history";
 import {
@@ -1421,4 +1422,89 @@ it("omits uneditable diagram context when sending a brief-only revision and pres
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(posts("/messages")).toHaveLength(2));
   expect(JSON.parse(posts("/messages")[1][1]!.body as string)).toEqual(first);
+});
+
+it("preserves explicit remove-all-tasks revision payloads through an uncertain retry and reload", async () => {
+  let attempts = 0;
+  withModels((path, options) => {
+    if (
+      path.endsWith("/messages") &&
+      options?.method === "POST" &&
+      ++attempts === 1
+    )
+      throw new Error("Task response lost");
+    return copy(state);
+  });
+  const view = render(
+    <PlanningPanel
+      {...props()}
+      revisionRequest={{
+        proposalId: "task-proposal",
+        title: "Build revision",
+        diagram: copy(session.content.diagrams[0]),
+        buildTasks: [],
+        editableSections: ["buildTasks"],
+        nonce: "task-revision",
+      }}
+    />,
+  );
+  await screen.findByText("Build revision");
+  fireEvent.change(screen.getByLabelText("Message Codex"), {
+    target: { value: "Start the task breakdown again" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await screen.findByText("Task response lost");
+  const captured = JSON.parse(posts("/messages")[0][1]!.body as string);
+  expect(captured.proposalBuildTasks).toEqual([]);
+  expect(captured).not.toHaveProperty("proposalDiagram");
+  expect(captured).not.toHaveProperty("proposalBrief");
+  view.unmount();
+  render(<PlanningPanel {...props()} />);
+  await screen.findByText("Build revision");
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(posts("/messages")).toHaveLength(2));
+  expect(JSON.parse(posts("/messages")[1][1]!.body as string)).toEqual(
+    captured,
+  );
+});
+
+it("allows approval of a manual build-only plan without inventing flow nodes", async () => {
+  const prototype = HTMLDialogElement.prototype;
+  const show = Object.getOwnPropertyDescriptor(prototype, "showModal"),
+    closeDialog = Object.getOwnPropertyDescriptor(prototype, "close");
+  Object.defineProperty(prototype, "showModal", {
+    configurable: true,
+    value: function (this: HTMLDialogElement) {
+      this.setAttribute("open", "");
+    },
+  });
+  Object.defineProperty(prototype, "close", {
+    configurable: true,
+    value: function (this: HTMLDialogElement) {
+      this.removeAttribute("open");
+    },
+  });
+  try {
+    session.content.schemaVersion = 3;
+    session.content.diagrams[0].nodes = [];
+    session.content.buildTasks = [
+      { ...createBuildTask(), id: "manual-work", title: "My task" },
+    ];
+    withModels();
+    await mount();
+    fireEvent.click(screen.getByRole("button", { name: /Plan status/ }));
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Approve plan",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+  } finally {
+    cleanup();
+    if (show) Object.defineProperty(prototype, "showModal", show);
+    else Reflect.deleteProperty(prototype, "showModal");
+    if (closeDialog) Object.defineProperty(prototype, "close", closeDialog);
+    else Reflect.deleteProperty(prototype, "close");
+  }
 });

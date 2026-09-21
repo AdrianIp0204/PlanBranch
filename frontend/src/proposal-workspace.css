@@ -409,3 +409,17 @@
   font-size: 13px;
   color: var(--muted);
 }
+
+.proposal-build {
+  flex: 1 0 220px;
+  min-height: 220px;
+  padding: 16px;
+}
+.proposal-brief-tools {
+  flex-wrap: wrap;
+  min-width: 0;
+  flex: 1;
+}
+.proposal-sections {
+  flex-wrap: wrap;
+}

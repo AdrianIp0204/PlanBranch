@@ -90,8 +90,23 @@ OUTPUT_SCHEMA_V3 = _object({
         "brief": {"anyOf": [{"type": "null"}, BRIEF_SCHEMA]},
     })]},
 })
-OUTPUT_SCHEMAS = {1: OUTPUT_SCHEMA_V1, 2: OUTPUT_SCHEMA_V2, 3: OUTPUT_SCHEMA_V3}
-OUTPUT_SCHEMA = OUTPUT_SCHEMA_V3
+BUILD_TASK_SCHEMA = _object({
+    "id": _text, "title": _text, "deliverable": _text,
+    "nodeLinks": {"type": "array", "items": _object({"nodeId": _text, "diagramId": _text, "title": _text, "missing": {"type": "boolean"}})},
+    "prerequisiteIds": {"type": "array", "items": _text},
+    "expectedFiles": {"type": "array", "items": _text},
+    "acceptanceChecks": {"type": "array", "items": _object({"id": _text, "text": _text})},
+    "status": {"type": "string", "enum": ["not_started", "in_progress", "blocked", "done"]},
+})
+OUTPUT_SCHEMA_V4 = _object({
+    **OUTPUT_SCHEMA_V3["properties"], "protocolVersion": {"type": "integer", "enum": [4]},
+    "proposal": {"anyOf": [{"type": "null"}, _object({
+        **OUTPUT_SCHEMA_V3["properties"]["proposal"]["anyOf"][1]["properties"],
+        "buildTasks": {"anyOf": [{"type": "null"}, {"type": "array", "items": BUILD_TASK_SCHEMA}]},
+    })]},
+})
+OUTPUT_SCHEMAS = {1: OUTPUT_SCHEMA_V1, 2: OUTPUT_SCHEMA_V2, 3: OUTPUT_SCHEMA_V3, 4: OUTPUT_SCHEMA_V4}
+OUTPUT_SCHEMA = OUTPUT_SCHEMA_V4
 
 DISABLED_FEATURES = (
     "shell_tool", "unified_exec", "shell_snapshot", "apps", "plugins", "remote_plugin",
@@ -106,9 +121,9 @@ CONFIG_OVERRIDES = (
     'notify=[]', 'history.persistence="none"', 'analytics.enabled=false',
     'feedback.enabled=false', 'check_for_update_on_startup=false',
 )
-INSTRUCTION_VERSION = "planner-v4"
-PROTOCOL_VERSION = 3
-INSTRUCTION_PROTOCOLS = {"planner-v1": 1, "planner-v2": 2, "planner-v3": 2, "planner-v4": 3}
+INSTRUCTION_VERSION = "planner-v5"
+PROTOCOL_VERSION = 4
+INSTRUCTION_PROTOCOLS = {"planner-v1": 1, "planner-v2": 2, "planner-v3": 2, "planner-v4": 3, "planner-v5": 4}
 
 
 def instruction_resource(version=None):

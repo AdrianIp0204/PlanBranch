@@ -15,6 +15,7 @@ import {
   statuses,
   uid,
   type Content,
+  type BuildTask,
   type Diagram,
   type DetectedSymbol,
   type Envelope,
@@ -28,6 +29,8 @@ import {
 import Canvas, { type FlowNode } from "./Canvas";
 import Inspector from "./Inspector";
 import TidyDiagram from "./TidyDiagram";
+import BuildView from "./BuildView";
+import { deletionNotice } from "./buildTasks";
 import ProjectBriefDialog from "./ProjectBriefDialog";
 import type {
   DraftReference,
@@ -333,6 +336,13 @@ function Workbench({
   const content = session.content;
   const [active, setActive] = useState(content.diagrams[0]?.id ?? "");
   const [briefOpen, setBriefOpen] = useState(false);
+  const [workspaceView, setWorkspaceView] = useState<"diagram" | "build">(
+    "diagram",
+  );
+  const [selectedBuildTask, setSelectedBuildTask] = useState<string | null>(
+    null,
+  );
+  const [returnToBuild, setReturnToBuild] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [tidy, setTidy] = useState<{
     diagram: Diagram;
@@ -593,6 +603,11 @@ function Workbench({
     }
     setUncertainApply(null);
     setActive(proposalPreview.proposal.diagramId);
+    if (
+      proposalPreview.proposal.editableSections?.includes("buildTasks") &&
+      !proposalPreview.proposal.editableSections.includes("diagram")
+    )
+      setWorkspaceView("build");
     setSelected(null);
     previewMutation.current = null;
     closeProposal();
@@ -611,14 +626,21 @@ function Workbench({
     closeProposal();
     setPlanningRefresh((v) => v + 1);
   };
-  const revisePreview = (candidate: Diagram, brief?: ProjectBrief) => {
+  const revisePreview = (
+    candidate: Diagram,
+    brief?: ProjectBrief,
+    buildTasks?: BuildTask[],
+  ) => {
     if (!proposalPreview) return;
     setProposalRevision({
       proposalId: proposalPreview.proposal.id,
       title: proposalPreview.proposal.title,
       diagram: candidate,
-      editableSections: proposalPreview.proposal.editableSections ?? ["diagram"],
+      editableSections: proposalPreview.proposal.editableSections ?? [
+        "diagram",
+      ],
       ...(brief ? { brief: copy(brief) } : {}),
+      ...(buildTasks !== undefined ? { buildTasks: copy(buildTasks) } : {}),
       nonce: uid(),
     });
     openPlanning();
@@ -810,6 +832,7 @@ function Workbench({
   const addNode = (kind: NodeKind) => {
     if (proposalPreview) return;
     if (!diagram) return;
+    setWorkspaceView("diagram");
     const canvas = canvasRef.current?.getBoundingClientRect();
     const center = instance.current?.screenToFlowPosition({
       x: canvas ? canvas.x + canvas.width / 2 : window.innerWidth / 2,
@@ -840,6 +863,7 @@ function Workbench({
     );
     if (d) {
       commit();
+      setWorkspaceView("diagram");
       setActive(d.id);
       setSelected(nodeId);
       if (stacked) {
@@ -1082,10 +1106,12 @@ function Workbench({
             onClick={() => {
               setFocusPane("canvas");
               setNarrowNavigationOpen(false);
-              focusAfterLayout("canvas-title");
+              focusAfterLayout(
+                workspaceView === "build" ? "build-title" : "canvas-title",
+              );
             }}
           >
-            Canvas
+            {workspaceView === "build" ? "Build view" : "Canvas"}
           </button>
           <button
             id="toggle-inspector"
@@ -1103,6 +1129,7 @@ function Workbench({
               if (inspector && !planning && (!stacked || focusPane === "dock"))
                 closeInspector();
               else {
+                setWorkspaceView("diagram");
                 preference("sidePanel", "inspector");
                 setNarrowNavigationOpen(false);
                 setFocusPane("dock");
@@ -1220,6 +1247,7 @@ function Workbench({
                 className={d.id === diagram?.id ? "active" : ""}
                 onClick={() => {
                   commit();
+                  setWorkspaceView("diagram");
                   setActive(d.id);
                   setSelected(null);
                 }}
@@ -1416,248 +1444,304 @@ function Workbench({
               </button>
             </div>
           )}
-          <div className="canvas-toolbar">
-            <div>
-              <h1 id="canvas-title" tabIndex={-1}>
-                <span>{diagram?.name ?? "No diagram"}</span>
-                <button
-                  className="icon-button"
-                  aria-label="Rename diagram"
-                  onClick={() => {
-                    setDiagramName(diagram.name);
-                    setDiagramDialog("rename");
-                  }}
-                >
-                  ✎
-                </button>
-              </h1>
-            </div>
-            <div className="toolbar-actions">
-              <button
-                className="quiet"
-                disabled={!diagram?.nodes.length}
-                onClick={() =>
-                  setTidy({
-                    diagram: copy(diagram),
-                    selectedIds:
-                      instance.current
-                        ?.getNodes()
-                        .filter((n) => n.selected)
-                        .map((n) => n.id) ?? [],
-                  })
-                }
-              >
-                Tidy diagram
-              </button>
-              <details
-                className="add-menu popup-menu"
-                data-popup
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    event.currentTarget.open = false;
-                    event.currentTarget.querySelector("summary")?.focus();
-                  }
-                }}
-                onBlur={(event) => {
-                  if (!event.currentTarget.contains(event.relatedTarget))
-                    event.currentTarget.open = false;
-                }}
-              >
-                <summary className="button">+ Add node</summary>
-                <div className="menu-popover">
-                  {(Object.entries(nodeKinds) as [NodeKind, string][]).map(
-                    ([kind, label]) => (
-                      <button
-                        key={kind}
-                        onClick={(event) => {
-                          addNode(kind);
-                          const menu = event.currentTarget.closest("details");
-                          if (menu) {
-                            menu.open = false;
-                            menu.querySelector("summary")?.focus();
-                          }
-                        }}
-                      >
-                        {label}
-                      </button>
-                    ),
-                  )}
-                </div>
-              </details>
-              <button
-                className="quiet"
-                disabled={!diagram?.nodes.length}
-                title={
-                  !diagram?.nodes.length
-                    ? "Add nodes before connecting them"
-                    : "Choose nodes and a branch label"
-                }
-                onClick={() => setConnecting(true)}
-              >
-                ↗ Connect
-              </button>
-              <select
-                aria-label="Task filter"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-              >
-                <option value="all">All tasks</option>
-                <option value="blocked">Blocked</option>
-                <option value="unfinished">Unfinished</option>
-              </select>
-            </div>
-          </div>
-          <div
-            className="status-strip"
-            title="Task totals exclude note nodes; checklist completion is independent."
-          >
-            <span className="status-count">
-              <strong>{taskNodes.length}</strong> tasks
-            </span>
-            {Object.entries(statuses)
-              .filter(([key]) => counts[key] > 0)
-              .map(([key, label]) => (
-                <span key={key}>
-                  <StatusMark status={key} />
-                  {counts[key]} {label.toLowerCase()}
-                </span>
-              ))}
-            {filter !== "all" && (
-              <span className="filter-note">Other nodes are dimmed</span>
-            )}
-          </div>
-          <div className="editor-row">
-            <div
-              className="canvas-column"
-              data-testid="diagram-canvas"
-              ref={canvasRef}
-            >
-              {diagram ? (
-                <Canvas
-                  diagram={diagram}
-                  selected={selected}
-                  onSelect={select}
-                  onInspect={() => {
-                    preference("sidePanel", "inspector");
-                    setInspector(true);
-                    setFocusPane("dock");
-                    focusAfterLayout("inspector-pane");
-                  }}
-                  filter={filter}
-                  onInstance={(i) => {
-                    instance.current = i;
-                  }}
-                  connectRequest={connecting}
-                  onConnected={() => setConnecting(false)}
-                  onAddNode={() => addNode("process")}
-                />
-              ) : (
-                <Empty title="Add a diagram">
-                  Use the + beside Diagrams to begin.
-                </Empty>
-              )}
-            </div>
-          </div>
-          {variables ? (
-            <div className="catalogue-pane">
-              <ResizeHandle
-                label="Resize variable catalogue"
-                controls="variable-catalogue"
-                orientation="horizontal"
-                value={catalogueHeight}
-                min={catalogueMin}
-                max={catalogueMax}
-                onChange={(value) => preference("catalogueHeight", value)}
-                onCollapse={closeCatalogue}
-              />
-              <VariablePanel
-                symbols={symbols}
-                focus={variableFocus}
-                setFocus={setVariableFocus}
-                onReveal={reveal}
-                onClose={closeCatalogue}
-                reconciliation={reconciliation}
-                onAttachSource={openSource}
-              />
-            </div>
-          ) : (
+          <div className="workspace-mode" role="group" aria-label="Plan views">
             <button
-              className="drawer-toggle"
-              id="open-catalogue"
-              aria-label="Variable catalogue — Open catalogue"
-              aria-expanded={false}
-              aria-controls="variable-catalogue"
+              className="quiet"
+              aria-pressed={workspaceView === "diagram"}
               onClick={() => {
-                setVariables(true);
-                focusAfterLayout("catalogue-search");
-                void refreshEvidence();
+                commit();
+                setWorkspaceView("diagram");
               }}
             >
-              <span>
-                ⌃ <strong>Variable catalogue</strong>
-                <span className="muted">
-                  {content.variables.length} planned · {symbols.length} detected
-                </span>
-              </span>
-              <span>Open catalogue</span>
+              Diagram
             </button>
-          )}
-        </main>
-        {inspector && diagram && (!proposalPreview || planning) && (
-          <>
-            <ResizeHandle
-              label={planning ? "Resize planning chat" : "Resize inspector"}
-              controls={planning ? "planning-pane" : "inspector-pane"}
-              orientation="vertical"
-              value={inspectorWidth}
-              min={dockMin}
-              max={inspectorMax}
-              onChange={(value) =>
-                preference(planning ? "chatWidth" : "inspectorWidth", value)
-              }
-              onCollapse={closeInspector}
-            />
-            {!planning && (
-              <div
-                className="inspector-pane"
-                onFocusCapture={() => setFocusPane("dock")}
-                onPointerDownCapture={() => setFocusPane("dock")}
-                id="inspector-pane"
-                tabIndex={-1}
-                hidden={stacked && focusPane !== "dock"}
+            <button
+              className="quiet"
+              aria-pressed={workspaceView === "build"}
+              onClick={() => {
+                commit();
+                setWorkspaceView("build");
+                setReturnToBuild(false);
+              }}
+            >
+              Build
+            </button>
+            {returnToBuild && workspaceView === "diagram" && (
+              <button
+                className="quiet back-build"
+                onClick={() => {
+                  commit();
+                  setWorkspaceView("build");
+                  setReturnToBuild(false);
+                  focusAfterLayout("build-title");
+                }}
               >
-                {variableFocus && (
+                Back to build task
+              </button>
+            )}
+          </div>
+          {workspaceView === "build" && (
+            <BuildView
+              selectedId={selectedBuildTask}
+              onSelect={setSelectedBuildTask}
+              onRevealNode={(_diagramId, nodeId) => {
+                setReturnToBuild(true);
+                reveal(nodeId);
+              }}
+            />
+          )}
+          <div
+            style={{
+              display: workspaceView === "diagram" ? "contents" : "none",
+            }}
+          >
+            <div className="canvas-toolbar">
+              <div>
+                <h1 id="canvas-title" tabIndex={-1}>
+                  <span>{diagram?.name ?? "No diagram"}</span>
                   <button
-                    className="back-to-variable quiet"
+                    className="icon-button"
+                    aria-label="Rename diagram"
                     onClick={() => {
-                      setVariables(true);
-                      setFocusPane("canvas");
-                      focusAfterLayout("variable-detail-heading");
+                      setDiagramName(diagram.name);
+                      setDiagramDialog("rename");
                     }}
                   >
-                    ← Back to variable
+                    ✎
                   </button>
-                )}
-                <Inspector
-                  diagram={diagram}
-                  selected={selected}
-                  symbols={symbols}
-                  onSelect={select}
-                  onDiscuss={() => openPlanning(true)}
-                  onVariable={(id) => {
-                    setVariables(true);
-                    setFocusPane("canvas");
-                    setVariableFocus(id);
-                    focusAfterLayout(
-                      id ? "variable-detail-heading" : "catalogue-search",
-                    );
+                </h1>
+              </div>
+              <div className="toolbar-actions">
+                <button
+                  className="quiet"
+                  disabled={!diagram?.nodes.length}
+                  onClick={() =>
+                    setTidy({
+                      diagram: copy(diagram),
+                      selectedIds:
+                        instance.current
+                          ?.getNodes()
+                          .filter((n) => n.selected)
+                          .map((n) => n.id) ?? [],
+                    })
+                  }
+                >
+                  Tidy diagram
+                </button>
+                <details
+                  className="add-menu popup-menu"
+                  data-popup
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      event.currentTarget.open = false;
+                      event.currentTarget.querySelector("summary")?.focus();
+                    }
                   }}
+                  onBlur={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget))
+                      event.currentTarget.open = false;
+                  }}
+                >
+                  <summary className="button">+ Add node</summary>
+                  <div className="menu-popover">
+                    {(Object.entries(nodeKinds) as [NodeKind, string][]).map(
+                      ([kind, label]) => (
+                        <button
+                          key={kind}
+                          onClick={(event) => {
+                            addNode(kind);
+                            const menu = event.currentTarget.closest("details");
+                            if (menu) {
+                              menu.open = false;
+                              menu.querySelector("summary")?.focus();
+                            }
+                          }}
+                        >
+                          {label}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                </details>
+                <button
+                  className="quiet"
+                  disabled={!diagram?.nodes.length}
+                  title={
+                    !diagram?.nodes.length
+                      ? "Add nodes before connecting them"
+                      : "Choose nodes and a branch label"
+                  }
+                  onClick={() => setConnecting(true)}
+                >
+                  ↗ Connect
+                </button>
+                <select
+                  aria-label="Task filter"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                >
+                  <option value="all">All steps</option>
+                  <option value="blocked">Blocked</option>
+                  <option value="unfinished">Unfinished</option>
+                </select>
+              </div>
+            </div>
+            <div
+              className="status-strip"
+              title="Diagram step totals exclude notes; Build task status is separate."
+            >
+              <span className="status-count">
+                <strong>{taskNodes.length}</strong> steps
+              </span>
+              {Object.entries(statuses)
+                .filter(([key]) => counts[key] > 0)
+                .map(([key, label]) => (
+                  <span key={key}>
+                    <StatusMark status={key} />
+                    {counts[key]} {label.toLowerCase()}
+                  </span>
+                ))}
+              {filter !== "all" && (
+                <span className="filter-note">Other nodes are dimmed</span>
+              )}
+            </div>
+            <div className="editor-row">
+              <div
+                className="canvas-column"
+                data-testid="diagram-canvas"
+                ref={canvasRef}
+              >
+                {diagram ? (
+                  <Canvas
+                    diagram={diagram}
+                    selected={selected}
+                    onSelect={select}
+                    onInspect={() => {
+                      preference("sidePanel", "inspector");
+                      setInspector(true);
+                      setFocusPane("dock");
+                      focusAfterLayout("inspector-pane");
+                    }}
+                    filter={filter}
+                    onInstance={(i) => {
+                      instance.current = i;
+                    }}
+                    connectRequest={connecting}
+                    onConnected={() => setConnecting(false)}
+                    onAddNode={() => addNode("process")}
+                  />
+                ) : (
+                  <Empty title="Add a diagram">
+                    Use the + beside Diagrams to begin.
+                  </Empty>
+                )}
+              </div>
+            </div>
+            {variables ? (
+              <div className="catalogue-pane">
+                <ResizeHandle
+                  label="Resize variable catalogue"
+                  controls="variable-catalogue"
+                  orientation="horizontal"
+                  value={catalogueHeight}
+                  min={catalogueMin}
+                  max={catalogueMax}
+                  onChange={(value) => preference("catalogueHeight", value)}
+                  onCollapse={closeCatalogue}
+                />
+                <VariablePanel
+                  symbols={symbols}
+                  focus={variableFocus}
+                  setFocus={setVariableFocus}
+                  onReveal={reveal}
+                  onClose={closeCatalogue}
+                  reconciliation={reconciliation}
+                  onAttachSource={openSource}
                 />
               </div>
+            ) : (
+              <button
+                className="drawer-toggle"
+                id="open-catalogue"
+                aria-label="Variable catalogue — Open catalogue"
+                aria-expanded={false}
+                aria-controls="variable-catalogue"
+                onClick={() => {
+                  setVariables(true);
+                  focusAfterLayout("catalogue-search");
+                  void refreshEvidence();
+                }}
+              >
+                <span>
+                  ⌃ <strong>Variable catalogue</strong>
+                  <span className="muted">
+                    {content.variables.length} planned · {symbols.length}{" "}
+                    detected
+                  </span>
+                </span>
+                <span>Open catalogue</span>
+              </button>
             )}
-          </>
-        )}
+          </div>
+        </main>
+        {inspector &&
+          diagram &&
+          (workspaceView === "diagram" || planning || proposalPreview) &&
+          (!proposalPreview || planning) && (
+            <>
+              <ResizeHandle
+                label={planning ? "Resize planning chat" : "Resize inspector"}
+                controls={planning ? "planning-pane" : "inspector-pane"}
+                orientation="vertical"
+                value={inspectorWidth}
+                min={dockMin}
+                max={inspectorMax}
+                onChange={(value) =>
+                  preference(planning ? "chatWidth" : "inspectorWidth", value)
+                }
+                onCollapse={closeInspector}
+              />
+              {!planning && (
+                <div
+                  className="inspector-pane"
+                  onFocusCapture={() => setFocusPane("dock")}
+                  onPointerDownCapture={() => setFocusPane("dock")}
+                  id="inspector-pane"
+                  tabIndex={-1}
+                  hidden={stacked && focusPane !== "dock"}
+                >
+                  {variableFocus && (
+                    <button
+                      className="back-to-variable quiet"
+                      onClick={() => {
+                        setVariables(true);
+                        setFocusPane("canvas");
+                        focusAfterLayout("variable-detail-heading");
+                      }}
+                    >
+                      ← Back to variable
+                    </button>
+                  )}
+                  <Inspector
+                    diagram={diagram}
+                    selected={selected}
+                    symbols={symbols}
+                    onSelect={select}
+                    onDiscuss={() => openPlanning(true)}
+                    onVariable={(id) => {
+                      setVariables(true);
+                      setFocusPane("canvas");
+                      setVariableFocus(id);
+                      focusAfterLayout(
+                        id ? "variable-detail-heading" : "catalogue-search",
+                      );
+                    }}
+                  />
+                </div>
+              )}
+            </>
+          )}
         {planningVisited && diagram && (
           <div
             className="inspector-pane planning-pane"
@@ -1745,7 +1829,10 @@ function Workbench({
                   onClick={() => {
                     if (
                       window.confirm(
-                        `Delete diagram “${diagram.name}” and its nodes?`,
+                        `Delete diagram “${diagram.name}” and its nodes?${deletionNotice(
+                          content,
+                          diagram.nodes.map((n) => n.id),
+                        )}`,
                       )
                     ) {
                       change(

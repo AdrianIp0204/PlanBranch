@@ -230,3 +230,13 @@ The summary counts added, changed and removed items. **Review hints** offers opt
 Open **Brief** in the top bar to edit the goal, intended user, requirements, constraints, exclusions, agreed decisions and assumptions. Changes save automatically and participate in project Undo/Redo. Editing the brief makes an existing plan approval outdated. Keep uncertain assumptions in their own field until you agree to adopt them.
 
 The brief is included in each new planning request, even when older conversation messages are omitted. Codex can propose brief updates, which appear in the existing review workspace alongside any diagram changes. Compare Before and Proposed, edit the candidate, request a revision, Apply or Discard. Saving a proposal draft never changes the saved brief. JSON and Markdown exports include the brief; older project files import with an empty brief.
+
+## Build tasks
+
+Use **Build** above the canvas to plan implementation work. **Diagram** describes how the program behaves; **Build** describes what to implement. Program connections never determine task execution order.
+
+Each task has a deliverable, expected files or areas, acceptance checks, its own status, optional links to diagram nodes, and prerequisite tasks. Use Move up/Move down to organize the list. Prerequisites must form an acyclic graph; the chooser explains choices that would create a cycle. An unfinished task can be saved without filling every field.
+
+Selecting a linked node opens its diagram; **Back to build task** returns to the same task. Deleting a linked node or diagram retains the task and its last-known link, marked Missing. Relink or remove that reference explicitly. Deleting a task asks for confirmation and explains any prerequisite references it will remove.
+
+Changes to tasks share project autosave, Undo/Redo and approval freshness. JSON and Markdown exports include them. Task completion never changes diagram status, checklist completion or scanner observations. Codex may propose task changes; the existing Before/Proposed workspace shows a Build tab for review, manual edits and revision requests. Applying a proposal remains one history action.

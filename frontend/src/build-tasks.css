@@ -1,0 +1,229 @@
+.build-tasks-editor {
+  container-type: inline-size;
+  container-name: build-editor;
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  align-items: start;
+  min-width: 0;
+  gap: 20px;
+  font-size: 14px;
+}
+.build-task-list {
+  min-width: 0;
+  border-right: 1px solid var(--line);
+  padding-right: 16px;
+}
+.build-task-list-heading,
+.build-task-section-heading,
+.build-task-heading,
+.build-task-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.build-task-list-heading,
+.build-task-section-heading {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.build-task-list-heading {
+  margin-bottom: 10px;
+}
+.build-task-list ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: max(180px, calc(100vh - 230px));
+  overflow-y: auto;
+}
+.build-task-list li {
+  margin-bottom: 4px;
+}
+.build-tasks-editor .build-task-choice {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  column-gap: 6px;
+  row-gap: 4px;
+  width: 100%;
+  min-height: 58px;
+  text-align: left;
+  padding: 9px 8px;
+  white-space: normal;
+  background: transparent;
+  border-color: transparent;
+}
+.build-task-choice[aria-pressed="true"] {
+  background: #e7eee8;
+  border-color: #bdcec2;
+}
+.build-task-number {
+  color: var(--muted);
+  font-size: 13px;
+}
+.build-task-title {
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.build-task-status {
+  grid-column: 2;
+  color: #52665e;
+  font-size: 13px;
+}
+.build-task-detail {
+  min-width: 0;
+}
+.build-task-heading {
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.build-task-heading h2 {
+  margin: 0;
+  font-size: 18px;
+  overflow-wrap: anywhere;
+  flex: 1 1 150px;
+}
+.build-task-actions {
+  flex-wrap: wrap;
+}
+.build-task-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.build-task-basics {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 160px);
+  gap: 12px;
+}
+.build-task-fields input:not([type="checkbox"]),
+.build-task-fields textarea,
+.build-task-fields select {
+  width: 100%;
+  min-width: 0;
+  font-size: 14px;
+}
+.build-task-fields textarea {
+  resize: vertical;
+  min-height: 86px;
+}
+.build-task-fields input[readonly],
+.build-task-fields textarea[readonly] {
+  background: #f6f8f5;
+}
+.build-task-section {
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+  padding-top: 12px;
+}
+.build-task-section h3,
+.build-task-section summary {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+.build-task-section summary {
+  cursor: pointer;
+  padding: 2px 0 10px;
+}
+.build-task-section-heading {
+  margin-bottom: 8px;
+}
+.build-task-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  margin: 10px 0;
+}
+.build-task-input-row .field {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+.build-task-link {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 7px 0;
+}
+.build-task-link > div {
+  flex: 1 1 150px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.build-task-link small,
+.build-task-prerequisite small {
+  display: block;
+  color: #657265;
+  font-size: 13px;
+}
+.build-task-link .quiet {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.build-task-link select {
+  flex: 1 1 160px;
+}
+.build-task-missing {
+  color: #88571e;
+  display: block;
+  font-size: 13px;
+}
+.build-task-link-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.build-task-link-add select {
+  flex: 1;
+  min-width: 0;
+}
+.build-task-prerequisite {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 9px 0;
+  overflow-wrap: anywhere;
+}
+.build-task-prerequisite input {
+  margin-top: 4px;
+  flex: 0 0 auto;
+}
+.build-task-empty {
+  padding: 28px 12px;
+  color: var(--muted);
+}
+.build-task-empty h2 {
+  font-size: 20px;
+  color: var(--ink);
+}
+.build-tasks-editor button {
+  font-size: 13px;
+  min-height: 34px;
+}
+@container build-editor (max-width: 700px) {
+  .build-task-list {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding: 0 0 12px;
+  }
+  .build-task-list ol {
+    max-height: 170px;
+  }
+  .build-task-list,
+  .build-task-detail,
+  .build-task-empty {
+    grid-column: 1 / -1;
+  }
+}
+@container build-editor (max-width: 380px) {
+  .build-task-basics {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+}

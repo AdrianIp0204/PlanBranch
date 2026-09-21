@@ -93,6 +93,76 @@ def validate_brief(raw):
     return result
 
 
+def validate_build_tasks(tasks, content, claim):
+    """Build prerequisites form a DAG; program-flow edges may still loop."""
+    array(tasks, "Build tasks", 1000)
+    nodes = {node["id"]: (diagram["id"], node["title"])
+             for diagram in content["diagrams"] for node in diagram["nodes"]}
+    task_ids = set()
+    for task in tasks:
+        fields = {"id", "title", "deliverable", "nodeLinks", "prerequisiteIds", "expectedFiles", "acceptanceChecks", "status"}
+        obj(task, fields, "build task")
+        if set(task) != fields:
+            fail("A build task must include every task field, using empty text or lists for unfinished details.")
+        claim(task.get("id"), "Build task ID")
+        task_ids.add(task["id"])
+        string(task["title"], "Build task title", 500)
+        string(task["deliverable"], "Build deliverable")
+        choice(task["status"], STATUSES, "build task status")
+        seen_nodes = set()
+        for link in array(task["nodeLinks"], "Build node links", 500):
+            obj(link, {"nodeId", "diagramId", "title", "missing"}, "build node link")
+            identifier(link.get("nodeId"), "Build linked node ID")
+            identifier(link.get("diagramId"), "Build linked diagram ID")
+            string(link.get("title"), "Build linked node title", 500)
+            if type(link.get("missing")) is not bool:
+                fail("Build link missing must be true or false.")
+            if link["nodeId"] in seen_nodes:
+                fail("A build task may link to a node only once.")
+            seen_nodes.add(link["nodeId"])
+            live = nodes.get(link["nodeId"])
+            if live is not None:
+                link.update(diagramId=live[0], title=live[1], missing=False)
+            else:
+                # Preserve the last-known title and diagram when a flow node is
+                # deleted. Restoring its ID automatically restores the live link.
+                link["missing"] = True
+        for expected in array(task["expectedFiles"], "Expected files or areas", 200):
+            string(expected, "Expected file or area", 2048)
+        for check in array(task["acceptanceChecks"], "Build acceptance checks", 500):
+            obj(check, {"id", "text"}, "build acceptance check")
+            claim(check.get("id"), "Build acceptance check ID")
+            string(check.get("text"), "Build acceptance check text", 4000)
+        array(task["prerequisiteIds"], "Build prerequisites", 1000)
+    dependants = {key: [] for key in task_ids}
+    counts = {}
+    for task in tasks:
+        seen = set()
+        for prerequisite in task["prerequisiteIds"]:
+            identifier(prerequisite, "Prerequisite task ID")
+            if prerequisite not in task_ids:
+                fail("A build prerequisite references an unknown task.")
+            if prerequisite == task["id"]:
+                fail("A build task cannot depend on itself.")
+            if prerequisite in seen:
+                fail("Build prerequisites must be unique within a task.")
+            seen.add(prerequisite)
+            dependants[prerequisite].append(task["id"])
+        counts[task["id"]] = len(seen)
+    ready = [key for key, count in counts.items() if count == 0]
+    visited = 0
+    while ready:
+        key = ready.pop()
+        visited += 1
+        for dependant in dependants[key]:
+            counts[dependant] -= 1
+            if counts[dependant] == 0:
+                ready.append(dependant)
+    if visited != len(tasks):
+        fail("Build task prerequisites must not contain a cycle. Program diagrams may contain loops.")
+    return tasks
+
+
 def validate_content(raw, detected_ids=None):
     """Normalize a manual snapshot; optionally verify scanner-owned references."""
     try:
@@ -106,7 +176,7 @@ def validate_content(raw, detected_ids=None):
         content = upgrade_content(raw)
     except ValueError as exc:
         fail(str(exc))
-    obj(content, {"schemaVersion", "name", "notes", "brief", "diagrams", "variables", "nodeLinks", "matches"}, "project")
+    obj(content, {"schemaVersion", "name", "notes", "brief", "buildTasks", "diagrams", "variables", "nodeLinks", "matches"}, "project")
     content["brief"] = validate_brief(content.get("brief", empty_brief()))
     string(content.get("name"), "Project name", 200, True)
     string(content.setdefault("notes", ""), "Project notes", 100000)
@@ -211,6 +281,7 @@ def validate_content(raw, detected_ids=None):
         if key in match_keys:
             fail("A plan-symbol pair may have only one match decision.")
         match_keys.add(key)
+    content["buildTasks"] = validate_build_tasks(content.get("buildTasks", []), content, claim)
     return content
 
 

@@ -1,6 +1,6 @@
 """Durable planning conversation and explicit review, separate from graph history.
 
-The provider can propose a diagram and brief, never write project content. Acceptance is
+The provider can propose a diagram, brief, and Build tasks, never write project content. Acceptance is
 the sole boundary that projects a proposal into ordinary undoable manual content.
 """
 from __future__ import annotations
@@ -38,6 +38,8 @@ def apply_candidate_sections(base, candidate, proposal, detected_ids):
         result = replace_diagram(result, diagram_in(candidate, proposal["diagram_id"]), proposal["diagram_id"], detected_ids)
     if "brief" in sections:
         result["brief"] = validate_brief(candidate["brief"])
+    if "buildTasks" in sections:
+        result["buildTasks"] = deepcopy(candidate["buildTasks"])
     return validate_content(result, detected_ids)
 
 
@@ -45,8 +47,8 @@ def edit_candidate_sections(base, original, proposal, payload, detected_ids, *, 
     """Only authored sections are editable; use base links when nodes return."""
     sections = editable_sections(proposal)
     original = upgrade_content(original)
-    for section in ("diagram", "brief"):
-        field = prefix + section.capitalize() if prefix else section
+    for section in ("diagram", "brief", "buildTasks"):
+        field = prefix + section[0].upper() + section[1:] if prefix else section
         if field in payload and section not in sections:
             raise ValidationError(f"This proposal does not include {section} changes.")
     candidate = apply_candidate_sections(base, original, proposal, detected_ids)
@@ -54,10 +56,14 @@ def edit_candidate_sections(base, original, proposal, payload, detected_ids, *, 
     if graph_key in payload:
         # Start with original base links so restoring a node also restores its links.
         candidate = replace_diagram(base, payload[graph_key], proposal["diagram_id"], detected_ids)
-        if "brief" in sections:
-            candidate["brief"] = original["brief"]
+        for section in ("brief", "buildTasks"):
+            if section in sections:
+                candidate[section] = deepcopy(original[section])
     if brief_key in payload:
         candidate["brief"] = validate_brief(payload[brief_key])
+    tasks_key = prefix + "BuildTasks" if prefix else "buildTasks"
+    if tasks_key in payload:
+        candidate["buildTasks"] = deepcopy(payload[tasks_key])
     return validate_content(candidate, detected_ids)
 
 
@@ -123,6 +129,29 @@ def changes_between(before, after, old_links, new_links):
         if link["id"] not in retained:
             changes.append({"kind": "remove_link", "nodeId": link["nodeId"],
                             "label": "Remove variable link from deleted node", "before": link, "after": None})
+    return changes
+
+
+def build_changes_between(before, after):
+    previous = {task["id"]: task for task in before}
+    proposed = {task["id"]: task for task in after}
+    changes = []
+    for key in dict.fromkeys([*previous, *proposed]):
+        old, new = previous.get(key), proposed.get(key)
+        title = (new or old)["title"] or "Untitled build task"
+        if old is None or new is None:
+            verb = "add" if old is None else "remove"
+            changes.append({"kind": verb + "_build_task", "taskId": key, "label": verb.capitalize() + " build task: " + title,
+                            "before": old, "after": new})
+        else:
+            for field in sorted(set(old) | set(new)):
+                if old.get(field) != new.get(field):
+                    changes.append({"kind": "update_build_task", "taskId": key, "field": field,
+                                    "label": title + ": " + field, "before": old.get(field), "after": new.get(field)})
+    old_order = [task["id"] for task in before if task["id"] in proposed]
+    new_order = [task["id"] for task in after if task["id"] in previous]
+    if old_order != new_order:
+        changes.append({"kind": "reorder_build_tasks", "label": "Reorder build tasks", "before": old_order, "after": new_order})
     return changes
 
 
@@ -297,8 +326,10 @@ class PlanningService:
         result = {"id": proposal["id"], "title": proposal["title"], "summary": proposal["summary"],
                 "diagram": deepcopy(diagram_in(candidate, proposal["diagram_id"])),
                 "stale": proposal["base_hash"] != manual_fingerprint(project["content"])}
-        if "brief" in editable_sections(proposal):
-            result.update(brief=candidate["brief"], editableSections=editable_sections(proposal))
+        for section in ("brief", "buildTasks"):
+            if section in editable_sections(proposal):
+                result[section] = candidate[section]
+                result["editableSections"] = editable_sections(proposal)
         return result
 
     def _receipt(self, db, project_id, action, payload):
@@ -360,7 +391,7 @@ class PlanningService:
         return self.state(project_id)
 
     def send_message(self, project_id, payload):
-        obj(payload, {"mutationId", "text", "diagramId", "nodeId", "selection", "proposalId", "proposalDiagram", "proposalBrief"}, "planning message")
+        obj(payload, {"mutationId", "text", "diagramId", "nodeId", "selection", "proposalId", "proposalDiagram", "proposalBrief", "proposalBuildTasks"}, "planning message")
         identifier(payload.get("mutationId"), "Mutation ID")
         string(payload.get("text"), "Message", 12000, True)
         diagram_id = identifier(payload.get("diagramId"), "Diagram ID")
@@ -368,7 +399,7 @@ class PlanningService:
             identifier(payload["nodeId"], "Node ID")
         if "proposalId" in payload:
             identifier(payload["proposalId"], "Proposal ID")
-        elif "proposalDiagram" in payload or "proposalBrief" in payload:
+        elif any(field in payload for field in ("proposalDiagram", "proposalBrief", "proposalBuildTasks")):
             raise ValidationError("Choose a proposal before submitting its edited content.")
         payload = {**payload, "nodeId": payload.get("nodeId")}
         selection = self._selection(payload.get("selection", {"mode": "default"}))
@@ -479,8 +510,9 @@ class PlanningService:
                     request_payload["proposalId"] = review["id"]
                     if "diagram" in review.get("editableSections", ["diagram"]):
                         request_payload["proposalDiagram"] = review["diagram"]
-                    if "brief" in review:
-                        request_payload["proposalBrief"] = review["brief"]
+                    for section in ("brief", "buildTasks"):
+                        if section in review:
+                            request_payload["proposal" + section[0].upper() + section[1:]] = review[section]
                 db.execute("INSERT INTO planning_requests VALUES(?,?,?,?,?,?,?,?,?,'running',NULL,?,?)",
                            (request_id, project_id, fingerprint(request_payload), encode(request_payload), encode(context),
                             project["revision"], project["cursor"], manual_fingerprint(project["content"]), attempt_id, timestamp, timestamp))
@@ -547,7 +579,7 @@ class PlanningService:
                     return
                 if proposed is not None:
                     version = context.get("generation", {}).get("protocolVersion", 1)
-                    obj(proposed, {"title", "summary", "diagramId", "nodes", "edges"} | ({"brief"} if version >= 3 else set()), "agent proposal")
+                    obj(proposed, {"title", "summary", "diagramId", "nodes", "edges"} | ({"brief"} if version >= 3 else set()) | ({"buildTasks"} if version >= 4 else set()), "agent proposal")
                     string(proposed.get("title"), "Proposal title", 200, True)
                     string(proposed.get("summary"), "Proposal summary", 12000, True)
                     if proposed.get("diagramId") != context["activeDiagramId"]:
@@ -556,15 +588,19 @@ class PlanningService:
                     diagram = diagram_in(content, proposed["diagramId"])
                     before = deepcopy(diagram)
                     graph = proposed.get("nodes") is not None or proposed.get("edges") is not None
-                    sections = (["diagram"] if graph else []) + (["brief"] if proposed.get("brief") is not None else [])
+                    sections = (["diagram"] if graph else []) + [key for key in ("brief", "buildTasks") if proposed.get(key) is not None]
                     if (version < 3 and not graph) or not sections:
-                        raise ValidationError("The proposal must include diagram or brief changes.")
+                        raise ValidationError("The proposal must include diagram, brief, or Build task changes.")
                     if version >= 3 and not {"nodes", "edges", "brief"}.issubset(proposed):
                         raise ValidationError("A proposal must specify nodes, edges, and brief, using null for unchanged sections.")
+                    if version >= 4 and "buildTasks" not in proposed:
+                        raise ValidationError("A proposal must specify buildTasks, using null for unchanged tasks.")
                     if graph:
                         diagram["nodes"], diagram["edges"] = proposed.get("nodes"), proposed.get("edges")
                     if "brief" in sections:
                         content["brief"] = validate_brief(proposed["brief"])
+                    if "buildTasks" in sections:
+                        content["buildTasks"] = deepcopy(proposed["buildTasks"])
                     # Validate shape before computing deletion IDs. All remaining
                     # links must keep their exact authored relationship and ID.
                     if not isinstance(diagram["nodes"], list):
@@ -589,6 +625,7 @@ class PlanningService:
                         if old_brief[field] != content["brief"][field]:
                             changes.append({"kind": "update_brief", "field": field, "label": "Project brief: " + field,
                                             "before": old_brief[field], "after": content["brief"][field]})
+                    changes.extend(build_changes_between(upgrade_content(context["content"])["buildTasks"], content["buildTasks"]))
                     if not changes:
                         raise ValidationError("The proposed plan contains no changes. Ask for a reply without a proposal instead.")
                     proposal_id = str(uuid4())
@@ -695,8 +732,8 @@ class PlanningService:
                 if project["revision"] != payload["baseRevision"]:
                     raise ConflictError(project["revision"])
                 state = self._state(db, project_id)
-                if not any(n["type"] != "note" for d in project["content"]["diagrams"] for n in d["nodes"]):
-                    raise ValidationError("Add at least one planning step before approving the plan.")
+                if not project["content"].get("buildTasks") and not any(n["type"] != "note" for d in project["content"]["diagrams"] for n in d["nodes"]):
+                    raise ValidationError("Add at least one planning step or Build task before approving the plan.")
                 if state["request"] and state["request"]["status"] == "running":
                     raise RuntimeError("Wait for the planning reply before approving.")
                 if any(p["state"] == "pending" for p in state["proposals"]):

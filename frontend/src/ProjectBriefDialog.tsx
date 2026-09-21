@@ -30,7 +30,8 @@ export default function ProjectBriefDialog({
                   ...(content.brief ?? emptyBrief()),
                   [field]: value,
                 };
-                content.schemaVersion = 2;
+                content.schemaVersion = 3;
+                content.buildTasks ??= [];
               },
               `Edit brief: ${briefLabels[field]}`,
               undefined,

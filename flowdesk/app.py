@@ -174,7 +174,7 @@ def create_app(data_dir=None, *, testing=False, planner=None):
 
     @app.post("/api/projects/<project_id>/planning/messages")
     def planning_message(project_id):
-        return jsonify(planning.send_message(project_id, planning_body(diagram_field=("proposalDiagram", "proposalBrief")))), 202
+        return jsonify(planning.send_message(project_id, planning_body(diagram_field=("proposalDiagram", "proposalBrief", "proposalBuildTasks")))), 202
 
     @app.post("/api/projects/<project_id>/planning/questions/<set_id>/answers")
     def planning_answers(project_id, set_id):
@@ -202,7 +202,7 @@ def create_app(data_dir=None, *, testing=False, planner=None):
 
     @app.put("/api/projects/<project_id>/planning/proposals/<proposal_id>/drafts/<draft_id>")
     def save_proposal_draft(project_id, proposal_id, draft_id):
-        return jsonify(planning.drafts.save(project_id, proposal_id, draft_id, planning_body(diagram_field=("diagram", "brief"))))
+        return jsonify(planning.drafts.save(project_id, proposal_id, draft_id, planning_body(diagram_field=("diagram", "brief", "buildTasks"))))
 
     @app.post("/api/projects/<project_id>/planning/proposals/<proposal_id>/drafts/<draft_id>/prepare-apply")
     def prepare_proposal_apply(project_id, proposal_id, draft_id):

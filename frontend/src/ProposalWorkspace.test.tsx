@@ -13,6 +13,7 @@ import ProposalWorkspace, {
   type ProposalWorkspaceProps,
 } from "./ProposalWorkspace";
 import { api } from "./api";
+import { createBuildTask } from "./buildTasks";
 import type { DraftDetail } from "./durableDrafts";
 import { copy, createNode, emptyBrief, type Content } from "./types";
 import {
@@ -165,6 +166,10 @@ async function mockDraftApi(path: string, options: RequestInit = {}) {
       if (body.brief) {
         candidate.brief = body.brief;
         candidate.schemaVersion = 2;
+      }
+      if (body.buildTasks !== undefined) {
+        candidate.buildTasks = body.buildTasks;
+        candidate.schemaVersion = 3;
       }
       const draft: DraftDetail = {
         id,
@@ -920,5 +925,149 @@ describe("reviewable project brief proposals", () => {
     expect([...savedDrafts.values()][0].candidate.brief?.goal).toBe(
       "My second-section edit",
     );
+  });
+});
+
+describe("reviewable build task proposals", () => {
+  function taskDetail() {
+    const fixture = detail();
+    fixture.proposal.editableSections = ["buildTasks"];
+    fixture.baseContent!.schemaVersion = 3;
+    fixture.content.schemaVersion = 3;
+    fixture.content.diagrams = copy(fixture.baseContent!.diagrams);
+    fixture.baseContent!.buildTasks = [
+      { ...createBuildTask(), id: "work", title: "Original work" },
+      { ...createBuildTask(), id: "removed-work", title: "Removed work" },
+    ];
+    fixture.content.buildTasks = [
+      {
+        ...createBuildTask(),
+        id: "work",
+        title: "Agent work",
+        acceptanceChecks: [{ id: "outcome", text: "Check the output" }],
+      },
+    ];
+    return fixture;
+  }
+  it("compares task changes by stable identity and opens removed tasks in Before", async () => {
+    await setup({ detail: taskDetail() });
+    expect(
+      screen
+        .getByRole("button", { name: "Build tasks" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(screen.getByTestId("review-task-count").textContent).toBe(
+      "0 added · 1 changed · 1 removed",
+    );
+    expect(
+      (screen.getByLabelText("Task title") as HTMLInputElement).readOnly,
+    ).toBe(true);
+    fireEvent.change(screen.getByLabelText("Review task change"), {
+      target: { value: "task:removed-work" },
+    });
+    expect(
+      screen
+        .getByRole("button", { name: "Before" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(
+      (screen.getByLabelText("Task title") as HTMLInputElement).value,
+    ).toBe("Removed work");
+    fireEvent.click(screen.getByRole("button", { name: "Next task change" }));
+    expect(
+      screen
+        .getByRole("button", { name: "Proposed" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(
+      (screen.getByLabelText("Task title") as HTMLInputElement).value,
+    ).toBe("Agent work");
+    fireEvent.click(screen.getByRole("button", { name: "Diagram" }));
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Edit manually",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+  });
+  it("keeps manual task edits for revision and prepared Apply without including graph or brief fields", async () => {
+    const fixture = taskDetail();
+    const { props } = await setup({ detail: fixture });
+    fireEvent.click(screen.getByRole("button", { name: "Edit manually" }));
+    fireEvent.change(screen.getByLabelText("Task title"), {
+      target: { value: "Reviewed work" },
+    });
+    fireEvent.blur(screen.getByLabelText("Task title"));
+    fireEvent.change(screen.getByLabelText("Acceptance check 1"), {
+      target: { value: "Check saved output after restart" },
+    });
+    fireEvent.blur(screen.getByLabelText("Acceptance check 1"));
+    fireEvent.click(screen.getByRole("button", { name: "Ask Codex" }));
+    expect(props.onRevise).toHaveBeenCalledWith(
+      fixture.content.diagrams[0],
+      undefined,
+      [
+        expect.objectContaining({
+          id: "work",
+          title: "Reviewed work",
+          acceptanceChecks: [
+            { id: "outcome", text: "Check saved output after restart" },
+          ],
+        }),
+      ],
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
+    await waitFor(() => expect(props.onApply).toHaveBeenCalledOnce());
+    expect(vi.mocked(props.onApply).mock.calls[0][0]).toBeUndefined();
+    const body = JSON.parse(
+      vi
+        .mocked(api)
+        .mock.calls.find(([, options]) => options?.method === "PUT")![1]!
+        .body as string,
+    );
+    expect(body).not.toHaveProperty("diagram");
+    expect(body).not.toHaveProperty("brief");
+    expect(body.buildTasks[0].title).toBe("Reviewed work");
+    expect(fixture.baseContent!.buildTasks![0].title).toBe("Original work");
+  });
+  it("shows derived missing-link changes as readonly task context in a diagram-only proposal", async () => {
+    const fixture = detail();
+    fixture.baseContent!.schemaVersion = 3;
+    fixture.content.schemaVersion = 3;
+    const linked = {
+      ...createBuildTask(),
+      id: "linked-work",
+      title: "Keep independent task",
+      nodeLinks: [
+        {
+          nodeId: "removed",
+          diagramId: "main",
+          title: "Removed task",
+          missing: false,
+        },
+      ],
+    };
+    fixture.baseContent!.buildTasks = [linked];
+    fixture.content.buildTasks = [
+      {
+        ...copy(linked),
+        nodeLinks: [{ ...linked.nodeLinks[0], missing: true }],
+      },
+    ];
+    await setup({ detail: fixture });
+    fireEvent.click(screen.getByRole("button", { name: "Build tasks" }));
+    expect(screen.getByText("Missing node")).toBeTruthy();
+    expect(
+      screen.getByText(/Task links reflect this diagram change/),
+    ).toBeTruthy();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Edit manually",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(screen.queryByRole("button", { name: "Delete task" })).toBeNull();
   });
 });

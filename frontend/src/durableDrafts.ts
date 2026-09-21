@@ -5,6 +5,7 @@ import {
   type Content,
   type Diagram,
   type ProjectBrief,
+  type BuildTask,
 } from "./types";
 import type { Session } from "./history";
 
@@ -45,8 +46,12 @@ export type DraftConflict = {
   latestDraft: DraftSummary | null;
   recoveryDraft: DraftSummary | null;
 };
-export type DraftSection = "diagram" | "brief";
-export type DraftCandidateValues = { diagram?: Diagram; brief?: ProjectBrief };
+export type DraftSection = "diagram" | "brief" | "buildTasks";
+export type DraftCandidateValues = {
+  diagram?: Diagram;
+  brief?: ProjectBrief;
+  buildTasks?: BuildTask[];
+};
 export function draftCandidateValues(
   content: Content,
   diagramId: string,
@@ -64,6 +69,25 @@ export function draftCandidateValues(
       brief[field] = content.brief?.[field] ?? "";
     values.brief = brief;
   }
+  if (sections.includes("buildTasks"))
+    values.buildTasks = (content.buildTasks ?? []).map((task) => ({
+      id: task.id,
+      title: task.title,
+      deliverable: task.deliverable,
+      nodeLinks: task.nodeLinks.map((link) => ({
+        nodeId: link.nodeId,
+        diagramId: link.diagramId,
+        title: link.title,
+        missing: link.missing,
+      })),
+      prerequisiteIds: [...task.prerequisiteIds],
+      expectedFiles: [...task.expectedFiles],
+      acceptanceChecks: task.acceptanceChecks.map((check) => ({
+        id: check.id,
+        text: check.text,
+      })),
+      status: task.status,
+    }));
   return values;
 }
 export type DraftSaveBody = DraftCandidateValues & {

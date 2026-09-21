@@ -1,3 +1,4 @@
+import { normalizeBuildLinks } from "./buildTasks";
 import {
   createContext,
   useContext,
@@ -107,6 +108,7 @@ export function ProjectProvider({
       change: (edit, label, diagramId, group = false) => {
         const c = copy(ref.current.content);
         edit(c);
+        normalizeBuildLinks(c);
         send({ type: "edit", content: c, label, diagramId, group });
       },
       commit: () => send({ type: "commit" }),

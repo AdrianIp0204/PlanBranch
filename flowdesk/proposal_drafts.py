@@ -112,7 +112,7 @@ class ProposalDrafts:
         return self._row(db, project_id, proposal["id"], draft_id)
 
     def save(self, project_id, proposal_id, draft_id, payload):
-        obj(payload, {"baseDraftRevision", "mutationId", "contentHash", "diagram", "brief"}, "proposal draft save")
+        obj(payload, {"baseDraftRevision", "mutationId", "contentHash", "diagram", "brief", "buildTasks"}, "proposal draft save")
         string(payload.get("contentHash"), "Proposal content hash", 64, True)
 
         def edit(db, project, proposal, current_hash):

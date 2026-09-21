@@ -1,3 +1,4 @@
+import { deletionNotice } from "./buildTasks";
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ReactFlow,
@@ -388,7 +389,7 @@ export default function Canvas({
     if (
       !(nodeIds.length + edgeIds.length) ||
       !window.confirm(
-        `Delete ${nodeIds.length} node(s) and ${edgeIds.length} selected connection(s)?`,
+        `Delete ${nodeIds.length} node(s) and ${edgeIds.length} selected connection(s)?${deletionNotice(session.content, nodeIds)}`,
       )
     )
       return;

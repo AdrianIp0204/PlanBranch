@@ -36,7 +36,7 @@ def encode(value):
 
 def empty_content(name="Untitled project"):
     return {
-        "schemaVersion": CONTENT_VERSION, "name": name, "notes": "", "brief": empty_brief(),
+        "schemaVersion": CONTENT_VERSION, "name": name, "notes": "", "brief": empty_brief(), "buildTasks": [],
         "diagrams": [{"id": str(uuid4()), "name": "Main flow", "nodes": [], "edges": []}],
         "variables": [], "nodeLinks": [], "matches": [],
     }
