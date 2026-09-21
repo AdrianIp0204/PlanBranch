@@ -1,7 +1,7 @@
 """Package the existing frontend production build into an installable wheel.
 
 Run from any directory with the project's Python environment:
-    python path/to/FlowDesk/scripts/build_release.py
+    python path/to/PlanBranch/scripts/build_release.py
 
 Run ``npm ci && npm run build`` in frontend first. This script never downloads
 dependencies: the environment must already contain build and setuptools.

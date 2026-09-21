@@ -119,7 +119,7 @@ class PlanningService:
         # its original context and can be explicitly retried with the same ID.
         with closing(store.connect()) as db, db:
             db.execute("UPDATE planning_requests SET status='failed',error=?,updated_at=? WHERE status='running'",
-                       ("Planning was interrupted when FlowDesk stopped. Retry this message to continue.", now()))
+                       ("Planning was interrupted when PlanBranch stopped. Retry this message to continue.", now()))
 
     def _current(self, db, project_id):
         """Read the selected snapshot without decoding the retained undo branch."""

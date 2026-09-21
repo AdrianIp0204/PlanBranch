@@ -618,7 +618,7 @@ test(
       await recovery.waitFor();
       assert.match(
         await p.locator("#planning-model-problem").innerText(),
-        /Restart FlowDesk.*Your draft remains here/,
+        /Restart PlanBranch.*Your draft remains here/,
       );
       assert.equal(await composer.inputValue(), draft);
       assert.equal(await send.isDisabled(), true);

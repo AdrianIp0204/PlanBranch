@@ -1,4 +1,28 @@
-# FlowDesk validation
+# PlanBranch validation
+
+## PlanBranch public release polish — 21 September 2026
+
+FlowDesk is now branded as **PlanBranch — Visual planning for AI-assisted coding**. The app, favicon, README, repository metadata, and MIT license use the new identity. Existing Python imports, distribution name, data directories, database name, browser preferences, API header, export format, and immutable planner instruction versions remain compatible. Installed packages add a `planbranch` command alongside `flowdesk`.
+
+The focused interaction changes clarify recovery after an interrupted Apply and disable navigation until Retry confirms its result. Opening proposal Details by keyboard moves focus into the panel; Escape, Close details, and separator collapse restore focus to its toggle while preserving edits. Four new frontend regressions cover these behaviors.
+
+| Check | Windows result |
+| --- | --- |
+| Backend | 280 passed, 2 Windows symlink-permission skips |
+| Frontend | 112 passed |
+| Production build | Passed |
+| Release wheel and offline installation | Passed; 27 application/resource files match source and build bytes |
+| Installed-package browser suite | 45 passing runner results (42 scenarios), no failures |
+
+The browser suite uses disposable databases, random ports, temporary source files and separate browser profiles, with external HTTP requests blocked. It covers model/reasoning controls, structured questions, proposal review and recovery, autosave, durable history, scanning, catalogue evidence, keyboard/focus behavior, resizing, narrow layouts, genuine 200% zoom and full-diagram PNG export. Browser fixture records report zero runtime errors and zero external HTTP requests. MIT license bytes, wheel metadata, both console aliases, favicon and page branding were checked in the built wheel.
+
+The public README screenshot shows only a disposable sample project and a deterministic test-provider conversation, never a user's project or live model output. Recreate it with `node --test scripts/capture_readme.cjs` after the frontend build. It was captured at 1440 × 900 and visually inspected. Detailed operating instructions now live in [the user guide](docs/User_Guide.md).
+
+Logs: `output/branding-backend-final.log`, `planbranch-frontend.log`, `planbranch-build.log`, `planbranch-release.log`, `planbranch-browser.log`, and `planbranch-capture-final.log`. The release/source receipt is `output/planbranch-package.json`; the isolated wheel and installation are under `output/planbranch-release-2ro_6803`. Generated test data, logs and packages remain outside Git.
+
+The existing idle local service was backed up and restarted with the same data directory. Hashes confirmed all 23 existing data tables were unchanged; no proposal was applied or discarded. Existing browser tabs were left unreloaded to protect possible unsaved drafts.
+
+This pass adds no runtime dependency or database migration. Vite's existing large-chunk advisory remains. Linux, other browser engines, screen readers, touch input and live model generation were not rerun locally for this pass; historical results below are dated separately. GitHub's workflow runs both Windows and Linux after publication; its live status is shown by the repository badge. Approval still records a plan and does not execute code.
 
 ## Visual proposal review — 20 September 2026
 

@@ -178,7 +178,7 @@ def import_project(store, value):
     if set(value) - {"format", "version", "content", "views", "symbols"}:
         raise ValidationError("Unexpected fields in import. Machine settings are not portable.")
     if value.get("format") != "flowdesk" or type(value.get("version")) is not int or value["version"] != EXPORT_VERSION:
-        raise ValidationError("Unsupported file. Choose a FlowDesk version 1 JSON export.")
+        raise ValidationError("Unsupported file. Choose a PlanBranch version 1 JSON export.")
     _check_symbol_count(value.get("symbols", []))
     serialize_portable(value)
     content, symbols, views = remap_project(value.get("content"), value.get("symbols", []), value.get("views", {}))

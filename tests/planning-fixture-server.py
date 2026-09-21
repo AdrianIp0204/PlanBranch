@@ -43,6 +43,25 @@ class FixturePlanner:
 
     def generate(self, context):
         prompt = context["messages"][-1]["text"]
+        if prompt.startswith("Plan a Python task CLI"):
+            diagram_id = context["activeDiagramId"]
+            specs = [("start", "Read command", 340, 0),
+                     ("decision", "Add or list?", 340, 160),
+                     ("process", "Save task to SQLite", 100, 360),
+                     ("io", "List saved tasks", 580, 360),
+                     ("end", "Show result", 340, 550)]
+            nodes = [{"id": str(uuid4()), "type": kind, "title": title,
+                      "position": {"x": x, "y": y}, "status": "not_started",
+                      "description": title + ".", "checklist": [],
+                      **{key: "" for key in ("notes", "pseudocode", "targetFile", "targetScope", "why", "alternatives", "blocker")}}
+                     for kind, title, x, y in specs]
+            edges = [{"id": str(uuid4()), "source": nodes[source]["id"], "target": nodes[target]["id"],
+                      "sourceHandle": handle, "targetHandle": "in", "label": label}
+                     for source, target, handle, label in [(0, 1, "out", ""), (1, 2, "yes", "add"),
+                                                          (1, 3, "no", "list"), (2, 4, "out", ""), (3, 4, "out", "")]]
+            return self.envelope("proposal", "Here is a small first version: two commands, one local database. Review the branches on the canvas, or tell me what to change.", proposal={
+                "title": "A small task CLI", "summary": "Add tasks to SQLite and list them from the terminal.",
+                "diagramId": diagram_id, "nodes": nodes, "edges": edges})
         time.sleep(1.5 if "slow" in prompt else 0.15)
         if "fail once" in prompt and prompt not in self.failed:
             self.failed.add(prompt)

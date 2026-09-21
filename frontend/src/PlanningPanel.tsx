@@ -923,7 +923,7 @@ export default function PlanningPanel({
                       ? "You"
                       : message.role === "assistant"
                         ? "Codex"
-                        : "FlowDesk"}
+                        : "PlanBranch"}
                   </strong>
                   <time dateTime={message.createdAt}>
                     {time(message.createdAt)}

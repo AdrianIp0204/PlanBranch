@@ -5,7 +5,7 @@ Shell, integrations, hooks and agent delegation are disabled; filesystem writes
 are denied by its read-only sandbox. Codex 0.144.1 still exposes built-in plan,
 question, patch and image helpers. In particular this is NOT an OS-level ban on
 all file reads: its image helper remains available. No source roots are supplied.
-FlowDesk never reads or copies credentials and never applies the returned edits.
+PlanBranch never reads or copies credentials and never applies the returned edits.
 """
 from __future__ import annotations
 
@@ -101,7 +101,7 @@ def instruction_resource(version=None):
     try:
         return resources.files("flowdesk").joinpath("prompts", (version or INSTRUCTION_VERSION) + ".md").read_text(encoding="utf-8")
     except (OSError, UnicodeError):
-        raise CodexPlannerError("FlowDesk's planning instructions are unavailable. Reinstall FlowDesk before sending a new message.") from None
+        raise CodexPlannerError("PlanBranch's planning instructions are unavailable. Reinstall PlanBranch before sending a new message.") from None
 
 
 def normalize_selection(selection):
@@ -278,7 +278,7 @@ def _failure(result):
             or ("reasoning" in text and any(word in text for word in ("unsupported", "not supported", "invalid value", "does not support")))):
         return "Codex could not use the selected model or reasoning level. Choose another supported pair or CLI default and send a new message."
     if any(word in text for word in ("unexpected argument", "unknown feature", "unknown field", "invalid value")):
-        return "This Codex CLI version does not support FlowDesk's planning settings. Update Codex CLI, then retry."
+        return "This Codex CLI version does not support PlanBranch's planning settings. Update Codex CLI, then retry."
     return "Codex could not complete this request. Check your connection and Codex CLI sign-in, then retry."
 
 
@@ -348,7 +348,7 @@ class CodexPlanner:
             result = {"available": False, "label": "Codex CLI"}
             executable = _executable()
             if not executable:
-                result["reason"] = "Install Codex CLI and sign in with codex login, then restart FlowDesk."
+                result["reason"] = "Install Codex CLI and sign in with codex login, then restart PlanBranch."
             else:
                 try:
                     with tempfile.TemporaryDirectory(prefix="flowdesk-codex-status-") as directory:
@@ -362,7 +362,7 @@ class CodexPlanner:
                             if login.returncode == 0 and "logged in" in output and "chatgpt" in output:
                                 result["available"] = True
                             else:
-                                result["reason"] = "Sign in to Codex CLI with codex login, then retry. FlowDesk uses your ChatGPT sign-in."
+                                result["reason"] = "Sign in to Codex CLI with codex login, then retry. PlanBranch uses your ChatGPT sign-in."
                 except CodexPlannerError as exc:
                     result["reason"] = str(exc)
             self._status, self._status_time = result, time.monotonic()

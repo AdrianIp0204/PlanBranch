@@ -35,13 +35,13 @@ def create_app(data_dir=None, *, testing=False, planner=None):
         host = request.host
         origin = request.headers.get("Origin")
         if origin and origin != f"{request.scheme}://{host}":
-            return jsonify(error="This request must come from the FlowDesk window."), 403
+            return jsonify(error="This request must come from the PlanBranch window."), 403
         if request.headers.get("Sec-Fetch-Site") == "cross-site":
             return jsonify(error="Cross-site requests are not allowed."), 403
         if request.path.startswith("/api/") and request.path != "/api/bootstrap":
             supplied = request.headers.get("X-FlowDesk-Token", "")
             if not hmac.compare_digest(supplied.encode("utf-8"), token.encode("ascii")):
-                return jsonify(error="Reload FlowDesk to reconnect to the local server."), 403
+                return jsonify(error="Reload PlanBranch to reconnect to the local server."), 403
 
     @app.after_request
     def response_headers(response):
@@ -268,7 +268,7 @@ def create_app(data_dir=None, *, testing=False, planner=None):
         checkout_build = Path(__file__).parent.parent / "frontend" / "dist"
         built = checkout_build if (checkout_build / "index.html").exists() else packaged
         if not (built / "index.html").exists():
-            return Response("FlowDesk assets have not been built. Run npm ci and npm run build in frontend, then reload.", status=503, mimetype="text/plain")
+            return Response("PlanBranch assets have not been built. Run npm ci and npm run build in frontend, then reload.", status=503, mimetype="text/plain")
         return send_from_directory(built, asset)
 
     return app

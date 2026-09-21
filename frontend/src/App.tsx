@@ -179,7 +179,7 @@ export default function App() {
         <div className="loading">
           <div className="brand">
             <Brand />
-            FlowDesk
+            PlanBranch
           </div>
           <p>Opening your workspace…</p>
         </div>
@@ -209,17 +209,18 @@ export default function App() {
           <header className="topbar">
             <div className="brand">
               <Brand />
-              FlowDesk
+              PlanBranch
             </div>
             <span className="local-label">LOCAL WORKSPACE</span>
           </header>
           <main>
-            <div className="welcome-kicker">LOCAL PROGRAMMING PLANNER</div>
+            <div className="welcome-kicker">VISUAL AI CODING PLANNER</div>
             <h1 id="canvas-title" tabIndex={-1}>
               Create your first project
             </h1>
             <p>
-              Map the logic. Keep your decisions, notes, and variables together.
+              Describe a goal in chat, review the diagram, and refine the plan
+              together.
             </p>
             <div className="welcome-actions">
               <button className="primary" onClick={() => setCreating(true)}>
@@ -282,12 +283,14 @@ function Brand() {
     >
       <rect width="26" height="26" rx="7" fill="currentColor" />
       <path
-        d="M8 18V8h10M8 13h7"
+        d="M8 18V8m0 5h5a5 5 0 0 0 5-5"
         stroke="#f5f8f4"
         strokeWidth="2"
         strokeLinecap="round"
       />
-      <circle cx="18" cy="18" r="2" fill="#f5f8f4" />
+      <circle cx="8" cy="7" r="2" fill="#f5f8f4" />
+      <circle cx="8" cy="19" r="2" fill="#f5f8f4" />
+      <circle cx="18" cy="7" r="2" fill="#f5f8f4" />
     </svg>
   );
 }
@@ -884,7 +887,7 @@ function Workbench({
         </button>
         <div className="brand">
           <Brand />
-          FlowDesk
+          PlanBranch
         </div>
         <div className="breadcrumb" aria-label="Current project and diagram">
           <button
@@ -1708,8 +1711,8 @@ function Workbench({
       {scanDialog && (
         <Dialog title="Python source" onClose={() => setScanDialog(false)}>
           <p className="muted">
-            Attach a source directory to inspect Python bindings. FlowDesk reads
-            files; it never runs or changes your code.
+            Attach a source directory to inspect Python bindings. PlanBranch
+            reads files; it never runs or changes your code.
           </p>
           <form
             onSubmit={async (e) => {

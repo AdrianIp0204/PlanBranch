@@ -8,7 +8,7 @@ import {
 
 export const MODEL_PREFERENCE_KEY = "flowdesk.planning-model.v1";
 export const PLANNING_SERVER_RESTART =
-  "Restart FlowDesk, then reload this window to use chat and model settings. Your draft remains here.";
+  "Restart PlanBranch, then reload this window to use chat and model settings. Your draft remains here.";
 export function isLegacyPlanningServerError(error: unknown): boolean {
   return (
     error instanceof Error &&

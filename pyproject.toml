@@ -5,14 +5,22 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "flowdesk"
 version = "0.1.0"
-description = "A local-first programming planner"
+description = "PlanBranch: visual planning for AI-assisted coding"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.14"
 dependencies = ["Flask==3.1.3", "waitress==3.0.2"]
 
 [project.optional-dependencies]
 test = ["pytest==9.1.1"]
 
+[project.urls]
+Repository = "https://github.com/AdrianIp0204/PlanBranch"
+Issues = "https://github.com/AdrianIp0204/PlanBranch/issues"
+
 [project.scripts]
+planbranch = "flowdesk.__main__:main"
 flowdesk = "flowdesk.__main__:main"
 
 [tool.setuptools.packages.find]

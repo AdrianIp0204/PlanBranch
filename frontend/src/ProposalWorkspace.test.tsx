@@ -285,6 +285,81 @@ describe("proposal canvas review", () => {
   });
 });
 
+describe("proposal recovery and keyboard details", () => {
+  it("makes blocked navigation explicit and offers an actionable Apply retry", async () => {
+    const { props } = setup({ retryingApply: true, stale: true });
+    const back = screen.getByRole("button", {
+      name: "Back to plan",
+    }) as HTMLButtonElement;
+    const retry = screen.getByRole("button", {
+      name: "Retry apply",
+    }) as HTMLButtonElement;
+    expect(back.disabled).toBe(true);
+    expect(retry.disabled).toBe(false);
+    expect(back.getAttribute("aria-describedby")).toBe(
+      "proposal-apply-recovery",
+    );
+    expect(retry.getAttribute("aria-describedby")).toBe(
+      "proposal-apply-recovery",
+    );
+    expect(screen.getByRole("status").textContent).toContain(
+      "Editing and navigation stay paused",
+    );
+    fireEvent.click(back);
+    expect(props.onClose).not.toHaveBeenCalled();
+    fireEvent.click(retry);
+    await waitFor(() => expect(props.onApply).toHaveBeenCalledOnce());
+  });
+  it("moves keyboard focus into Details and restores it on Escape and Close", () => {
+    setup();
+    const toggle = screen.getByRole("button", { name: "Details" });
+    toggle.focus();
+    fireEvent.click(toggle, { detail: 0 });
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Close details" }),
+    );
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(toggle);
+    fireEvent.click(toggle, { detail: 0 });
+    fireEvent.click(screen.getByRole("button", { name: "Close details" }));
+    expect(document.activeElement).toBe(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  });
+  it("restores focus when the details separator collapses the panel", () => {
+    setup();
+    const toggle = screen.getByRole("button", { name: "Details" });
+    fireEvent.click(toggle);
+    const separator = screen.getByRole("separator", {
+      name: "Resize proposal details",
+    });
+    separator.focus();
+    fireEvent.keyDown(separator, { key: "Enter" });
+    expect(document.activeElement).toBe(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  });
+  it("keeps an unblurred manual edit when Escape closes its details", async () => {
+    const { props } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "Edit manually" }));
+    fireEvent.doubleClick(
+      screen.getByRole("button", { name: "Proposed task" }),
+    );
+    const title = screen.getByLabelText("Title");
+    title.focus();
+    fireEvent.change(title, { target: { value: "Keep this edit" } });
+    fireEvent.keyDown(title, { key: "Escape" });
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Details" }),
+    );
+    expect(screen.getByRole("button", { name: "Keep this edit" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
+    await waitFor(() => expect(props.onApply).toHaveBeenCalledOnce());
+    expect(vi.mocked(props.onApply).mock.calls[0][0]?.nodes[0].title).toBe(
+      "Keep this edit",
+    );
+  });
+});
+
 describe("registered proposal leave guard", () => {
   it("consults the latest unsaved field edit and unregisters on close", async () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {

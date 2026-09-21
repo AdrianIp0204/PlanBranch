@@ -12,7 +12,7 @@ def default_data_dir():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="FlowDesk local programming planner")
+    parser = argparse.ArgumentParser(description="PlanBranch visual AI coding planner")
     parser.add_argument("command", nargs="?", choices=["serve", "backup"], default="serve")
     parser.add_argument("--data-dir", type=Path, default=default_data_dir())
     parser.add_argument("--port", type=int, default=4310)
@@ -27,12 +27,12 @@ def main():
     from .app import create_app
     from waitress import serve
     app = create_app(args.data_dir)
-    print(f"FlowDesk: http://127.0.0.1:{args.port}", flush=True)
+    print(f"PlanBranch: http://127.0.0.1:{args.port}", flush=True)
     print(f"Data: {args.data_dir.resolve()}", flush=True)
     try:
         serve(app, host="127.0.0.1", port=args.port, max_request_body_size=32 * 1024 * 1024)
     except OSError as exc:
-        print(f"Unable to start FlowDesk: {exc}. Try another --port.", file=sys.stderr)
+        print(f"Unable to start PlanBranch: {exc}. Try another --port.", file=sys.stderr)
         raise SystemExit(1) from exc
 
 

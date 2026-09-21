@@ -229,7 +229,7 @@ def test_unknown_newer_schema_is_rejected_without_backup_or_mutation(tmp_path, m
         connection.execute("INSERT INTO schema_migrations VALUES(?,?)", (migrations.DATABASE_VERSION + 1, now()))
     before = database_dump(store.db_path)
     monkeypatch.setattr(Store, "backup", lambda self: pytest.fail("Do not back up or edit an unsupported future database"))
-    with pytest.raises(ValidationError, match="newer FlowDesk version"):
+    with pytest.raises(ValidationError, match="newer PlanBranch version"):
         Store(store.db_path)
     assert database_dump(store.db_path) == before
 

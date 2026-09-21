@@ -1,4 +1,4 @@
-"""FlowDesk: local planning, with scanner evidence kept separate from intent."""
+"""PlanBranch: local planning, with scanner evidence kept separate from intent."""
 
 __version__ = "0.1.0"
 

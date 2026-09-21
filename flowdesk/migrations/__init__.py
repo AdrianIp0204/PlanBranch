@@ -99,13 +99,13 @@ def migrate(store):
         versions = applied_versions(connection)
         latest = MIGRATIONS[-1].version
         if versions and versions[-1] > latest:
-            raise ValidationError("This database was created by a newer FlowDesk version.")
+            raise ValidationError("This database was created by a newer PlanBranch version.")
         if versions != tuple(range(1, len(versions) + 1)):
             raise ValidationError("Database migration history is incomplete. Restore a valid backup.")
         if not versions and connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name!='schema_migrations'"
         ).fetchone():
-            raise ValidationError("This database has no FlowDesk migration history. Use another data directory.")
+            raise ValidationError("This database has no PlanBranch migration history. Use another data directory.")
         pending = [migration for migration in MIGRATIONS if migration.version not in versions]
         if not pending:
             return
@@ -122,7 +122,7 @@ def migrate(store):
         connection.execute("BEGIN IMMEDIATE")
         if (connection.execute("PRAGMA data_version").fetchone()[0] != data_version
                 or applied_versions(connection) != versions):
-            raise ValidationError("The database changed while preparing its upgrade. Close other FlowDesk servers and retry.")
+            raise ValidationError("The database changed while preparing its upgrade. Close other PlanBranch servers and retry.")
         for migration in pending:
             migration.apply(connection, store)
             connection.execute("INSERT INTO schema_migrations(version,applied_at) VALUES(?,?)",

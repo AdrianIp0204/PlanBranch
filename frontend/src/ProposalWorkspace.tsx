@@ -124,6 +124,15 @@ function Workspace({
     Record<"before" | "after", string | null>
   >({ before: null, after: null });
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailsToggle = useRef<HTMLButtonElement>(null);
+  const detailsClose = useRef<HTMLButtonElement>(null);
+  const focusDetailsOnOpen = useRef(false);
+  useLayoutEffect(() => {
+    if (detailsOpen && focusDetailsOnOpen.current) {
+      focusDetailsOnOpen.current = false;
+      detailsClose.current?.focus({ preventScroll: true });
+    }
+  }, [detailsOpen]);
   const [detailsWidth, setDetailsWidth] = useState(300);
   const [nodeKind, setNodeKind] = useState<NodeKind>("process");
   const [connect, setConnect] = useState(false);
@@ -154,6 +163,11 @@ function Workspace({
   const inspect = (id: string) => {
     select(id);
     setDetailsOpen(true);
+  };
+  const closeDetails = () => {
+    commit();
+    setDetailsOpen(false);
+    detailsToggle.current?.focus({ preventScroll: true });
   };
   const add = () => {
     const instance = manualInstance.current;
@@ -298,6 +312,9 @@ function Workspace({
           <button
             className="primary"
             disabled={busy || (!canApply && !retryingApply)}
+            aria-describedby={
+              retryingApply ? "proposal-apply-recovery" : undefined
+            }
             onClick={() => void run("apply")}
           >
             {busy
@@ -339,15 +356,26 @@ function Workspace({
           >
             Discard
           </button>
-          <button className="quiet" disabled={busy} onClick={leave}>
+          <button
+            className="quiet"
+            disabled={editLocked}
+            aria-describedby={
+              retryingApply ? "proposal-apply-recovery" : undefined
+            }
+            onClick={leave}
+          >
             Back to plan
           </button>
         </div>
       </header>
       {retryingApply && (
-        <p className="proposal-notice" role="status">
-          The apply response was interrupted. Retry to check the saved result.
-          Your original apply request is retained.
+        <p
+          className="proposal-notice"
+          role="status"
+          id="proposal-apply-recovery"
+        >
+          Connection interrupted. Choose Retry apply to confirm whether your
+          changes were saved. Editing and navigation stay paused until then.
         </p>
       )}
       {stale && !retryingApply && (
@@ -436,10 +464,17 @@ function Workspace({
           </div>
         )}
         <button
+          ref={detailsToggle}
           className="quiet proposal-details-toggle"
           aria-expanded={detailsOpen}
           aria-controls="proposal-details"
-          onClick={() => setDetailsOpen((value) => !value)}
+          onClick={(event) => {
+            if (detailsOpen) closeDetails();
+            else {
+              focusDetailsOnOpen.current = event.detail === 0;
+              setDetailsOpen(true);
+            }
+          }}
         >
           Details
         </button>
@@ -525,12 +560,22 @@ function Workspace({
               min={260}
               max={420}
               onChange={setDetailsWidth}
-              onCollapse={() => setDetailsOpen(false)}
+              onCollapse={closeDetails}
             />
-            <div className="proposal-inspector" id="proposal-details">
+            <div
+              className="proposal-inspector"
+              id="proposal-details"
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") return;
+                event.preventDefault();
+                event.stopPropagation();
+                closeDetails();
+              }}
+            >
               <button
+                ref={detailsClose}
                 className="quiet proposal-close-details"
-                onClick={() => setDetailsOpen(false)}
+                onClick={closeDetails}
               >
                 Close details
               </button>
