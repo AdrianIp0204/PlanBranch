@@ -321,3 +321,96 @@ it.each([false, true])(
     expect(server.copies).toEqual([]);
   },
 );
+
+it.each([false, true])(
+  "reload resumes dirty writing before its debounce, including clear-all (cleared: %s)",
+  async (cleared) => {
+    server.draft = {
+      ...server.draft,
+      revision: 3,
+      payload: {
+        ...emptyWriting(),
+        message: "Previously saved",
+        versions: { message: "old", comments: {}, questions: {} },
+      },
+    };
+    const payload = cleared
+      ? emptyWriting()
+      : {
+          ...emptyWriting(),
+          questionDrafts: {
+            set: {
+              storage: { choice: "sqlite", custom: false, text: "" },
+              audience: { choice: null, custom: true, text: "Personal use" },
+            },
+          },
+          versions: {
+            message: "",
+            comments: {},
+            questions: { set: "answers-version" },
+          },
+        };
+    sessionStorage.setItem(
+      "flowdesk.unsentWriting.v1.p",
+      JSON.stringify({
+        payload,
+        batch: null,
+        revision: 3,
+        generation: 4,
+        savedGeneration: 3,
+      }),
+    );
+    const { result } = renderHook(() => useWritingDrafts("p"));
+    await waitFor(() => expect(result.current.status).toBe("saved"));
+    expect(saveWriting).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(saveWriting).mock.calls[0][1]).toMatchObject({
+      baseRevision: 3,
+      payload,
+    });
+    expect(vi.mocked(saveWriting).mock.calls[0][1].copyOnly).toBeUndefined();
+    expect(result.current.value).toEqual(payload);
+    expect(server.draft.payload).toEqual(payload);
+    expect(result.current.copies).toEqual([]);
+  },
+);
+it("dirty-cache reload uses its original revision and preserves a concurrent server draft", async () => {
+  server.draft = {
+    ...server.draft,
+    revision: 4,
+    payload: { ...emptyWriting(), message: "Other tab" },
+  };
+  const local = {
+    ...emptyWriting(),
+    message: "Unsent local",
+    versions: { message: "local-version", comments: {}, questions: {} },
+  };
+  sessionStorage.setItem(
+    "flowdesk.unsentWriting.v1.p",
+    JSON.stringify({
+      payload: local,
+      batch: null,
+      revision: 3,
+      generation: 5,
+      savedGeneration: 4,
+    }),
+  );
+  vi.mocked(saveWriting).mockImplementation(async (_id, body) => {
+    expect(body.baseRevision).toBe(3);
+    expect(body.copyOnly).toBeUndefined();
+    server.copies = [
+      {
+        id: "conflict-copy",
+        revision: 1,
+        updatedAt: null,
+        payload: structuredClone(body.payload),
+      },
+    ];
+    throw { status: 409, data: structuredClone(server) };
+  });
+  const { result } = renderHook(() => useWritingDrafts("p"));
+  await waitFor(() => expect(result.current.status).toBe("conflict"));
+  expect(result.current.value).toEqual(local);
+  expect(result.current.copies[0].payload).toEqual(local);
+  expect(result.current.conflict?.draft.payload.message).toBe("Other tab");
+  expect(server.draft.payload.message).toBe("Other tab");
+});

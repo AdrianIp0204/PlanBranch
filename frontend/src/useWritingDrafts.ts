@@ -121,7 +121,14 @@ export default function useWritingDrafts(
         const local = recovered.cache?.payload ?? queue.value;
         if (migration.current) {
           await preserveCopy();
-        } else if (recovered.cache?.batch) {
+        } else if (
+          recovered.cache &&
+          (recovered.cache.batch ||
+            recovered.cache.generation !== recovered.cache.savedGeneration)
+        ) {
+          // Reload may precede the debounce, so dirty writing can have no
+          // request yet. Resume its original revision even when it is empty;
+          // the normal CAS path preserves concurrent edits as recovery copies.
           queue.initialize(state);
           queue.value = copy(local);
           queue.revision = recovered.cache.revision;
