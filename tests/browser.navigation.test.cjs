@@ -117,6 +117,46 @@ test('Quick jump works by keyboard, restores input focus, and keeps failed writi
   await p.unrouteAll({ behavior: 'wait' });
 });
 
+test('workspace presets and personal layout preserve graph positions, selection, viewport and manual history', { timeout: 100000 }, async t => {
+  const h = await setupBrowser(t, { name: 'navigation-layouts', planningFixture: true, viewport: { width: 1440, height: 900 } });
+  const p = h.page;
+  const canvas = p.getByTestId('diagram-canvas');
+  await canvas.locator('.react-flow__controls-fitview').click();
+  const node = h.initial.content.diagrams[0].nodes[0];
+  await canvas.locator(`.react-flow__node[data-id="${node.id}"]`).click();
+  const original = await graphState(p);
+  const before = await h.api(`/projects/${h.initial.id}`);
+  await layout(p, 'Save personal layout');
+  const personal = await p.evaluate(() => JSON.parse(localStorage.getItem('planbranch.personal-layout.v1')));
+  assert.ok(personal?.layout);
+  for (const name of ['Planning layout', 'Review layout', 'Build layout', 'Personal layout']) {
+    await layout(p, name);
+    if (name === 'Build layout') await p.getByRole('region', { name: 'Build tasks editor', exact: true }).waitFor();
+    else await canvas.waitFor();
+    if (name === 'Planning layout' || name === 'Review layout')
+      await p.getByRole('complementary', { name: 'Planning conversation', exact: true }).waitFor();
+    assert.deepEqual(await graphState(p), original, `${name} preserves canvas state`);
+  }
+  for (const viewport of [{ width: 1280, height: 800 }, { width: 720, height: 700 }]) {
+    await p.setViewportSize(viewport);
+    await p.emulateMedia({ reducedMotion: 'reduce' });
+    await layout(p, 'Review layout');
+    assert.ok(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    const bounds = await p.getByRole('button', { name: 'Quick jump', exact: true }).boundingBox();
+    assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= viewport.width + 1);
+    await p.screenshot({ path: path.join(h.output, `review-layout-${viewport.width}x${viewport.height}.png`) });
+  }
+  await p.setViewportSize({ width: 1440, height: 900 });
+  await layout(p, 'Personal layout');
+  const after = await h.api(`/projects/${h.initial.id}`);
+  assert.deepEqual(after.content, before.content);
+  assert.deepEqual(after.history, before.history);
+  assert.deepEqual(await p.evaluate(() => JSON.parse(localStorage.getItem('planbranch.personal-layout.v1'))), personal);
+  await p.reload();
+  await layout(p, 'Personal layout');
+  assert.deepEqual(await p.evaluate(() => JSON.parse(localStorage.getItem('planbranch.personal-layout.v1'))), personal);
+});
+
 test('Quick jump remains usable at narrow width and 200 percent browser zoom without opening a second dialog', { timeout: 120000 }, async t => {
   const h = await setupBrowser(t, { name: 'navigation-access', planningFixture: true, viewport: { width: 720, height: 700 } });
   const p = h.page;

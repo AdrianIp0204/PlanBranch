@@ -100,6 +100,7 @@ export function useLayout() {
   return {
     layout,
     preference,
+    applyLayout: setLayout,
     reset: () => setLayout(defaultLayout()),
     windowSize,
   };

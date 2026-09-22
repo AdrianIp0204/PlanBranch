@@ -12,6 +12,7 @@ import CommandPalette from "./CommandPalette";
 import type { CommandResult } from "./commandSearch";
 import { useQuickJumpShortcut } from "./useQuickJumpShortcut";
 import SettingsDialog from "./SettingsDialog";
+import { presetLayout, readPersonalLayout, savePersonalLayout, boundLayout, type SavedLayout } from "./workspacePresets";
 import type { ReactFlowInstance } from "@xyflow/react";
 import { api, ApiError, bootstrap, download, post } from "./api";
 import { ProjectProvider, useProject } from "./store";
@@ -395,7 +396,8 @@ function Workbench({
     diagram: Diagram;
     selectedIds: string[];
   } | null>(null);
-  const { layout, preference, reset, windowSize } = useLayout();
+  const { layout, preference, applyLayout, reset, windowSize } = useLayout();
+  const [personalLayout, setPersonalLayout] = useState(readPersonalLayout);
   const stacked = windowSize.width <= 900 || windowSize.height <= 650;
   const [narrowNavigationOpen, setNarrowNavigationOpen] = useState(false);
   const navigation = stacked ? narrowNavigationOpen : layout.navigationOpen;
@@ -950,6 +952,14 @@ function Workbench({
       );
     }
   };
+  const chooseLayout = (saved: SavedLayout) => {
+    applyLayout(boundLayout(saved.layout));
+    if (saved.layout.sidePanel === "planning") setPlanningVisited(true);
+    setWorkspaceView(saved.view);
+    setNarrowNavigationOpen(false);
+    setFocusPane("canvas");
+    if (proposalPreviewRef.current) setNotice("Layout updated; your proposal review stays open.");
+  };
   const chooseCommand = async (result: CommandResult) => {
     if (performing.current) throw Error("A workspace action is finishing. Try again when it completes.");
     if (result.type === "action" && result.id === "settings") {
@@ -1294,6 +1304,23 @@ function Workbench({
           <summary className="button">Layout</summary>
           <div className="menu-popover">
             <p>Panel sizes stay in this browser.</p>
+            {(["planning", "review", "build"] as const).map((name) => <button key={name} onClick={(event) => {
+              chooseLayout(presetLayout(name));
+              const menu = event.currentTarget.closest("details");
+              if (menu) { menu.open = false; menu.querySelector("summary")?.focus(); }
+            }}>{name[0].toUpperCase() + name.slice(1)} layout</button>)}
+            <button onClick={(event) => {
+              const saved = { layout, view: workspaceView };
+              if (savePersonalLayout(saved)) { setPersonalLayout(saved); setNotice("Personal layout saved in this browser."); }
+              else setError("Browser storage is unavailable. Your layout could not be saved.");
+              const menu = event.currentTarget.closest("details");
+              if (menu) { menu.open = false; menu.querySelector("summary")?.focus(); }
+            }}>Save personal layout</button>
+            <button disabled={!personalLayout} onClick={(event) => {
+              if (personalLayout) chooseLayout(personalLayout);
+              const menu = event.currentTarget.closest("details");
+              if (menu) { menu.open = false; menu.querySelector("summary")?.focus(); }
+            }}>Personal layout</button>
             <button
               onClick={(event) => {
                 reset();

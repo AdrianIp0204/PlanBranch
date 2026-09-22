@@ -289,3 +289,10 @@ Startup reopens the last available project, diagram and Diagram/Build view; miss
 Use **Search** in the toolbar or **Ctrl/Cmd+K** to find projects, diagrams, nodes, Build tasks and planned or detected variables. Results show their diagram, file or scope; equal names remain distinguishable. Use arrow keys, Enter and Escape. Searches cover navigation metadata, not source file contents.
 
 Opening a result brings its item into view. Project switches and proposal navigation wait for existing plan and writing save guards; an unresolved conflict keeps you in place. Search actions open the normal dialogs and never run code, delete items or accept a proposal directly. Native text editing and IME composition retain their normal behavior; the shortcut does not replace an already-open dialog.
+
+
+## Workspace layouts
+
+Choose **Layout → Planning layout**, **Review layout** or **Build layout** to adjust the visible panels and workspace view. Review layout opens the existing chat/review area; it does not open or approve a proposal automatically. An already-open proposal stays open. Selection, canvas viewport, writing and manual history are preserved.
+
+**Save personal layout** records the current panel sizes, visibility and Diagram/Build view in this browser. **Personal layout** restores it; dimensions are bounded to the current window. **Restore default layout** remains available from Layout and Settings. These preferences are not part of portable projects and never change approval freshness.

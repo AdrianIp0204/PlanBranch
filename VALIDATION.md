@@ -292,3 +292,8 @@ The first full backend run found three outdated historical-schema fixture expect
 Nine focused palette/shortcut tests passed. Production browser checks passed for grouped node/task/planned/evidence navigation, distinguishing duplicate file/scope observations, keyboard focus and failed-save guards, narrow width, actual 200% browser zoom, reduced motion and open-dialog shortcut protection. The initial search fixture selected both current and stale observations; it now selects the intended current record without hiding either result.
 
 A separate timing regression passed: hold a plan-save acknowledgement, navigate, enter newer writing, hold that writing save, and verify navigation waits until both queues are current. A fresh tab recovers the exact latest text and no agent request is created. Cancellation remains independent of draft recovery. Logs: `output/qol-navigation-browser.log`, `output/qol-navigation-browser-rerun.log`; writing race evidence is under `output/playwright/writing-navigation-race-*`.
+
+
+## Quality-of-life milestone 4 — workspace presets (2026-09-22)
+
+Two preset storage/bounds unit tests passed. The production preset browser workflow passed, then passed again after strengthening it to open Chat for the first time through a preset. Planning, Review, Build and personal layouts preserve exact selection, canvas transform, manual content and retained history. Personal layout survives reload; narrow layouts retain reachable toolbar controls. Evidence: `output/qol-navigation-browser-rerun.log`, `output/playwright/navigation-layouts-5LfZok/`.
