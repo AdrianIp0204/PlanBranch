@@ -1,3 +1,4 @@
+const { addCanvasNode } = require("./ux-fixture.cjs");
 /* Durable unsent writing: owned disposable servers, deterministic planner, no external requests. */
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -253,7 +254,7 @@ test('project navigation drains writing typed while an earlier project save is a
     await writingGate;
     await route.continue();
   });
-  await p.getByRole('button', { name: 'Add Process', exact: true }).click();
+  await addCanvasNode(p, "Process");
   await until(() => planHeld);
   await p.getByRole('navigation', { name: 'Projects' }).getByRole('button').filter({ hasText: other.content.name }).click();
   // The UI remains editable while the original plan save is pending.

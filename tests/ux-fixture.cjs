@@ -7,6 +7,26 @@ const { chromium } = createRequire(
   path.resolve(__dirname, "../frontend/package.json"),
 )("playwright");
 
+// Use the same visible menu paths as the user; never force hidden actions.
+async function openProjectMenu(page) {
+  const menu = page.locator(".export-menu");
+  await menu.locator("summary").waitFor();
+  if (!(await menu.evaluate((el) => el.open)))
+    await menu.locator("summary").click();
+  return menu;
+}
+async function projectAction(page, name) {
+  const menu = await openProjectMenu(page);
+  await menu.getByRole("button", { name, exact: true }).click();
+}
+async function addCanvasNode(page, label) {
+  const menu = page.locator(".add-menu");
+  await menu.locator("summary").waitFor();
+  if (!(await menu.evaluate((el) => el.open)))
+    await menu.locator("summary").click();
+  await menu.getByRole("button", { name: `Add ${label}`, exact: true }).click();
+}
+
 async function prepareUxFixture(h) {
   const initialId = h.initial.id;
   const write = (file, text) =>
@@ -242,7 +262,7 @@ async function measureWorkspace(page) {
       smallText: text.filter((x) => x.font < 12),
       essential: [...document.querySelectorAll("button,summary")]
         .filter((el) =>
-          /^(Save|Undo|Redo|Export|Scan Python|Connect)$/.test(
+          /^(Save|Undo|Redo|Project|Scan Python|Connect)$/.test(
             el.textContent.trim(),
           ),
         )
@@ -408,6 +428,9 @@ async function withBrowserZoom(h, run) {
 }
 
 module.exports = {
+  openProjectMenu,
+  projectAction,
+  addCanvasNode,
   prepareUxFixture,
   openUxPanels,
   measureWorkspace,

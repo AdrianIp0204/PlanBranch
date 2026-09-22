@@ -1,3 +1,4 @@
+const { addCanvasNode, projectAction } = require("./ux-fixture.cjs");
 /* Real catalogue workflows: all source, databases, and exports are disposable. */
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
@@ -8,7 +9,7 @@ const { setupBrowser, until, wait } = require("./browser-harness.cjs");
 const detail = (page) => page.locator(".variable-detail");
 const row = (page, id) => page.locator(`tr[data-variable-id="${id}"]`);
 async function save(h) {
-  await h.page.getByRole("button", { name: "Save", exact: true }).click();
+  await projectAction(h.page, "Save");
   await h.saved();
 }
 async function catalogue(h) {
@@ -42,9 +43,7 @@ async function scanUi(h, projectId = h.initial.id, attach = false) {
       await wait(200);
       await route.fulfill({ response });
     });
-  await h.page
-    .getByRole("button", { name: "Scan Python", exact: true })
-    .click();
+  await projectAction(h.page, "Scan Python");
   const dialog = h.page.getByRole("dialog", { name: "Python source" });
   if (attach) {
     await dialog
@@ -132,7 +131,7 @@ test(
     await p
       .getByRole("button", { name: "Create diagram", exact: true })
       .click();
-    await p.getByRole("button", { name: "Add Process", exact: true }).click();
+    await addCanvasNode(p, "Process");
     await p
       .locator(".inspector")
       .getByLabel("Title", { exact: true })

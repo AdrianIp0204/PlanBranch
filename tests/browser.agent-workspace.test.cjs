@@ -1,3 +1,4 @@
+const { addCanvasNode, projectAction } = require("./ux-fixture.cjs");
 /* Agent workspace visual fixture. Uses only owned, disposable application data. */
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
@@ -434,7 +435,7 @@ test(
       "Keep this unsent draft while moving the divider.\n" +
       "Long input remains editable. ".repeat(25);
     await p.getByLabel("Message Codex", { exact: true }).fill(draft);
-    await p.getByRole("button", { name: "Save", exact: true }).click();
+    await projectAction(p, "Save");
     await h.saved();
     const before = await h.api("/projects/" + h.initial.id);
     const viewport = await p
@@ -1346,8 +1347,8 @@ test(
     await sendUi(p, "Clarify requirements");
     const oldSet = await waitForQuestion(h);
     await draftAnswers(p, "Draft answer survives plan changes");
-    await p.getByRole("button", { name: "Add Process", exact: true }).click();
-    await p.getByRole("button", { name: "Save", exact: true }).click();
+    await addCanvasNode(p, "Process");
+    await projectAction(p, "Save");
     await h.saved();
     const newer = await h.api("/projects/" + h.initial.id);
     await clarification(p)

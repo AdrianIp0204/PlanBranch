@@ -848,11 +848,6 @@ export default function PlanningPanel({
           ×
         </button>
       </header>
-      <WritingRecovery
-        writing={writing}
-        content={session.content}
-        planning={state}
-      />
       <span id="planning-approval-reason" className="sr-only">
         {approvalReason}
       </span>
@@ -1030,7 +1025,7 @@ export default function PlanningPanel({
             <div className="planning-empty">
               <h3>What should this plan accomplish?</h3>
               <p>
-                Describe a goal or a change. Review edits before applying them.
+                Describe a goal or ask for a change.
               </p>
             </div>
           )}
@@ -1329,14 +1324,6 @@ export default function PlanningPanel({
               capabilities={modelSettings.capabilities}
               onChange={modelSettings.setSelection}
             />
-            <button
-              type="button"
-              className="quiet planning-help"
-              onClick={() => setHelp("settings")}
-              aria-label="Planning settings and sharing help"
-            >
-              ⓘ
-            </button>
             <button
               type="submit"
               className="primary"
@@ -1720,6 +1707,21 @@ export default function PlanningPanel({
             ))}
         </div>
       </section>
+      <footer className="planning-footer" aria-label="Writing and chat details">
+        <WritingRecovery
+          writing={writing}
+          content={session.content}
+          planning={state}
+        />
+        <button
+          type="button"
+          className="quiet planning-help"
+          onClick={() => setHelp("settings")}
+          aria-label="Planning settings and sharing help"
+        >
+          ⓘ
+        </button>
+      </footer>
       <span id="composer-resize-help" className="sr-only">
         Use arrow keys to resize, Shift for larger steps, and Home or End for
         limits.

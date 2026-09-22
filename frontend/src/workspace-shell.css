@@ -1,0 +1,239 @@
+/* Workspace chrome: one navigation row, one set of creation controls. */
+.workspace .topbar {
+  min-height: 58px;
+  padding: 8px 16px;
+  gap: 8px;
+}
+.workspace .topbar .brand {
+  font-size: 1.25rem;
+  gap: 8px;
+  margin-right: 8px;
+}
+.workspace .breadcrumb {
+  flex: 1 1 160px;
+  min-width: 70px;
+}
+.workspace .breadcrumb > .quiet {
+  max-width: 100%;
+  padding: 6px 0;
+  text-align: left;
+}
+.workspace .topbar .workspace-mode {
+  flex: none;
+  flex-wrap: nowrap;
+  gap: 2px;
+  padding: 3px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--subtle);
+  margin-right: 10px;
+}
+.workspace .topbar .workspace-mode button {
+  padding: 5px 11px;
+  min-height: 30px;
+}
+.workspace .topbar .workspace-mode button[aria-pressed="true"] {
+  background: var(--paper);
+  box-shadow: 0 1px 2px var(--shadow-soft);
+}
+.workspace .topbar .workspace-mode .back-build {
+  max-width: 150px;
+  white-space: normal;
+}
+.workspace .history-buttons {
+  border: 0;
+  padding: 0;
+  gap: 0;
+}
+.workspace .history-buttons .icon-button {
+  width: 30px;
+  min-width: 30px;
+}
+.workspace .save-state {
+  min-width: 106px;
+  font-size: var(--font-small);
+}
+.workspace .topbar .utility-button {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  padding: 7px;
+}
+.workspace .topbar > .popup-menu > summary {
+  border-color: transparent;
+  background: transparent;
+  padding: 7px 9px;
+}
+.workspace .topbar > .popup-menu[open] > summary,
+.workspace .topbar > .popup-menu > summary:hover {
+  background: var(--hover);
+}
+.workspace .workspace-focus {
+  border-left: 1px solid var(--line);
+  padding-left: 8px;
+}
+.menu-section-label {
+  display: block;
+  color: var(--muted);
+  font-size: var(--font-small);
+  font-weight: 600;
+  padding: 9px 10px 4px;
+}
+.menu-section-label:not(:first-child) {
+  border-top: 1px solid var(--line);
+  margin-top: 5px;
+}
+.workspace .popup-menu .menu-popover {
+  max-height: min(560px, calc(100dvh - 145px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  gap: 1px;
+}
+.workspace .popup-menu .menu-popover > * {
+  flex-shrink: 0;
+}
+.workspace .popup-menu .menu-popover button {
+  padding: 8px 10px;
+}
+.workspace .sidebar {
+  padding: 20px 12px 12px;
+  background: var(--toolbar);
+}
+.workspace .sidebar-heading {
+  font-size: var(--font-small);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+  font-weight: 600;
+}
+.workspace .project-list,
+.workspace .diagram-list {
+  gap: 3px;
+}
+.workspace .project-list > button,
+.workspace .diagram-list > button {
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 0 5px 5px 0;
+  background: transparent;
+  padding: 8px 10px;
+  box-shadow: none;
+}
+.workspace .project-list > button:hover,
+.workspace .diagram-list > button:hover {
+  background: var(--hover);
+}
+.workspace .project-list > button.active,
+.workspace .diagram-list > button.active {
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+}
+.workspace .project-list > button > span:last-child,
+.workspace .diagram-list > button > span:last-child {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.workspace .project-list > button:focus > span:last-child,
+.workspace .diagram-list > button:focus > span:last-child {
+  display: block;
+}
+.workspace .diagram-heading {
+  margin-top: 28px;
+}
+.workspace .sidebar-bottom {
+  padding-top: 24px;
+}
+.workspace .local-label {
+  display: none;
+}
+.workspace .canvas-toolbar {
+  padding: 15px 18px 8px;
+  gap: 14px;
+}
+.workspace .canvas-toolbar h1 {
+  font-size: 1.142857rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.workspace .toolbar-actions {
+  gap: 5px;
+}
+.workspace .toolbar-actions .add-menu > summary {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: transparent;
+}
+.workspace .toolbar-actions > select {
+  background: transparent;
+  border-color: transparent;
+  max-width: 120px;
+}
+.workspace .status-strip {
+  padding: 0 18px 12px;
+  gap: 12px;
+}
+.workspace .drawer-toggle {
+  background: var(--paper);
+}
+@media (max-width: 1250px) {
+  .workspace .topbar {
+    padding-inline: 10px;
+    gap: 5px;
+  }
+  .workspace .topbar .brand {
+    margin-right: 0;
+  }
+  .workspace .topbar .workspace-mode {
+    margin-right: 3px;
+  }
+  .workspace .topbar .workspace-mode button {
+    padding-inline: 9px;
+  }
+}
+@media (max-width: 1050px) {
+  .workspace .topbar {
+    flex-wrap: wrap;
+  }
+  .workspace .topbar .breadcrumb {
+    flex: 1 1 100px;
+  }
+  .workspace .topbar .workspace-mode {
+    margin-right: auto;
+  }
+  .workspace .topbar .workspace-mode .back-build {
+    max-width: 105px;
+  }
+  .workspace .canvas-toolbar {
+    padding: 10px 12px 6px;
+    gap: 8px;
+  }
+  .workspace .status-strip {
+    padding: 0 12px 8px;
+  }
+}
+@media (max-width: 680px) {
+  .workspace .topbar {
+    gap: 4px;
+    padding: 5px 8px;
+  }
+  .workspace .topbar .brand {
+    font-size: 0;
+    gap: 0;
+  }
+  .workspace .save-state {
+    min-width: 98px;
+  }
+  .workspace .workspace-focus {
+    padding-left: 4px;
+  }
+  .workspace .topbar .workspace-mode button {
+    padding-inline: 7px;
+  }
+}
+
+.workspace .topbar .workspace-mode[hidden] {
+  display: none;
+}

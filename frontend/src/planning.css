@@ -35,7 +35,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  padding: 8px 10px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--line);
 }
 .planning-heading h2 {
@@ -91,7 +91,7 @@
   border-bottom: 3px solid transparent;
   border-radius: 3px 3px 0 0;
   background: transparent;
-  padding: 7px 4px;
+  padding: 5px 4px;
   min-width: 0;
 }
 .planning-tabs button[aria-selected="true"] {
@@ -720,7 +720,6 @@
    and its controls room before allocating the remaining height to history. */
 @media (max-height: 500px) {
   .planning-heading { padding: 4px 8px; }
-  .planning-panel .writing-state { min-height: 24px; padding: 2px 10px; }
   .planning-tabs button { padding-block: 4px; }
   .planning-comment-filters { padding: 4px 8px; }
   .planning-comment-filters select { padding-block: 4px; }
@@ -739,4 +738,22 @@
   align-self: center;
   flex: none;
   margin: 3px;
+}
+
+.planning-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 10px 5px;
+}
+.planning-footer .planning-help {
+  flex: none;
+  margin-left: auto;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  padding: 1px;
 }

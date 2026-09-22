@@ -1,3 +1,4 @@
+const { projectAction } = require("./ux-fixture.cjs");
 /* Real keyboard/pointer movement against an isolated local service and SQLite DB. */
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
@@ -125,7 +126,7 @@ test(
       return read();
     }
     async function save() {
-      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await projectAction(page, "Save");
       await h.saved();
     }
     async function assertRendered(expected) {

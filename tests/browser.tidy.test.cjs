@@ -1,3 +1,4 @@
+const { projectAction } = require("./ux-fixture.cjs");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { setupBrowser, until, wait } = require("./browser-harness.cjs");
@@ -115,7 +116,7 @@ async function environment(t, name) {
   await p.locator(".react-flow__controls-fitview").click();
   await h.saved();
   const save = async () => {
-    await p.getByRole("button", { name: "Save", exact: true }).click();
+    await projectAction(p, "Save");
     await h.saved();
     return read();
   };

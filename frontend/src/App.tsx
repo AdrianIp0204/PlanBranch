@@ -6,16 +6,30 @@ import {
   useState,
 } from "react";
 import { readPreferences } from "./preferences";
-import { readWorkspaceMemory, rememberedPlace, rememberWorkspace } from "./workspaceMemory";
+import {
+  readWorkspaceMemory,
+  rememberedPlace,
+  rememberWorkspace,
+} from "./workspaceMemory";
 import type { DraftGuard } from "./writingDrafts";
 import CommandPalette from "./CommandPalette";
 import type { CommandResult } from "./commandSearch";
 import { useQuickJumpShortcut } from "./useQuickJumpShortcut";
 import SettingsDialog from "./SettingsDialog";
+import WorkspaceIcon from "./WorkspaceIcon";
 import ExecutionDialog from "./ExecutionDialog";
 import ActivityNotices from "./ActivityNotices";
-import { useOperationNotifications, type OperationTarget } from "./operationNotifications";
-import { presetLayout, readPersonalLayout, savePersonalLayout, boundLayout, type SavedLayout } from "./workspacePresets";
+import {
+  useOperationNotifications,
+  type OperationTarget,
+} from "./operationNotifications";
+import {
+  presetLayout,
+  readPersonalLayout,
+  savePersonalLayout,
+  boundLayout,
+  type SavedLayout,
+} from "./workspacePresets";
 import type { ReactFlowInstance } from "@xyflow/react";
 import { api, ApiError, bootstrap, download, post } from "./api";
 import { ProjectProvider, useProject } from "./store";
@@ -107,7 +121,9 @@ export default function App() {
         setProjects(p.projects);
         if (p.projects.length && readPreferences().startup === "resume") {
           const saved = readWorkspaceMemory().projectId;
-          const id = p.projects.some(p => p.id === saved) ? saved : p.projects[0].id;
+          const id = p.projects.some((p) => p.id === saved)
+            ? saved
+            : p.projects[0].id;
           const e = await api<Envelope>(`/projects/${id}`);
           if (alive) setEnvelope(e);
         }
@@ -124,9 +140,13 @@ export default function App() {
   useEffect(() => {
     if (!envelope || transition || !pendingProjectFocus.current) return;
     pendingProjectFocus.current = false;
-    const frame = requestAnimationFrame(() => focusAfterLayout(
-      rememberedPlace(envelope.id, envelope.content).view === "build" ? "build-title" : "canvas-title",
-    ));
+    const frame = requestAnimationFrame(() =>
+      focusAfterLayout(
+        rememberedPlace(envelope.id, envelope.content).view === "build"
+          ? "build-title"
+          : "canvas-title",
+      ),
+    );
     return () => cancelAnimationFrame(frame);
   }, [envelope, transition]);
   const open = async (id: string, command = false) => {
@@ -254,8 +274,17 @@ export default function App() {
               PlanBranch
             </div>
             <span className="local-label">LOCAL WORKSPACE</span>
-            <button className="quiet" aria-label="Quick jump" title="Quick jump (Ctrl/Cmd+K)" onClick={() => setWelcomeSearch(true)}>Search</button>
-            <button className="quiet" onClick={() => setSettingsOpen(true)}>Settings</button>
+            <button
+              className="quiet"
+              aria-label="Quick jump"
+              title="Quick jump (Ctrl/Cmd+K)"
+              onClick={() => setWelcomeSearch(true)}
+            >
+              Search
+            </button>
+            <button className="quiet" onClick={() => setSettingsOpen(true)}>
+              Settings
+            </button>
           </header>
           <main>
             <div className="welcome-kicker">VISUAL AI CODING PLANNER</div>
@@ -286,7 +315,18 @@ export default function App() {
                 Import JSON
               </button>
             </div>
-            {projects.length > 0 && <nav className="welcome-projects" aria-label="Projects">{projects.map(project => <button key={project.id} onClick={() => void open(project.id)}>{project.name}</button>)}</nav>}
+            {projects.length > 0 && (
+              <nav className="welcome-projects" aria-label="Projects">
+                {projects.map((project) => (
+                  <button
+                    key={project.id}
+                    onClick={() => void open(project.id)}
+                  >
+                    {project.name}
+                  </button>
+                ))}
+              </nav>
+            )}
             <CodexConnection />
             <div className="welcome-flow" aria-hidden="true">
               <span>Start</span>
@@ -306,13 +346,36 @@ export default function App() {
           Opening project…
         </div>
       )}
-      {welcomeSearch && <CommandPalette projects={projects} content={null} actions={[{ id: "settings", title: "Open settings" }, { id: "new-project", title: "New project" }]} onChoose={async (result) => {
-        if (result.type === "project") {
-          if (!projects.some(p => p.id === result.id)) throw Error("That project is no longer available.");
-          await open(result.id, true);
-        } else if (result.type === "action") afterWelcomeSearch.current = () => result.id === "settings" ? setSettingsOpen(true) : setCreating(true);
-      }} onClose={() => { setWelcomeSearch(false); const action = afterWelcomeSearch.current; afterWelcomeSearch.current = null; if (action) requestAnimationFrame(action); }} />}
-      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      {welcomeSearch && (
+        <CommandPalette
+          projects={projects}
+          content={null}
+          actions={[
+            { id: "settings", title: "Open settings" },
+            { id: "new-project", title: "New project" },
+          ]}
+          onChoose={async (result) => {
+            if (result.type === "project") {
+              if (!projects.some((p) => p.id === result.id))
+                throw Error("That project is no longer available.");
+              await open(result.id, true);
+            } else if (result.type === "action")
+              afterWelcomeSearch.current = () =>
+                result.id === "settings"
+                  ? setSettingsOpen(true)
+                  : setCreating(true);
+          }}
+          onClose={() => {
+            setWelcomeSearch(false);
+            const action = afterWelcomeSearch.current;
+            afterWelcomeSearch.current = null;
+            if (action) requestAnimationFrame(action);
+          }}
+        />
+      )}
+      {settingsOpen && (
+        <SettingsDialog onClose={() => setSettingsOpen(false)} />
+      )}
       {newDialog}
       {error && (
         <Dialog title="Something needs attention" onClose={() => setError("")}>
@@ -379,7 +442,9 @@ function Workbench({
     saveError,
   } = useProject();
   const content = session.content;
-  const [active, setActive] = useState(() => rememberedPlace(session.id, content).diagramId);
+  const [active, setActive] = useState(
+    () => rememberedPlace(session.id, content).diagramId,
+  );
   const [briefOpen, setBriefOpen] = useState(false);
   const [quickJump, setQuickJump] = useState(false);
   const afterQuickJump = useRef<(() => void) | null>(null);
@@ -392,7 +457,13 @@ function Workbench({
   const [selectedBuildTask, setSelectedBuildTask] = useState<string | null>(
     () => rememberedPlace(session.id, content).taskId,
   );
-  useEffect(() => { rememberWorkspace(session.id, { diagramId: active, view: workspaceView, taskId: selectedBuildTask }); }, [session.id, active, workspaceView, selectedBuildTask]);
+  useEffect(() => {
+    rememberWorkspace(session.id, {
+      diagramId: active,
+      view: workspaceView,
+      taskId: selectedBuildTask,
+    });
+  }, [session.id, active, workspaceView, selectedBuildTask]);
   const [returnToBuild, setReturnToBuild] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [tidy, setTidy] = useState<{
@@ -414,7 +485,8 @@ function Workbench({
   const [commentFocus, setCommentFocus] = useState(0);
   const [conversationFocus, setConversationFocus] = useState(0);
   const [messageFocus, setMessageFocus] = useState<string | null>(null);
-  const [executionTarget, setExecutionTarget] = useState<OperationTarget | null>(null);
+  const [executionTarget, setExecutionTarget] =
+    useState<OperationTarget | null>(null);
   const activity = useOperationNotifications(session.id, navigateActivity);
   const [proposalPreview, setProposalPreview] = useState<ProposalDetail | null>(
     null,
@@ -435,7 +507,9 @@ function Workbench({
   proposalPreviewRef.current = proposalPreview;
   const proposalLeaveGuard = useRef<ProposalLeaveGuard | null>(null);
   const writingLeaveGuard = useRef<DraftGuard | null>(null);
-  const registerWritingLeaveGuard = useCallback((guard: DraftGuard | null) => { writingLeaveGuard.current = guard; }, []);
+  const registerWritingLeaveGuard = useCallback((guard: DraftGuard | null) => {
+    writingLeaveGuard.current = guard;
+  }, []);
   const registerProposalLeaveGuard = useCallback(
     (guard: ProposalLeaveGuard | null) => {
       proposalLeaveGuard.current = guard;
@@ -838,11 +912,23 @@ function Workbench({
     // Either editor can change while the other queue is saving. Drain both
     // again before leaving, instead of trusting an earlier acknowledgement.
     while (true) {
-      if (savePlan && !(await flush())) throw Error("The plan has not saved. Retry its save or resolve the conflict before navigating.");
-      if (writingLeaveGuard.current && !(await writingLeaveGuard.current.flush()))
-        throw Error("Your writing has not saved. Open Chat to retry or recover the draft before leaving.");
+      if (savePlan && !(await flush()))
+        throw Error(
+          "The plan has not saved. Retry its save or resolve the conflict before navigating.",
+        );
+      if (
+        writingLeaveGuard.current &&
+        !(await writingLeaveGuard.current.flush())
+      )
+        throw Error(
+          "Your writing has not saved. Open Chat to retry or recover the draft before leaving.",
+        );
       const latest = getSnapshot();
-      if ((!savePlan || latest.generation === latest.savedGeneration) && !writingLeaveGuard.current?.pending()) return;
+      if (
+        (!savePlan || latest.generation === latest.savedGeneration) &&
+        !writingLeaveGuard.current?.pending()
+      )
+        return;
     }
   }
   const perform = async (action: () => void | Promise<void>, save = true) => {
@@ -963,19 +1049,38 @@ function Workbench({
     }
   };
   async function navigateActivity(target: OperationTarget) {
-    if (performing.current) throw Error("A workspace action is finishing. Try again when it completes.");
-    if (document.querySelector("dialog[open]")) throw Error("Close the open dialog before opening this result.");
-    if (proposalPreviewRef.current && proposalLeaveGuard.current && !(await proposalLeaveGuard.current()))
-      throw Error("Save or recover the proposal draft before opening this result.");
+    if (performing.current)
+      throw Error(
+        "A workspace action is finishing. Try again when it completes.",
+      );
+    if (document.querySelector("dialog[open]"))
+      throw Error("Close the open dialog before opening this result.");
+    if (
+      proposalPreviewRef.current &&
+      proposalLeaveGuard.current &&
+      !(await proposalLeaveGuard.current())
+    )
+      throw Error(
+        "Save or recover the proposal draft before opening this result.",
+      );
     await flushForNavigation();
     if (target.kind === "planning") {
-      setPlanningRefresh(value => value + 1);
+      setPlanningRefresh((value) => value + 1);
       setMessageFocus(target.messageId ?? null);
-      setConversationFocus(value => value + 1);
+      setConversationFocus((value) => value + 1);
       openPlanning();
-      if (!target.messageId) requestAnimationFrame(() => document.querySelector<HTMLElement>("#planning-pane [role=tab][aria-selected=true]")?.focus());
+      if (!target.messageId)
+        requestAnimationFrame(() =>
+          document
+            .querySelector<HTMLElement>(
+              "#planning-pane [role=tab][aria-selected=true]",
+            )
+            ?.focus(),
+        );
     } else if (target.kind === "scan") {
-      const detail = await api<Scan>(`/projects/${session.id}/scans/${target.id}`);
+      const detail = await api<Scan>(
+        `/projects/${session.id}/scans/${target.id}`,
+      );
       setNotificationScan(detail);
       setScanDialog(true);
     } else {
@@ -990,54 +1095,100 @@ function Workbench({
     setWorkspaceView(saved.view);
     setNarrowNavigationOpen(false);
     setFocusPane("canvas");
-    if (proposalPreviewRef.current) setNotice("Layout updated; your proposal review stays open.");
+    if (proposalPreviewRef.current)
+      setNotice("Layout updated; your proposal review stays open.");
   };
   const chooseCommand = async (result: CommandResult) => {
-    if (performing.current) throw Error("A workspace action is finishing. Try again when it completes.");
+    if (performing.current)
+      throw Error(
+        "A workspace action is finishing. Try again when it completes.",
+      );
     if (result.type === "action" && result.id === "settings") {
       afterQuickJump.current = onSettings;
       return;
     }
-    if (proposalPreviewRef.current && proposalLeaveGuard.current && !(await proposalLeaveGuard.current()))
-      throw Error("The proposal draft has not saved. Resolve its save before navigating.");
+    if (
+      proposalPreviewRef.current &&
+      proposalLeaveGuard.current &&
+      !(await proposalLeaveGuard.current())
+    )
+      throw Error(
+        "The proposal draft has not saved. Resolve its save before navigating.",
+      );
     await flushForNavigation();
     if (result.type === "project") {
-      if (!projects.some(p => p.id === result.id)) throw Error("That project is no longer available.");
+      if (!projects.some((p) => p.id === result.id))
+        throw Error("That project is no longer available.");
       if (result.id !== session.id) await onOpen(result.id, true);
-      else afterQuickJump.current = () => focusAfterLayout(workspaceView === "build" ? "build-title" : "canvas-title");
+      else
+        afterQuickJump.current = () =>
+          focusAfterLayout(
+            workspaceView === "build" ? "build-title" : "canvas-title",
+          );
       return;
     }
     if (result.type === "action") {
       if (result.id === "save") return;
-      if (result.id === "new-project") { afterQuickJump.current = onNew; return; }
+      if (result.id === "new-project") {
+        afterQuickJump.current = onNew;
+        return;
+      }
       if (proposalPreviewRef.current) closeProposal();
-      if (result.id === "brief") afterQuickJump.current = () => setBriefOpen(true);
+      if (result.id === "brief")
+        afterQuickJump.current = () => setBriefOpen(true);
       if (result.id === "tidy") {
-        if (!diagram?.nodes.length) throw Error("Add nodes before arranging this diagram.");
-        afterQuickJump.current = () => setTidy({ diagram: copy(diagram), selectedIds: instance.current?.getNodes().filter(n => n.selected).map(n => n.id) ?? [] });
+        if (!diagram?.nodes.length)
+          throw Error("Add nodes before arranging this diagram.");
+        afterQuickJump.current = () =>
+          setTidy({
+            diagram: copy(diagram),
+            selectedIds:
+              instance.current
+                ?.getNodes()
+                .filter((n) => n.selected)
+                .map((n) => n.id) ?? [],
+          });
       }
       return;
     }
     if (result.type === "node" || result.type === "diagram") {
-      const target = content.diagrams.find(d => d.id === result.diagramId);
-      if (!target || (result.type === "node" && !target.nodes.some(n => n.id === result.id)))
+      const target = content.diagrams.find((d) => d.id === result.diagramId);
+      if (
+        !target ||
+        (result.type === "node" &&
+          !target.nodes.some((n) => n.id === result.id))
+      )
         throw Error("That diagram item is no longer available. Search again.");
       if (proposalPreviewRef.current) closeProposal();
       setFilter("all");
-      setWorkspaceView("diagram"); setActive(target.id); setFocusPane("canvas"); setNarrowNavigationOpen(false);
+      setWorkspaceView("diagram");
+      setActive(target.id);
+      setFocusPane("canvas");
+      setNarrowNavigationOpen(false);
       if (result.type === "node") reveal(result.id);
       else setSelected(null);
       afterQuickJump.current = () => focusAfterLayout("canvas-title");
     } else if (result.type === "task") {
-      if (!content.buildTasks?.some(t => t.id === result.id)) throw Error("That Build task is no longer available.");
+      if (!content.buildTasks?.some((t) => t.id === result.id))
+        throw Error("That Build task is no longer available.");
       if (proposalPreviewRef.current) closeProposal();
-      setWorkspaceView("build"); setSelectedBuildTask(result.id); setFocusPane("canvas"); setNarrowNavigationOpen(false);
+      setWorkspaceView("build");
+      setSelectedBuildTask(result.id);
+      setFocusPane("canvas");
+      setNarrowNavigationOpen(false);
       afterQuickJump.current = () => focusAfterLayout("build-title");
     } else if (result.type === "variable") {
-      const exists = result.detected ? symbols.some(v => v.id === result.id) : content.variables.some(v => v.id === result.id);
-      if (!exists) throw Error("That variable is no longer available. Search again.");
+      const exists = result.detected
+        ? symbols.some((v) => v.id === result.id)
+        : content.variables.some((v) => v.id === result.id);
+      if (!exists)
+        throw Error("That variable is no longer available. Search again.");
       if (proposalPreviewRef.current) closeProposal();
-      setWorkspaceView("diagram"); setVariableFocus(result.id); setVariables(true); setFocusPane("canvas"); setNarrowNavigationOpen(false);
+      setWorkspaceView("diagram");
+      setVariableFocus(result.id);
+      setVariables(true);
+      setFocusPane("canvas");
+      setNarrowNavigationOpen(false);
       afterQuickJump.current = () => focusAfterLayout("variable-catalogue");
     }
   };
@@ -1124,20 +1275,54 @@ function Workbench({
           >
             {content.name}
           </button>
-          <span>/</span>
-          <span>{diagram?.name}</span>
         </div>
-        <button
-          className="quiet project-brief-toggle"
-          aria-label="Project brief"
-          disabled={Boolean(proposalPreview)}
-          onClick={() => {
-            commit();
-            setBriefOpen(true);
-          }}
+        <div
+          className="workspace-mode"
+          hidden={Boolean(proposalPreview)}
+          role="group"
+          aria-label="Plan views"
         >
-          Brief
-        </button>
+          <button
+            className="quiet"
+            aria-pressed={workspaceView === "diagram"}
+            onClick={() => {
+              commit();
+              setWorkspaceView("diagram");
+              setFocusPane("canvas");
+              setNarrowNavigationOpen(false);
+            }}
+          >
+            Diagram
+          </button>
+          <button
+            className="quiet"
+            aria-pressed={workspaceView === "build"}
+            onClick={() => {
+              commit();
+              setWorkspaceView("build");
+              setFocusPane("canvas");
+              setNarrowNavigationOpen(false);
+              setReturnToBuild(false);
+            }}
+          >
+            Build
+          </button>
+          {returnToBuild && workspaceView === "diagram" && (
+            <button
+              className="quiet back-build"
+              onClick={() => {
+                commit();
+                setWorkspaceView("build");
+                setFocusPane("canvas");
+                setNarrowNavigationOpen(false);
+                setReturnToBuild(false);
+                focusAfterLayout("build-title");
+              }}
+            >
+              Back to build task
+            </button>
+          )}
+        </div>
         <div
           className={`save-state ${saveStatus}`}
           data-testid="save-state"
@@ -1186,16 +1371,6 @@ function Workbench({
             ↷
           </button>
         </div>
-        <button
-          className="quiet"
-          disabled={Boolean(proposalPreview)}
-          onClick={() => void flush()}
-        >
-          Save
-        </button>
-        <button onClick={openSource}>
-          {scanRunning ? "Scanning…" : "Scan Python"}
-        </button>
         <details
           className="export-menu popup-menu"
           data-popup
@@ -1211,8 +1386,8 @@ function Workbench({
               event.currentTarget.open = false;
           }}
         >
-          <summary className="button">
-            {busy ? "Exporting…" : "Export ↓"}
+          <summary className="button" aria-label="Project actions">
+            {busy ? "Exporting…" : scanRunning ? "Scanning…" : "Project"}
           </summary>
           <div
             className="menu-popover"
@@ -1226,6 +1401,29 @@ function Workbench({
               }
             }}
           >
+            <span className="menu-section-label">Project</span>
+            <button
+              className="quiet project-brief-toggle"
+              aria-label="Project brief"
+              disabled={Boolean(proposalPreview)}
+              onClick={() => {
+                commit();
+                setBriefOpen(true);
+              }}
+            >
+              Brief
+            </button>
+            <button
+              className="quiet"
+              disabled={Boolean(proposalPreview)}
+              onClick={() => void flush()}
+            >
+              Save
+            </button>
+            <button onClick={openSource}>
+              {scanRunning ? "Scanning…" : "Scan Python"}
+            </button>
+            <span className="menu-section-label">Export</span>
             <button disabled={busy} onClick={() => void exportFile("json")}>
               Project JSON
             </button>
@@ -1237,6 +1435,21 @@ function Workbench({
             </button>
             <button disabled={busy} onClick={() => void exportFile("markdown")}>
               Implementation brief
+            </button>
+            <span className="menu-section-label">Local data</span>
+            <button
+              className="quiet"
+              disabled={Boolean(proposalPreview)}
+              onClick={() => void perform(onImport)}
+            >
+              ↥ Import JSON
+            </button>
+            <button
+              className="quiet"
+              disabled={Boolean(proposalPreview)}
+              onClick={() => void perform(onExample)}
+            >
+              ◇ Load example
             </button>
             <button
               onClick={() =>
@@ -1316,8 +1529,22 @@ function Workbench({
             Chat
           </button>
         </div>
-        <button className="quiet" aria-label="Quick jump" title="Quick jump (Ctrl/Cmd+K)" onClick={() => setQuickJump(true)}>Search</button>
-        <button className="quiet" onClick={onSettings}>Settings</button>
+        <button
+          className="icon-button utility-button"
+          aria-label="Quick jump"
+          title="Search (Ctrl/Cmd+K)"
+          onClick={() => setQuickJump(true)}
+        >
+          <WorkspaceIcon name="search" />
+        </button>
+        <button
+          className="icon-button utility-button"
+          aria-label="Settings"
+          title="Settings"
+          onClick={onSettings}
+        >
+          <WorkspaceIcon name="settings" />
+        </button>
         <details
           className="layout-menu popup-menu"
           data-popup
@@ -1335,24 +1562,54 @@ function Workbench({
         >
           <summary className="button">Layout</summary>
           <div className="menu-popover">
-            <p>Panel sizes stay in this browser.</p>
-            {(["planning", "review", "build"] as const).map((name) => <button key={name} onClick={(event) => {
-              chooseLayout(presetLayout(name));
-              const menu = event.currentTarget.closest("details");
-              if (menu) { menu.open = false; menu.querySelector("summary")?.focus(); }
-            }}>{name[0].toUpperCase() + name.slice(1)} layout</button>)}
-            <button onClick={(event) => {
-              const saved = { layout, view: workspaceView };
-              if (savePersonalLayout(saved)) { setPersonalLayout(saved); setNotice("Personal layout saved in this browser."); }
-              else setError("Browser storage is unavailable. Your layout could not be saved.");
-              const menu = event.currentTarget.closest("details");
-              if (menu) { menu.open = false; menu.querySelector("summary")?.focus(); }
-            }}>Save personal layout</button>
-            <button disabled={!personalLayout} onClick={(event) => {
-              if (personalLayout) chooseLayout(personalLayout);
-              const menu = event.currentTarget.closest("details");
-              if (menu) { menu.open = false; menu.querySelector("summary")?.focus(); }
-            }}>Personal layout</button>
+            <span className="menu-section-label">Workspace layout</span>
+            {(["planning", "review", "build"] as const).map((name) => (
+              <button
+                key={name}
+                onClick={(event) => {
+                  chooseLayout(presetLayout(name));
+                  const menu = event.currentTarget.closest("details");
+                  if (menu) {
+                    menu.open = false;
+                    menu.querySelector("summary")?.focus();
+                  }
+                }}
+              >
+                {name[0].toUpperCase() + name.slice(1)} layout
+              </button>
+            ))}
+            <button
+              onClick={(event) => {
+                const saved = { layout, view: workspaceView };
+                if (savePersonalLayout(saved)) {
+                  setPersonalLayout(saved);
+                  setNotice("Personal layout saved in this browser.");
+                } else
+                  setError(
+                    "Browser storage is unavailable. Your layout could not be saved.",
+                  );
+                const menu = event.currentTarget.closest("details");
+                if (menu) {
+                  menu.open = false;
+                  menu.querySelector("summary")?.focus();
+                }
+              }}
+            >
+              Save personal layout
+            </button>
+            <button
+              disabled={!personalLayout}
+              onClick={(event) => {
+                if (personalLayout) chooseLayout(personalLayout);
+                const menu = event.currentTarget.closest("details");
+                if (menu) {
+                  menu.open = false;
+                  menu.querySelector("summary")?.focus();
+                }
+              }}
+            >
+              Personal layout
+            </button>
             <button
               onClick={(event) => {
                 reset();
@@ -1389,7 +1646,7 @@ function Workbench({
           aria-label="Workspace navigation"
         >
           <div className="sidebar-heading">
-            PROJECTS
+            Projects
             <button
               className="icon-button"
               aria-label="New project"
@@ -1414,7 +1671,7 @@ function Workbench({
             ))}
           </nav>
           <div className="sidebar-heading diagram-heading">
-            DIAGRAMS
+            Diagrams
             <button
               className="icon-button"
               aria-label="New diagram"
@@ -1445,40 +1702,7 @@ function Workbench({
               </button>
             ))}
           </nav>
-          <div className="palette">
-            <div className="sidebar-heading">ADD A NODE</div>
-            {(Object.entries(nodeKinds) as [NodeKind, string][]).map(
-              ([kind, label]) => (
-                <button
-                  key={kind}
-                  aria-label={`Add ${label}`}
-                  onClick={() => addNode(kind)}
-                >
-                  <span className={`palette-icon palette-${kind}`}>
-                    {kind === "decision"
-                      ? "◇"
-                      : kind === "note"
-                        ? "≡"
-                        : kind === "io"
-                          ? "▱"
-                          : kind === "start" || kind === "end"
-                            ? "◯"
-                            : "▭"}
-                  </span>
-                  {label}
-                  <span className="palette-plus">+</span>
-                </button>
-              ),
-            )}
-            <p>Drag between handles to connect steps.</p>
-          </div>
           <div className="sidebar-bottom">
-            <button className="quiet" onClick={() => void perform(onImport)}>
-              ↥ Import JSON
-            </button>
-            <button className="quiet" onClick={() => void perform(onExample)}>
-              ◇ Load example
-            </button>
             <details className="project-options">
               <summary>Project options</summary>
               <button
@@ -1562,8 +1786,12 @@ function Workbench({
               <button
                 className="quiet"
                 onClick={() => {
-                  if (scan) void post(`/projects/${session.id}/scans/${scan.id}/cancel`)
-                    .catch((reason) => setScanError((reason as Error).message));
+                  if (scan)
+                    void post(
+                      `/projects/${session.id}/scans/${scan.id}/cancel`,
+                    ).catch((reason) =>
+                      setScanError((reason as Error).message),
+                    );
                 }}
               >
                 Cancel scan
@@ -1578,7 +1806,10 @@ function Workbench({
                   <>
                     <button
                       onClick={() =>
-                        void perform(async () => { await flushForNavigation(false); await onCopy(copy(getSnapshot().content)); }, false)
+                        void perform(async () => {
+                          await flushForNavigation(false);
+                          await onCopy(copy(getSnapshot().content));
+                        }, false)
                       }
                     >
                       Keep draft as new project
@@ -1590,7 +1821,10 @@ function Workbench({
                             "Discard this local draft and reload the saved version?",
                           )
                         )
-                          void perform(async () => { await flushForNavigation(false); await onOpen(session.id); }, false);
+                          void perform(async () => {
+                            await flushForNavigation(false);
+                            await onOpen(session.id);
+                          }, false);
                       }}
                     >
                       Discard and reload
@@ -1626,42 +1860,6 @@ function Workbench({
               </button>
             </div>
           )}
-          <div className="workspace-mode" role="group" aria-label="Plan views">
-            <button
-              className="quiet"
-              aria-pressed={workspaceView === "diagram"}
-              onClick={() => {
-                commit();
-                setWorkspaceView("diagram");
-              }}
-            >
-              Diagram
-            </button>
-            <button
-              className="quiet"
-              aria-pressed={workspaceView === "build"}
-              onClick={() => {
-                commit();
-                setWorkspaceView("build");
-                setReturnToBuild(false);
-              }}
-            >
-              Build
-            </button>
-            {returnToBuild && workspaceView === "diagram" && (
-              <button
-                className="quiet back-build"
-                onClick={() => {
-                  commit();
-                  setWorkspaceView("build");
-                  setReturnToBuild(false);
-                  focusAfterLayout("build-title");
-                }}
-              >
-                Back to build task
-              </button>
-            )}
-          </div>
           {workspaceView === "build" && (
             <BuildView
               onPlanning={() => openPlanning()}
@@ -1697,6 +1895,8 @@ function Workbench({
               <div className="toolbar-actions">
                 <button
                   className="quiet"
+                  aria-label="Tidy diagram"
+                  title="Tidy diagram"
                   disabled={!diagram?.nodes.length}
                   onClick={() =>
                     setTidy({
@@ -1709,7 +1909,7 @@ function Workbench({
                     })
                   }
                 >
-                  Tidy diagram
+                  Tidy
                 </button>
                 <details
                   className="add-menu popup-menu"
@@ -1732,6 +1932,7 @@ function Workbench({
                       ([kind, label]) => (
                         <button
                           key={kind}
+                          aria-label={`Add ${label}`}
                           onClick={(event) => {
                             addNode(kind);
                             const menu = event.currentTarget.closest("details");
@@ -2084,13 +2285,43 @@ function Workbench({
         />
       )}
       <ActivityNotices {...activity} />
-      {executionTarget && <ExecutionDialog key={executionTarget.id} initialHistory initialRunId={executionTarget.id} taskId={executionTarget.taskId ?? null} onClose={() => setExecutionTarget(null)} onPlanning={() => { setExecutionTarget(null); openPlanning(); }} />}
+      {executionTarget && (
+        <ExecutionDialog
+          key={executionTarget.id}
+          initialHistory
+          initialRunId={executionTarget.id}
+          taskId={executionTarget.taskId ?? null}
+          onClose={() => setExecutionTarget(null)}
+          onPlanning={() => {
+            setExecutionTarget(null);
+            openPlanning();
+          }}
+        />
+      )}
       {briefOpen && <ProjectBriefDialog onClose={() => setBriefOpen(false)} />}
-      {quickJump && <CommandPalette projects={projects} content={content} symbols={symbols} actions={[
-        { id: "settings", title: "Open settings" }, { id: "new-project", title: "New project" },
-        { id: "save", title: "Save workspace" }, { id: "brief", title: "Project brief" },
-        ...(diagram?.nodes.length ? [{ id: "tidy", title: "Tidy diagram" }] : []),
-      ]} onChoose={chooseCommand} onClose={() => { setQuickJump(false); const action = afterQuickJump.current; afterQuickJump.current = null; if (action) requestAnimationFrame(action); }} />}
+      {quickJump && (
+        <CommandPalette
+          projects={projects}
+          content={content}
+          symbols={symbols}
+          actions={[
+            { id: "settings", title: "Open settings" },
+            { id: "new-project", title: "New project" },
+            { id: "save", title: "Save workspace" },
+            { id: "brief", title: "Project brief" },
+            ...(diagram?.nodes.length
+              ? [{ id: "tidy", title: "Tidy diagram" }]
+              : []),
+          ]}
+          onChoose={chooseCommand}
+          onClose={() => {
+            setQuickJump(false);
+            const action = afterQuickJump.current;
+            afterQuickJump.current = null;
+            if (action) requestAnimationFrame(action);
+          }}
+        />
+      )}
       {connectionOpen && (
         <CodexConnectionDialog onClose={() => setConnectionOpen(false)} />
       )}

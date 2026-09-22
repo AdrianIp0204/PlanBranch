@@ -1,3 +1,4 @@
+const { projectAction } = require("./ux-fixture.cjs");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -76,7 +77,7 @@ async function send(h, text) {
   });
 }
 async function save(h) {
-  await h.page.getByRole("button", { name: "Save", exact: true }).click();
+  await projectAction(h.page, "Save");
   await h.saved();
   return h.api(`/projects/${h.initial.id}`);
 }

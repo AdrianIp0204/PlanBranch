@@ -7,7 +7,7 @@ Discuss a coding goal beside an editable diagram. Review the proposed changes, a
 [![Checks](https://github.com/AdrianIp0204/PlanBranch/actions/workflows/checks.yml/badge.svg)](https://github.com/AdrianIp0204/PlanBranch/actions/workflows/checks.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-![An editable proposal beside a planning conversation](docs/images/planbranch-workspace.png)
+![A diagram beside proposed changes awaiting review](docs/images/planbranch-workspace.png)
 *The working app with disposable sample data and a deterministic example conversation.*
 
 ## From an idea to a reviewed change
@@ -79,13 +79,15 @@ The editor, scanner and exports work offline. Dependency downloads and optional 
 
 ## Make the workspace yours
 
+The compact header keeps Diagram/Build, panel toggles, search and settings together. **Project** groups the brief, save, scan, export and backup tools; **Add node** is the single canvas creation menu.
+
 Open **Settings** from the toolbar or welcome screen for Light, Dark or System appearance, readable text sizes, compact spacing, grid/minimap controls and snapping. Model defaults and the Codex connection check are available in Agent; Data & About shows the local data folder and backup action. Preferences stay in this browser and never edit a plan.
 
 By default, PlanBranch reopens your last project, diagram and Diagram/Build view. Choose **Settings → Editor → Startup → Show projects** to start with project selection instead. Full-diagram PNGs use a consistent light palette regardless of the workspace theme.
 
 Unsent chat, node comments and question answers save separately from the plan and recover after restart. Conflicting edits retain recoverable copies; recovered writing is never sent automatically.
 
-Use **Search** or **Ctrl/Cmd+K** to jump to projects, diagram nodes, Build tasks and variables without bypassing save recovery.
+Use the **Search** icon or **Ctrl/Cmd+K** to jump to projects, diagram nodes, Build tasks and variables without bypassing save recovery.
 
 The **Layout** menu offers Planning, Review and Build presets plus one saved personal layout. Switching layouts keeps your selections, viewport and drafts; it never applies a proposal or starts coding.
 

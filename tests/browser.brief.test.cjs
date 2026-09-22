@@ -1,3 +1,4 @@
+const { projectAction, openProjectMenu } = require("./ux-fixture.cjs");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -52,7 +53,7 @@ async function send(h, text) {
   });
 }
 async function openBrief(p) {
-  await p.getByRole("button", { name: "Project brief", exact: true }).click();
+  await projectAction(p, "Project brief");
   await briefDialog(p).waitFor();
 }
 async function noHorizontalDialogOverflow(p) {
@@ -127,7 +128,7 @@ test(
     await h.saved();
     assert.equal(
       await p
-        .getByRole("button", { name: "Project brief", exact: true })
+        .locator(".export-menu > summary")
         .evaluate((el) => document.activeElement === el),
       true,
     );
@@ -412,6 +413,7 @@ test(
       await until(async () =>
         zp.evaluate(() => innerWidth === 640 && innerHeight === 400),
       );
+      await openProjectMenu(zp);
       const trigger = zp.getByRole("button", {
         name: "Project brief",
         exact: true,
@@ -442,7 +444,7 @@ test(
       await zp.screenshot({ path: path.join(h.output, "brief-zoom-200.png") });
       await done.press("Enter");
       assert.equal(
-        await trigger.evaluate((el) => document.activeElement === el),
+        await zp.locator(".export-menu > summary").evaluate((el) => document.activeElement === el),
         true,
       );
     });

@@ -1,3 +1,4 @@
+const { addCanvasNode, projectAction } = require("./ux-fixture.cjs");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -60,7 +61,7 @@ async function proposal(p, proposalId) {
   return item;
 }
 async function save(h) {
-  await h.page.getByRole("button", { name: "Save", exact: true }).click();
+  await projectAction(h.page, "Save");
   await h.saved();
 }
 
@@ -219,7 +220,7 @@ test(
       p = h.page;
     await open(p);
     const initialRequest = await send(p, "Add a review step slow");
-    await p.getByRole("button", { name: "Add Process", exact: true }).click();
+    await addCanvasNode(p, "Process");
     await save(h);
     const latest = await h.api(`/projects/${h.initial.id}`);
     const initialReply = await settled(h, initialRequest);
@@ -258,7 +259,7 @@ test(
       response.url().endsWith(`/api/projects/${h.initial.id}`) &&
       response.status() === 503,
     );
-    await p.getByRole("button", { name: "Add Process", exact: true }).click();
+    await addCanvasNode(p, "Process");
     await refusedAutosave;
     // Let this edit's scheduled autosave fail before Send explicitly flushes it.
     // Otherwise that still-pending timer can save after interception is removed,

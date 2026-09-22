@@ -51,11 +51,11 @@ The service binds only to `127.0.0.1`. Debug mode is disabled. If assets have no
 
 ## Workspace
 
-Create a project or explicitly load the removable example. A project contains multiple named diagrams. Use the palette to add start/end, process, decision, input/output, and note nodes. Drag nodes and connect their handles, or use the Connect controls. Branches, merges, and cycles are valid. Select a connection to label it; double-click a node to inspect it.
+Create a project or explicitly load the removable example. A project contains multiple named diagrams. Use **Add node** above the canvas to add start/end, process, decision, input/output, and note nodes. Drag nodes and connect their handles, or use the Connect controls. Branches, merges, and cycles are valid. Select a connection to label it; double-click a node to inspect it.
 
 The inspector holds description, notes, pseudocode, target file/scope, a checklist, status, blocker details, and decision reasoning. Notes are plain text, rendered without HTML execution. Completion checkboxes update status; checklist items do not. Diagram totals exclude note nodes; Build task completion is separate.
 
-Use the navigation button beside PlanBranch to hide or show projects and diagrams. Add nodes from the palette or the **Add node** menu above the canvas. The **Inspector** button shows or hides details. Title, status, description, and blockers stay at the top; expand the named sections for checklists, notes, pseudocode, targets, decisions, and links. Section indicators show existing content and checklist counts.
+Use the navigation button beside PlanBranch to hide or show projects and diagrams. The sidebar contains projects and diagrams; **Add node** above the canvas holds all node types. The header switches between **Diagram** and **Build**. **Project** groups Save, Project brief, Scan Python, exports, import, the removable example and database backup. The **Inspector** button shows or hides details. Title, status, description, and blockers stay at the top; expand the named sections for checklists, notes, pseudocode, targets, decisions, and links. Section indicators show existing content and checklist counts.
 
 Drag the divider beside the right dock or above the catalogue to resize it. A focused divider supports arrow keys, Shift for larger steps, and Home/End for size limits. Panel dividers also support Enter to collapse; the chat composer divider preserves the input area. **Layout → Restore default layout** resets panel sizes and visibility. Chat width, inspector width, and composer height are remembered independently in this browser, outside project content and undo history. In narrow windows or at high browser zoom, use the Canvas/Chat focus controls to work in one area while retaining the other area’s state.
 
@@ -63,7 +63,7 @@ The variable panel supports plans for files that do not exist yet. A planned var
 
 ## Tidy a diagram
 
-Choose **Tidy diagram** above the canvas to preview a horizontal or vertical arrangement. Choose the entire diagram or the nodes selected with Ctrl/Cmd+click. **Pin position for Tidy** in a node's inspector keeps that node fixed; dragging it manually is still allowed. Unselected nodes are also fixed in selected scope.
+Choose **Tidy** above the canvas to preview a horizontal or vertical arrangement. Choose the entire diagram or the nodes selected with Ctrl/Cmd+click. **Pin position for Tidy** in a node's inspector keeps that node fixed; dragging it manually is still allowed. Unselected nodes are also fixed in selected scope.
 
 The preview is separate from your working canvas. Cancel changes nothing; **Apply arrangement** changes only positions in one undoable action. Pins, metadata, handles, connections, selection and saved viewports are preserved. Tidy handles branches, merges, disconnected components and loops. It reduces obvious crossings and keeps movable nodes clear of fixed nodes; fixed nodes that already overlap remain as placed. It does not promise optimal connection routing. Existing diagrams are never rearranged automatically.
 
@@ -77,7 +77,7 @@ Open **Chat** in the workspace controls. The right dock spans the workspace heig
 - **Questions:** when a consequential decision is missing, choose an answer or **Something else**, then explicitly continue. Recommendations are never submitted automatically. Longer sets show one question at a time. Submitted answers survive restart and do not change the diagram. If you edit the plan while questions are open, **Ask again using this plan** requests an updated set. Sending a **Change direction** message replaces the pending questions.
 - **Approval:** answer applicable open questions, resolve open comments and review pending proposals, then choose **Approve plan**. Approval records an exact saved snapshot. Content changes need review again; viewport or layout changes do not. **Reopen plan** explicitly withdraws approval. Approval does not start execution. Build offers a separate, explicitly reviewed Run step.
 
-The composer footer offers **Model** and **Reasoning effort**. Choices come from your installed CLI's catalogue and vary by model; a catalogue entry does not guarantee account access. **CLI default** remains available if discovery fails. An unavailable saved selection requires an explicit replacement. Preferences are local to this browser and apply to the next request, including a question continuation. Use the help/details control to refresh the catalogue and inspect the latest request's settings.
+The composer footer offers **Model** and **Reasoning effort**. Writing-save status and the help control sit beneath the composer; a highlighted **Recover writing** action appears when recovery needs attention. Choices come from your installed CLI's catalogue and vary by model; a catalogue entry does not guarantee account access. **CLI default** remains available if discovery fails. An unavailable saved selection requires an explicit replacement. Preferences are local to this browser and apply to the next request, including a question continuation. Use the help/details control to refresh the catalogue and inspect the latest request's settings.
 
 Choose a named model to enable its supported reasoning levels. **CLI default** leaves both settings to Codex. If chat asks you to restart PlanBranch, stop and restart the Python server with the same data directory, then reload the browser; refreshing the browser alone cannot update a running server. Saved writing is retained in the database; failed saves remain available for retry in the open tab. This can happen after rebuilding the frontend while an older server is still running. A missing model catalogue now shows recovery guidance directly in chat.
 
@@ -124,7 +124,7 @@ Startup applies numbered database migrations. Database version 2 adopts existing
 
 ## Read-only Python scanning
 
-In Source settings, enter an explicit local folder and confirm read-only access. A browser directory picker is not required. Attach one root per project. Merely importing a project never authorizes source access. Source attachment is machine-specific and excluded from portable exports.
+Open **Project → Scan Python**. In Source settings, enter an explicit local folder and confirm read-only access. A browser directory picker is not required. Attach one root per project. Merely importing a project never authorizes source access. Source attachment is machine-specific and excluded from portable exports.
 
 Choose Scan / Rescan after editing Python externally. The UI reports progress, file results, errors, additions, and symbols no longer detected; a running scan can be cancelled. Nothing in the source project is imported or executed, and no source file is written.
 
@@ -147,6 +147,8 @@ The catalogue shows the result count and a clear-filters action. Use arrow keys 
 Example Python files are in `examples/python`. Explicitly attach that folder to try the sample scanner workflow. The example contains independent scopes and loop logic and can be removed without affecting your own projects.
 
 ## Exports and imports
+
+Open **Project** in the header for exports, Import JSON and Back up database. These actions remain available when the sidebar is collapsed.
 
 - **JSON:** versioned project content, graph, checklists, variable relationships, and relative source metadata. Import creates a new project and remaps IDs consistently. Invalid imports commit nothing. Imported evidence stays historical/unverified; explicit reattachment and rescan produce fresh evidence that you can review and link. Machine roots, authorization tokens, source excerpts, and undo history are excluded.
 - **PNG:** the entire active diagram, including offscreen nodes, edge labels, statuses, and padding. Editor controls are excluded. To bound browser memory, the export surface is limited to 16,000 pixels per side and 64 million pixels overall; move widely separated nodes closer if an export exceeds the limit.
@@ -227,7 +229,7 @@ The summary counts added, changed and removed items. **Review hints** offers opt
 
 ## Project brief
 
-Open **Brief** in the top bar to edit the goal, intended user, requirements, constraints, exclusions, agreed decisions and assumptions. Changes save automatically and participate in project Undo/Redo. Editing the brief makes an existing plan approval outdated. Keep uncertain assumptions in their own field until you agree to adopt them.
+Open **Project → Project brief** in the top bar to edit the goal, intended user, requirements, constraints, exclusions, agreed decisions and assumptions. Changes save automatically and participate in project Undo/Redo. Editing the brief makes an existing plan approval outdated. Keep uncertain assumptions in their own field until you agree to adopt them.
 
 The brief is included in each new planning request, even when older conversation messages are omitted. Codex can propose brief updates, which appear in the existing review workspace alongside any diagram changes. Compare Before and Proposed, edit the candidate, request a revision, Apply or Discard. Saving a proposal draft never changes the saved brief. JSON and Markdown exports include the brief; older project files import with an empty brief.
 
@@ -286,7 +288,7 @@ Startup reopens the last available project, diagram and Diagram/Build view; miss
 
 ## Quick jump
 
-Use **Search** in the toolbar or **Ctrl/Cmd+K** to find projects, diagrams, nodes, Build tasks and planned or detected variables. Results show their diagram, file or scope; equal names remain distinguishable. Use arrow keys, Enter and Escape. Searches cover navigation metadata, not source file contents.
+Use the magnifying-glass **Search** control in the toolbar or **Ctrl/Cmd+K** to find projects, diagrams, nodes, Build tasks and planned or detected variables. Results show their diagram, file or scope; equal names remain distinguishable. Use arrow keys, Enter and Escape. Searches cover navigation metadata, not source file contents.
 
 Opening a result brings its item into view. Project switches and proposal navigation wait for existing plan and writing save guards; an unresolved conflict keeps you in place. Search actions open the normal dialogs and never run code, delete items or accept a proposal directly. Native text editing and IME composition retain their normal behavior; the shortcut does not replace an already-open dialog.
 

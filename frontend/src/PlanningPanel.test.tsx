@@ -1658,3 +1658,91 @@ it("waits for the visible response then focuses the exact notification message o
     else delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
   }
 });
+
+it("keeps one writing recovery action available across planning tabs without changing drafts", async () => {
+  const prototype = HTMLDialogElement.prototype;
+  const show = Object.getOwnPropertyDescriptor(prototype, "showModal");
+  const closeDialog = Object.getOwnPropertyDescriptor(prototype, "close");
+  Object.defineProperty(prototype, "showModal", {
+    configurable: true,
+    value(this: HTMLDialogElement) {
+      this.setAttribute("open", "");
+    },
+  });
+  Object.defineProperty(prototype, "close", {
+    configurable: true,
+    value(this: HTMLDialogElement) {
+      this.removeAttribute("open");
+    },
+  });
+  try {
+    const { emptyWriting } = await import("./writingDrafts");
+    const current = {
+      ...emptyWriting(),
+      message: "Keep this unsent plan question.",
+    };
+    const savedCopy = {
+      ...emptyWriting(),
+      message: "An earlier recoverable version.",
+    };
+    writingStore.value = {
+      draft: { id: "current", revision: 2, updatedAt: null, payload: current },
+      copies: [
+        { id: "earlier", revision: 1, updatedAt: null, payload: savedCopy },
+      ],
+    };
+    const originalContent = copy(session.content);
+    await mount();
+    await screen.findByRole("button", {
+      name: "Unsent writing: Recover writing",
+    });
+    for (const tab of ["Chat", "Comments", "Changes"]) {
+      fireEvent.click(screen.getByRole("tab", { name: tab }));
+      const recovery = screen.getByRole("button", {
+        name: "Unsent writing: Recover writing",
+      });
+      expect(screen.getAllByTestId("writing-save-state")).toHaveLength(1);
+      recovery.focus();
+      fireEvent.click(recovery);
+      const dialog = screen.getByRole("dialog", { name: "Unsent writing" });
+      expect(
+        (
+          within(dialog).getByLabelText(
+            "Current unsent writing",
+          ) as HTMLTextAreaElement
+        ).value,
+      ).toContain(current.message);
+      expect(
+        (
+          within(dialog).getByLabelText(
+            "Saved writing copy",
+          ) as HTMLTextAreaElement
+        ).value,
+      ).toBe(savedCopy.message);
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: "Close dialog" }),
+      );
+      expect(document.activeElement).toBe(recovery);
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Planning settings and sharing help",
+        }),
+      );
+      const details = screen.getByRole("dialog", { name: "Planning settings" });
+      fireEvent.click(
+        within(details).getByRole("button", { name: "Close dialog" }),
+      );
+    }
+    expect(
+      (screen.getByLabelText("Message Codex") as HTMLTextAreaElement).value,
+    ).toBe(current.message);
+    expect(session.content).toEqual(originalContent);
+    expect(posts("/messages")).toHaveLength(0);
+  } finally {
+    cleanup();
+    if (show) Object.defineProperty(prototype, "showModal", show);
+    else Reflect.deleteProperty(prototype, "showModal");
+    if (closeDialog) Object.defineProperty(prototype, "close", closeDialog);
+    else Reflect.deleteProperty(prototype, "close");
+  }
+});

@@ -1,3 +1,19 @@
+# Workspace simplification verification — 22 September 2026
+
+The UI simplification builds on the completed quality-of-life pass on local branch `codex/ui-simplification`. A single header now contains Diagram/Build navigation, save feedback and panel controls. Project groups the brief, manual save, scanner, exports, import, example and backup actions. The sidebar contains projects and diagrams without a duplicate node palette. Chat keeps model/reasoning and Send together, with writing recovery and help in a compact footer.
+
+The existing handlers, history, preferences and persistence contracts are retained. Review keeps project replacement actions disabled, and compact Diagram/Build switches reveal the selected workspace while retaining drafts. No backend, schema, dependency or permission changes were made.
+
+Verification on Windows: **279 frontend tests passed**, TypeScript and production build passed, the affected-workflow browser regression passed **80/80**, and the focused simplification gate passed **2/2**. The browser checks cover light/dark, 1280×800 and 1440×900, narrow windows, larger text, reduced motion and genuine 200% zoom. They exercise menu keyboard access and scrolling, dialog focus restoration, compact view switching, retained selection/viewport, autosave and recovery, history/restart, proposal guards, model retries, Build tasks, scan/catalogue navigation, notifications and full-diagram light PNG bounds. Browser fixtures block external requests and use disposable data and deterministic agents. The 63 captured browser reports contain zero runtime errors and zero external requests; see `output/ui-simplify-browser-audit.json`.
+
+The first focused visual attempt incorrectly inspected retained layout rectangles inside closed native details menus; it now tests visible controls, while preserving strict viewport and keyboard assertions. No application behavior was weakened. The passing final build uses `index-buf8YXLV.js` and `index-CjC4QQJX.css`. Logs: `output/ui-simplify-frontend.log`, `output/ui-simplify-build.log`, `output/ui-simplify-browser.log` and `output/declutter-browser-final.log`.
+
+Before/after index: `output/ui-simplification-review.md`. Baseline captures are in `output/playwright/qol-baseline-QbtETZ`; final theme/zoom/menu captures are in `output/playwright/declutter-xtvYV5`, and chat captures are in `output/playwright/agent-workspace-after-olKQgh`. The README screenshot and user guide reflect the new controls.
+
+This pass did not restart the existing server, open existing user data, push or publish. Linux, backend and release-package suites were not repeated for these frontend-only changes; the completed earlier pass remains recorded below. Existing portable artifacts predate this UI update. The production bundle-size advisory remains non-failing.
+
+---
+
 # PlanBranch quality-of-life verification — 22 September 2026
 
 The five quality-of-life milestones are implemented on local branch `codex/quality-of-life`, based on `main` at `ef431b6`: shared Settings and themes; workspace resume and durable unsent writing; guarded quick jump; workspace presets; and quiet operation notices. Application source is committed through `d7e0543`, with final browser regressions in `e94d153`. SQLite migration 9 is additive; appearance and layout remain browser preferences, separate from manual history, portable content and approval. No user database, source attachment, execution repository or running server was used. No changes have been pushed or published.

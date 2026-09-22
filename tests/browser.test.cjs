@@ -1,3 +1,4 @@
+const { addCanvasNode, projectAction } = require("./ux-fixture.cjs");
 /* Browser acceptance against built assets and an isolated, disposable SQLite DB. */
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
@@ -17,7 +18,7 @@ test('FlowDesk built application acceptance', {timeout: 240000}, async t => {
     await page.getByLabel('Title',{exact:true}).fill('Store record - tested');
     await page.locator('.inspector details[data-section="notes"] > summary').click();
     await page.getByLabel('Notes',{exact:true}).fill('<img src=x onerror=alert(1)> inert notes');
-    await page.getByRole('button',{name:'Save',exact:true}).click();
+    await projectAction(page, "Save");
     await saved();
     const restored=await api('/projects/'+projectId);
     const n=restored.content.diagrams[0].nodes.find(n=>n.id===nodeId);
@@ -30,7 +31,7 @@ test('FlowDesk built application acceptance', {timeout: 240000}, async t => {
     await page.keyboard.press('Backspace');
     assert.equal(await page.locator('.react-flow__node').count(),beforeCount);
     await page.getByLabel('Title',{exact:true}).fill('Store record - tested');
-    await page.getByRole('button',{name:'Save',exact:true}).click();
+    await projectAction(page, "Save");
     await saved();
     const before=await api('/projects/'+projectId);
     const box=await node.boundingBox();
@@ -38,20 +39,20 @@ test('FlowDesk built application acceptance', {timeout: 240000}, async t => {
     await page.mouse.down();
     await page.mouse.move(box.x+box.width/2+70,box.y+75,{steps:12});
     await page.mouse.up();
-    await page.getByRole('button',{name:'Save',exact:true}).click();
+    await projectAction(page, "Save");
     await saved();
     const moved=await api('/projects/'+projectId);
     assert.equal(moved.history.length,before.history.length+1,'completed drag must be one history entry');
     assert.notDeepEqual(moved.content.diagrams[0].nodes.find(n=>n.id===nodeId).position,before.content.diagrams[0].nodes.find(n=>n.id===nodeId).position);
     await page.getByRole('button',{name:'Undo',exact:true}).click();
-    await page.getByRole('button',{name:'Save',exact:true}).click();
+    await projectAction(page, "Save");
     await saved();
     const undone=await api('/projects/'+projectId);
     assert.deepEqual(undone.content.diagrams[0].nodes.find(n=>n.id===nodeId).position,before.content.diagrams[0].nodes.find(n=>n.id===nodeId).position);
     await stop();await start();await page.reload();
     await page.getByTestId('diagram-canvas').waitFor();
     await page.getByRole('button',{name:'Redo',exact:true}).click();
-    await page.getByRole('button',{name:'Save',exact:true}).click();
+    await projectAction(page, "Save");
     await saved();
     assert.deepEqual((await api('/projects/'+projectId)).content.diagrams[0].nodes.find(n=>n.id===nodeId).position,moved.content.diagrams[0].nodes.find(n=>n.id===nodeId).position);
   });
@@ -60,13 +61,13 @@ test('FlowDesk built application acceptance', {timeout: 240000}, async t => {
     await page.getByRole('button',{name:'New diagram',exact:true}).click();
     await page.getByLabel('Diagram name',{exact:true}).fill('Recovery path');
     await page.getByRole('button',{name:'Create diagram',exact:true}).click();
-    await page.getByRole('button',{name:'Add Process',exact:true}).click();
+    await addCanvasNode(page, "Process");
     await page.getByLabel('Title',{exact:true}).fill('Retry safely');
     await page.locator('.inspector details[data-section="checklist"] > summary').click();
     await page.getByRole('button',{name:'+ Add checklist item',exact:true}).click();
     await page.getByLabel('Checklist text',{exact:true}).fill('Preserve the original input');
     await page.getByLabel('Complete Preserve the original input',{exact:true}).check();
-    await page.getByRole('button',{name:'Save',exact:true}).click();await saved();
+    await projectAction(page, "Save");await saved();
     const savedProject=await api('/projects/'+projectId);
     const recovery=savedProject.content.diagrams.find(d=>d.name==='Recovery path');
     assert.equal(recovery.nodes[0].status,'not_started','checking every checklist item must not complete the task');
@@ -89,7 +90,7 @@ test('FlowDesk built application acceptance', {timeout: 240000}, async t => {
     await page.getByLabel('Intended type',{exact:true}).fill('list[str]');
     await page.getByLabel('Node to link',{exact:true}).selectOption(nodeId);
     await page.locator('.variable-detail').getByRole('button',{name:'Link',exact:true}).click();
-    await page.getByRole('button',{name:'Save',exact:true}).click();await saved();
+    await projectAction(page, "Save");await saved();
     const restored=await api('/projects/'+projectId);
     const v=restored.content.variables.find(v=>v.name==='future_result');
     assert.equal(v.intendedFile,'future/not_created.py');
@@ -126,7 +127,7 @@ test('FlowDesk built application acceptance', {timeout: 240000}, async t => {
       intercepted=true;const response=await route.fetch();arrived();await gate;await route.fulfill({response});
     });
     await page.getByLabel('Notes',{exact:true}).fill('First saved text');
-    await page.getByRole('button',{name:'Save',exact:true}).click();
+    await projectAction(page, "Save");
     await seen;
     await page.getByLabel('Notes',{exact:true}).fill('Newer text survives a late response');
     release();await saved();
@@ -139,9 +140,9 @@ test('FlowDesk built application acceptance', {timeout: 240000}, async t => {
     const other=await context.newPage();
     await other.goto(base);await other.getByTestId('diagram-canvas').waitFor();
     await page.getByLabel('Notes',{exact:true}).fill('First tab wins');
-    await page.getByRole('button',{name:'Save',exact:true}).click();await saved();
+    await projectAction(page, "Save");await saved();
     await other.getByLabel('Notes',{exact:true}).fill('Second draft kept for recovery');
-    await other.getByRole('button',{name:'Save',exact:true}).click();
+    await projectAction(other, "Save");
     await other.getByRole('button',{name:'Keep draft as new project',exact:true}).waitFor();
     assert.equal(await other.getByLabel('Notes',{exact:true}).inputValue(),'Second draft kept for recovery');
     assert.equal((await api('/projects/'+projectId)).content.notes,'First tab wins');
@@ -158,7 +159,7 @@ test('FlowDesk built application acceptance', {timeout: 240000}, async t => {
       failedSaves++;
     });
     await page.getByLabel('Notes',{exact:true}).fill('Retained through save failure');
-    await page.getByRole('button',{name:'Save',exact:true}).click();
+    await projectAction(page, "Save");
     await page.getByRole('button',{name:'Retry save',exact:true}).waitFor();
     await page.getByRole('button',{name:'New project',exact:true}).click();
     // Navigation flushes again. Keep the fault active until that attempt has

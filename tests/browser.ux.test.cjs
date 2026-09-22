@@ -1,3 +1,4 @@
+const { projectAction, openProjectMenu } = require("./ux-fixture.cjs");
 /* UX acceptance uses the same isolated installed-package harness as regressions. */
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
@@ -26,7 +27,7 @@ async function restoreLayout(page) {
     .click();
 }
 async function save(h) {
-  await h.page.getByRole("button", { name: "Save", exact: true }).click();
+  await projectAction(h.page, "Save");
   await h.saved();
 }
 async function activeIs(locator) {
@@ -414,7 +415,7 @@ test(
             : route.continue(),
         );
         await title.fill("An unsaved title must survive every panel change");
-        await p.getByRole("button", { name: "Save", exact: true }).click();
+        await projectAction(p, "Save");
         await p
           .getByRole("button", { name: "Retry save", exact: true })
           .waitFor();
@@ -488,6 +489,7 @@ test(
             "Supporting panels must not cause page-wide horizontal overflow",
           );
           for (const label of ["Save", "Undo", "Redo", "Scan Python"]) {
+            if (["Save", "Scan Python"].includes(label)) await openProjectMenu(p);
             const action = p.getByRole("button", { name: label, exact: true });
             await action.scrollIntoViewIfNeeded();
             const bounds = await action.boundingBox();
@@ -495,6 +497,7 @@ test(
               bounds.x >= 0 && bounds.x + bounds.width <= width + 1,
               `${label} stays horizontally reachable`,
             );
+            if (["Save", "Scan Python"].includes(label)) await p.keyboard.press("Escape");
           }
           await p.screenshot({
             path: path.join(h.output, `after-${width}x${height}.png`),
@@ -515,6 +518,7 @@ test(
           "none",
         );
         await p.setViewportSize({ width: 1280, height: 800 });
+        await openProjectMenu(p);
         for (const locator of [
           p.getByRole("button", { name: "Save", exact: true }),
           p.locator(".inspector").getByLabel("Title", { exact: true }),
@@ -525,6 +529,7 @@ test(
               parseFloat(getComputedStyle(el).fontSize),
             )) >= 13,
           );
+        await p.keyboard.press("Escape");
         await withBrowserZoom(h, async (zoomed, setZoom) => {
           await openUxPanels(zoomed, fixture);
           const factor = await setZoom(2);
@@ -545,6 +550,7 @@ test(
             "Toggle navigation",
             "Toggle inspector",
           ]) {
+            if (["Save", "Scan Python"].includes(label)) await openProjectMenu(zoomed.page);
             const action = zoomed.page.getByRole("button", {
               name: label,
               exact: true,
@@ -556,6 +562,7 @@ test(
                 bounds.x + bounds.width <= size.viewport.width + 1,
               `${label} reachable at real 200% zoom`,
             );
+            if (["Save", "Scan Python"].includes(label)) await zoomed.page.keyboard.press("Escape");
           }
           await zoomed.page.screenshot({
             path: path.join(h.output, "after-browser-zoom-200.png"),
@@ -596,9 +603,7 @@ test(
             pendingPolls.delete(pending);
           }
         });
-        await p
-          .getByRole("button", { name: "Scan Python", exact: true })
-          .click();
+        await projectAction(p, "Scan Python");
         const dialog = p.getByRole("dialog", { name: "Python source" });
         await dialog
           .getByRole("button", { name: "Rescan Python files", exact: true })

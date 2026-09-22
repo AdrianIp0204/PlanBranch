@@ -1,19 +1,24 @@
 .writing-state {
-  flex: 0 0 auto;
-  display: block;
-  width: 100%;
-  padding: 4px 12px;
-  min-height: 28px;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 4px;
+  min-height: 24px;
+  border: 1px solid transparent;
+  border-radius: 4px;
   text-align: left;
   font-size: var(--font-small);
+  line-height: 1.4;
   background: transparent;
   color: var(--muted);
 }
+.writing-state:hover { color: var(--ink); background: var(--hover); }
 .writing-state.needs-attention {
-  color: var(--ink);
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  border-color: var(--warning-line);
   font-weight: 600;
 }
 .writing-dialog {
