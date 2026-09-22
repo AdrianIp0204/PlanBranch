@@ -1,12 +1,12 @@
 # PlanBranch user guide
 
-A local programming planner: diagram the logic, record intended variables, write code in your own editor, then compare the plan with a read-only Python scan. Projects are stored locally. The editor, scans, and exports work offline. Optional planning chat uses your existing Codex CLI ChatGPT sign-in and sends the manual plan and discussion to Codex; PlanBranch does not require or store an API key.
+A local programming planner: diagram the logic, record intended variables, write code in your own editor, then compare the plan with a read-only Python scan. Projects are stored locally. The editor, scans, and exports work offline. Optional planning and coding support Ollama, OpenAI API, Anthropic API, Gemini API, and Codex CLI. Each request sends its permitted context to the chosen provider. API credentials remain in the backend environment; Codex is optional. See [connections and controlled coding](Providers.md).
 
 PlanBranch was previously named FlowDesk. The `flowdesk` Python module, data directory and export identifiers remain compatible with existing projects.
 
 ## Initial setup
 
-Use Python 3.14 and Node 24. Installation downloads dependencies; editing, scanning, and exports work offline after building. Planning chat requires a separately installed, signed-in Codex CLI and internet access.
+Use Python 3.14 and Node 24. Installation downloads dependencies; editing, scanning, and exports work offline after building. AI planning requires a configured provider; local Ollama can operate offline with an installed model.
 
 Clone the repository first:
 
@@ -67,13 +67,13 @@ Choose **Tidy** above the canvas to preview a horizontal or vertical arrangement
 
 The preview is separate from your working canvas. Cancel changes nothing; **Apply arrangement** changes only positions in one undoable action. Pins, metadata, handles, connections, selection and saved viewports are preserved. Tidy handles branches, merges, disconnected components and loops. It reduces obvious crossings and keeps movable nodes clear of fixed nodes; fixed nodes that already overlap remain as placed. It does not promise optimal connection routing. Existing diagrams are never rearranged automatically.
 
-## Plan with Codex
+## Plan with an agent
 
 Open **Chat** in the workspace controls. The right dock spans the workspace height; opening the variable catalogue beside it keeps the conversation and composer available. Switch between chat and the inspector without losing selection, view, or edits. Drag the divider above the composer to change the balance between message history and input. Describe a goal or correction and press **Send** (Ctrl/Cmd+Enter). You can continue editing while the agent replies. If you scroll up to read earlier messages, **Jump to latest** returns to new replies.
 
 - **Node comments:** select a node and open **Comments**, or choose **Discuss this node** in the inspector. Comments keep their original node identity across renaming and undo. If a node is deleted, its discussion remains visible with an unavailable-node label. Resolve comments when addressed; sending a chat message asks Codex to consider them.
 - **Changes on the canvas:** new proposals open in the workspace. Switch between **Proposed** and **Before**, with labels for added, changed, and removed nodes and connections. Select a node or connection for details. **Back to plan** returns to the saved diagram; **Changes → Review on canvas** reopens a proposal.
-- **Review actions:** **Apply changes** saves the candidate as one undoable edit. **Ask Codex** attaches the visible candidate to your next message, including your manual refinements. **Edit manually** enables the normal node/connection editor, inspector, and separate draft undo/redo. **Discard** asks for confirmation and leaves the saved plan unchanged. Stable IDs and existing variable links survive applying, except links to removed nodes. Outdated proposals cannot overwrite newer work; ask for a revised proposal instead.
+- **Review actions:** **Apply changes** saves the candidate as one undoable edit. **Ask agent** attaches the visible candidate to your next message, including your manual refinements. **Edit manually** enables the normal node/connection editor, inspector, and separate draft undo/redo. **Discard** asks for confirmation and leaves the saved plan unchanged. Stable IDs and existing variable links survive applying, except links to removed nodes. Outdated proposals cannot overwrite newer work; ask for a revised proposal instead.
 - **Questions:** when a consequential decision is missing, choose an answer or **Something else**, then explicitly continue. Recommendations are never submitted automatically. Longer sets show one question at a time. Submitted answers survive restart and do not change the diagram. If you edit the plan while questions are open, **Ask again using this plan** requests an updated set. Sending a **Change direction** message replaces the pending questions.
 - **Approval:** answer applicable open questions, resolve open comments and review pending proposals, then choose **Approve plan**. Approval records an exact saved snapshot. Content changes need review again; viewport or layout changes do not. **Reopen plan** explicitly withdraws approval. Approval does not start execution. Build offers a separate, explicitly reviewed Run step.
 
@@ -120,7 +120,7 @@ Use the Backup action or the command below for a consistent SQLite backup. Backu
 
 To restore, stop PlanBranch, keep a copy of the existing data directory, then put the backup **inside a new data directory as `flowdesk.sqlite3`** and launch with `--data-dir` pointing there. This avoids mixing a restored database with an old SQLite WAL file. Backups include local source attachment settings and execution records; portable JSON exports do not. A database backup alone does not contain execution worktrees or diff artifacts. Preserve the entire stopped data directory for coding-work recovery, and keep your source repositories backed up separately.
 
-Startup applies numbered database migrations. Database version 2 adopts existing version-1 scanner tables and normalizes current content and every retained undo/redo checkpoint together. Database version 3 adds the separate planning conversation, comments, proposal, approval, and retry tables. Version 4 adds durable question sets and answers without rewriting existing history. Version 5 adds durable proposal drafts, version 6 adds the brief, version 7 adds Build tasks, version 8 adds execution records, and version 9 adds unsent writing and retry receipts. Manual content is now schema version 3; portable projects preserve the brief and Build tasks, while older formats are upgraded on import. Before an upgrade that rewrites existing data, PlanBranch creates and verifies a SQLite backup, including committed data still in the WAL. Backup failure stops the upgrade. A migration failure rolls back schema, content, and history together. IDs, redo position, links, and source attachment settings are preserved. Stop other PlanBranch servers before upgrading; if the database changes during backup, startup stops and asks you to retry. An unknown newer schema is rejected.
+Startup applies numbered database migrations. Database version 2 adopts existing version-1 scanner tables and normalizes current content and every retained undo/redo checkpoint together. Database version 3 adds the separate planning conversation, comments, proposal, approval, and retry tables. Version 4 adds durable question sets and answers without rewriting existing history. Version 5 adds durable proposal drafts, version 6 adds the brief, version 7 adds Build tasks, version 8 adds execution records, version 9 adds unsent writing and retry receipts, and version 10 adds provider attribution without rewriting historical requests. Manual content is now schema version 3; portable projects preserve the brief and Build tasks, while older formats are upgraded on import. Before an upgrade that rewrites existing data, PlanBranch creates and verifies a SQLite backup, including committed data still in the WAL. Backup failure stops the upgrade. A migration failure rolls back schema, content, and history together. IDs, redo position, links, and source attachment settings are preserved. Stop other PlanBranch servers before upgrading; if the database changes during backup, startup stops and asks you to retry. An unknown newer schema is rejected.
 
 ## Read-only Python scanning
 
@@ -231,7 +231,7 @@ The summary counts added, changed and removed items. **Review hints** offers opt
 
 Open **Project → Project brief** in the top bar to edit the goal, intended user, requirements, constraints, exclusions, agreed decisions and assumptions. Changes save automatically and participate in project Undo/Redo. Editing the brief makes an existing plan approval outdated. Keep uncertain assumptions in their own field until you agree to adopt them.
 
-The brief is included in each new planning request, even when older conversation messages are omitted. Codex can propose brief updates, which appear in the existing review workspace alongside any diagram changes. Compare Before and Proposed, edit the candidate, request a revision, Apply or Discard. Saving a proposal draft never changes the saved brief. JSON and Markdown exports include the brief; older project files import with an empty brief.
+The brief is included in each new planning request, even when older conversation messages are omitted. The selected agent can propose brief updates, which appear in the existing review workspace alongside any diagram changes. Compare Before and Proposed, edit the candidate, request a revision, Apply or Discard. Saving a proposal draft never changes the saved brief. JSON and Markdown exports include the brief; older project files import with an empty brief.
 
 ## Build tasks
 
@@ -241,9 +241,11 @@ Each task has a deliverable, expected files or areas, acceptance checks, its own
 
 Selecting a linked node opens its diagram; **Back to build task** returns to the same task. Deleting a linked node or diagram retains the task and its last-known link, marked Missing. Relink or remove that reference explicitly. Deleting a task asks for confirmation and explains any prerequisite references it will remove.
 
-Changes to tasks share project autosave, Undo/Redo and approval freshness. JSON and Markdown exports include them. Task completion never changes diagram status, checklist completion or scanner observations. Codex may propose task changes; the existing Before/Proposed workspace shows a Build tab for review, manual edits and revision requests. Applying a proposal remains one history action.
+Changes to tasks share project autosave, Undo/Redo and approval freshness. JSON and Markdown exports include them. Task completion never changes diagram status, checklist completion or scanner observations. The selected agent may propose task changes; the existing Before/Proposed workspace shows a Build tab for review, manual edits and revision requests. Applying a proposal remains one history action.
 
 ## Run one Build task
+
+Ollama/API models use the shared coding harness and independent Docker command runner described in [provider setup](Providers.md). Coding defaults are separate from planning defaults. If commands are unavailable, file editing remains constrained and tests are explicitly not run. Execution questions pause for an explicit answer; no provider automatically accepts or completes a task.
 
 Plan approval records agreement on the saved plan; it never starts coding. In **Build**, select a task and choose **Run step**. Select an execution repository explicitly, even if a source folder is already attached for scanning. Review its deliverable, acceptance checks, requirements, source commit and model settings with **Preview run**, then choose **Run step** inside the dialog. Prerequisites must be complete and the current plan approved.
 
@@ -257,7 +259,7 @@ Review the changed files and observed command results. **Agent report** is the m
 
 After applying, review and commit changes yourself before running a dependent task: each new worktree starts at a committed revision. Approval, execution records and code acceptance are separate. Changing a reviewed worktree requires refreshing its diff and accepting the new result.
 
-Execution uses the separately installed Codex CLI and existing sign-in, with separate versioned instructions, workspace-write, no approval escalation, network access disabled for sandbox commands, and integrations disabled. On Windows it requests Codex's elevated sandbox; configure that sandbox in Codex itself. PlanBranch does not install it, fall back to a weaker mode, or treat a connection check as proof that OS sandboxing works. Actual enforcement depends on the installed Codex version and system configuration. The planning connector remains read-only.
+When Codex CLI is selected, execution uses its separate installation and existing sign-in, with separate versioned instructions, workspace-write, no approval escalation, network access disabled for sandbox commands, and integrations disabled. On Windows it requests Codex's elevated sandbox; configure that sandbox in Codex itself. PlanBranch does not install it, fall back to a weaker mode, or treat a connection check as proof that OS sandboxing works. Actual enforcement depends on the installed Codex version and system configuration. The planning connector remains read-only.
 
 This release supports ordinary local Git repositories with at most 5,000 tracked files and 128 MiB in the source snapshot. Source symlinks, junctions and submodules are rejected. Reviews permit at most 512 changed files, 2 MiB per changed file, and 16 MiB combined before/after content. Newly generated ignored files are omitted. Runs are bounded to 30 minutes with bounded output. Unsupported or oversized work remains on disk for manual recovery.
 
@@ -268,7 +270,7 @@ Execution permissions and machine paths are not portable project content. JSON e
 
 The prepared Windows x64 ZIP includes Python and the production frontend. Extract it into a new ordinary folder and run `planbranch.cmd` or the compatible `flowdesk.cmd`, then open the printed loopback address. Neither a Python installation nor Node is required. Optional Codex CLI and Git remain separate installations; no credentials are bundled.
 
-The welcome screen checks Codex's local availability and ChatGPT sign-in without sending a planning or coding request. Use **Retry connection** after setup, or reopen the check from **Layout → Codex connection** in a project. If the installation changed PATH, restart PlanBranch. Manual projects, diagrams, variables, scans and exports remain usable when Codex is unavailable. Setup links open only when selected.
+The welcome screen checks the selected provider without sending a planning or coding request; Codex sign-in checks apply only to the Codex connection. Cloud key presence is labelled unverified until an explicit metadata check. Use **Retry connection** after setup, or reopen the check from **Layout → Provider connection** in a project. If the installation changed PATH, restart PlanBranch. Manual projects, diagrams, variables, scans and exports remain usable without any model. Ollama and API providers work without Codex. Setup links open only when selected.
 
 Use `planbranch.cmd --port 4320 --data-dir "D:\PlanBranch data"` for a different port or data folder. The default remains `%LOCALAPPDATA%\FlowDesk`; extracting the app never relocates existing data. Stop the server before upgrading. Extract a new version into a new folder, then run it with the same data directory. Keep the previous package and a backup until you have checked the upgrade. The package is Windows x64 only; Linux retains source and wheel installations.
 
@@ -283,7 +285,7 @@ Open **Settings** in the top bar, including before opening a project. Appearance
 
 Editor contains grid/minimap visibility, optional 10-pixel snapping for future moves, startup behavior and Restore default layout. Existing positions are never snapped merely by enabling the preference. Panel sizes, model defaults, last-workspace navigation and other preferences are stored in this browser, outside project content, Undo and approval. Browser storage restrictions may prevent these preferences surviving closure.
 
-Startup reopens the last available project, diagram and Diagram/Build view; missing references fall back to valid content. Choose **Show projects** to open the project list instead. Agent Settings shares discovered model choices with chat and new Run previews; changes affect future requests, while submitted requests and retries retain their captured settings. No global Codex configuration is changed. Data & About shows the configured data folder, app version, loopback connection and database backup action.
+Startup reopens the last available project, diagram and Diagram/Build view; missing references fall back to valid content. Choose **Show projects** to open the project list instead. Agent Settings keeps separate Planning and Coding defaults, each shared with its corresponding controls; changes affect future requests, while submitted requests and retries retain their captured settings. No global Codex configuration is changed. Data & About shows the configured data folder, app version, loopback connection and database backup action.
 
 
 ## Quick jump

@@ -12,9 +12,7 @@ This pass starts from `main` at `4ecc14b` on `codex/provider-independent`.
 4. Run regression, disposable Ollama/browser and package checks; update user
    documentation and record actual limitations. Commit usable increments locally.
 
-Only disposable databases, ports and repositories are used. The installed Ollama
-may be used for bounded local inference. Model downloads and changes to user
-projects, global configuration or the existing daemon are excluded.
+Only disposable databases, ports and repositories are used. After initial inspection found Ollama absent, the user explicitly authorized reinstalling it and downloading a reasonable model. Ollama 0.34.2, qwen3:4b and qwen3:4b-instruct were installed for bounded local verification. No real projects, global provider configuration or existing user server were changed; no paid API requests were made.
 
 Initial environment inspection found Docker installed but its daemon unavailable.
 The command runner must fail closed when isolation is unavailable; worktree

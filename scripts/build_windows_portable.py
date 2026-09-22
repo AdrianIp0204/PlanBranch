@@ -216,7 +216,7 @@ def frontend_notices(frontend):
         for file in licenses:
             if not file.resolve(strict=True).is_relative_to(dependency_root) or file.stat().st_size > 1_000_000:
                 raise PortableBuildError("Frontend license escapes the dependency input or is oversized.")
-            notices.append(f"{name} {value['version']} — {file.name}\n" + file.read_text(encoding="utf-8"))
+            notices.append(f"{name} {value['version']} â€” {file.name}\n" + file.read_text(encoding="utf-8"))
     return "\n\n".join(notices)
 
 
@@ -252,7 +252,7 @@ def build_portable(wheel, *, output_dir=ROOT / "dist", cache_dir=ROOT / "output"
             (bundle / alias).write_bytes(LAUNCHER.encode("ascii"))
         (bundle / "LICENSE.txt").write_bytes(Path(license_path).read_bytes())
         (bundle / "THIRD_PARTY_NOTICES.txt").write_text("Python's license is runtime/LICENSE.txt. Python dependency licenses are retained in app/*dist-info/.\n\nFrontend dependency notices:\n\n" + notices, encoding="utf-8", newline="\n")
-        (bundle / "START_HERE.txt").write_text(f"""PlanBranch {version} — Windows x64 portable
+        (bundle / "START_HERE.txt").write_text(f"""PlanBranch {version} â€” Windows x64 portable
 
 Extract the entire ZIP to a folder you can write to. Run planbranch.cmd (flowdesk.cmd is the compatible alias).
 Open the printed http://127.0.0.1:4310 address in your browser. Keep the terminal open; Ctrl+C stops the server.
@@ -271,10 +271,13 @@ Do not overwrite an open runtime or downgrade a migrated database. Keep the back
 To uninstall: stop the server and remove the extracted application folder. Your saved data is retained.
 Delete data only deliberately after preserving any projects, backups and execution worktrees you need.
 
-Manual planning works without Codex. For AI features, install Codex CLI separately and run codex login
-using your existing ChatGPT account. Connection status and Retry are available in the app. Codex sign-in
-and native sandbox setup remain separate; this package includes no credentials and installs neither Codex
-nor Git. Git is required separately for controlled execution. Plan approval never starts coding by itself.
+Manual planning works without a model. Settings > Agent supports local Ollama, OpenAI/Anthropic/Gemini
+API connections, and optional Codex CLI sign-in. API keys stay in the server environment; no credentials
+are bundled. Install runtimes/models separately. Git is required for coding. Ollama/API commands require
+a local Docker Linux engine and an already prepared image selected with PLANBRANCH_EXECUTION_IMAGE.
+Without that runtime, constrained file editing remains available and tests are marked not run. Codex
+uses its own separate sandbox setup. Plan approval never starts coding or accepts a diff automatically.
+Provider guide: https://github.com/AdrianIp0204/PlanBranch/blob/main/docs/Providers.md
 
 Source and full documentation: https://github.com/AdrianIp0204/PlanBranch
 """, encoding="utf-8", newline="\n")

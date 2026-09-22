@@ -28,6 +28,8 @@ async function showBuild(h){await h.page.getByRole('group',{name:'Plan views',ex
 async function open(h,history=false){await h.page.getByRole('region',{name:'Build tasks',exact:true}).getByRole('button',{name:history?'Execution history':'Run step',exact:true}).click();await dialog(h.page).waitFor();}
 async function prepare(h){
   await open(h);const d=dialog(h.page);
+  // The dialog shell mounts before its saved execution settings arrive.
+  await d.getByRole('region',{name:'Execution repository',exact:true}).waitFor();
   if(await d.getByLabel('Repository folder',{exact:true}).isVisible()){
     await d.getByLabel('Repository folder',{exact:true}).fill(h.repo);await d.getByRole('button',{name:'Use repository',exact:true}).click();
     await d.getByRole('button',{name:'Change repository',exact:true}).waitFor();

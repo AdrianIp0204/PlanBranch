@@ -1,3 +1,56 @@
+# Provider-independent planning and coding verification — 23 September 2026
+
+This pass starts from `main` at `4ecc14b` on local branch `codex/provider-independent`. Native Ollama, OpenAI Responses, Anthropic Messages and Gemini Interactions share validated planning contracts and one application-owned coding harness. Codex CLI remains optional. Planning and Coding defaults are separate; provider/settings/instructions, context limits and execution policies are frozen into requests and runs. SQLite migration 10 adds planning-message attribution without rewriting older Codex requests.
+
+All application data, source repositories, browser ports and execution workspaces used below were disposable. The existing user server and projects were left untouched. The user subsequently authorized reinstalling Ollama and reasonable models; that authorization did not extend to paid cloud calls. No cloud generation or real cloud-credential testing was performed. Nothing was pushed or published.
+
+## Automated regression coverage
+
+- **Frontend:** 299 tests passed across 32 files; TypeScript and production build passed. Final UI assets are `index-D0G-4YYa.js` and `index-D3oYGWAP.css`.
+- **Backend:** the full Ubuntu/WSL2 suite recorded 609 passed, 10 skipped and two historical-fixture failures. Both failures arose from calling the current PlanningService against a deliberately unmigrated schema-7 fixture. The fixture now inserts the historical approval/receipt directly and explicitly verifies receipt preservation; both corrected cases passed. The final changed native-provider/stream/service gate passed **104/104** on Windows. These are broad-plus-focused results, not a claim that the original broad log was failure-free.
+- **Execution core:** Windows focused core gate passed 31 with one unavailable symlink check; the combined service gate passed 33 with one skip. Native Linux core passed 33/33, including POSIX execute-bit copy-back and symlink containment. The full Windows backend run was stopped during severe subprocess contention and is not reported as passing.
+- **Final execution hardening:** the cumulative active-time budget and transient Windows record-lock fixes passed 53 focused cases on Windows with one symlink-permission skip, and 55 on native Linux. These checks cover multiple clarification continuations, cancellation/errors, unavailable elapsed records, invalid saved values, unchanged original records on persistent lock failures and exact prepared-byte replacement without tool replay.
+- **Real command isolation:** seven disposable Docker cases passed on Docker Desktop Linux containers, covering command/test output, isolation, unsafe archive rejection, cancellation/timeouts, cleanup and file-mode behavior. The native Ubuntu environment had no Docker socket, so native Linux Docker integration was unavailable.
+- **Provider contracts:** deterministic native HTTP/SSE/NDJSON fixtures cover protocol formats, terminal-stream checks, tool/result sequencing, private continuation data, questions, malformed replies, missing models, authentication/rate errors, cancellation, credential redaction and frozen retries. No paid APIs were called. Model capability suggestions are not live account-entitlement verification.
+
+The full browser suite recorded **98/99 passed**. Its remaining failure was a setup race that inspected the repository field before execution settings loaded. A readiness-only fixture correction retained the original assertions, and the cancellation/restart case passed its focused rerun. All 84 full-run/corrected browser reports contain **zero runtime errors and zero external requests**. The dedicated native-provider browser gate passed 2/2 with Codex unavailable, including questions, visual review, Apply, restart and Undo.
+
+The browser checks cover light/dark at 1280 × 800 and 1440 × 900, a narrow window and actual 200% zoom, long model names, keyboard/focus, reduced motion, proposal highlights, execution diffs and full-diagram light PNG bounds. The visual index and report inventory are `output/provider-visual-review.md` and `output/provider-browser-report-audit.json`. These checks are not a full accessibility certification.
+
+## Release and installed-package checks
+
+The production wheel and Windows portable package were rebuilt from the final source. All **seven standalone portable checks passed**, including packaged startup from an unrelated directory, durable history/restart, the scanner worker, HTTP/CLI backups and observed/cancelled execution-worker output. The final **installed-wheel provider browser gate passed 2/2**, with Codex discovery disabled, external requests blocked and no source-checkout imports. Native provider planning/review/restart, dark Settings, narrow layout and true 200% zoom were exercised.
+
+The package audit verifies 56 application/resource files against the source and all 305 portable manifest entries. The installer includes the versioned prompts, migration 10, shared runner and watchdog. Final receipts: `output/provider-package-integrity.json`, `output/provider-wheel-installed-integrity.json`, `output/provider-wheel-browser-result.json` and `output/provider-portable-smoke/portable smoke 計劃 s6xe103e/result.json`.
+
+| Local development artifact | SHA-256 |
+| --- | --- |
+| `dist/flowdesk-0.2.0-py3-none-any.whl` | `d17cd26613ede3724eb9a9c6c7a594312fc940191385bf5c8e23c26258400435` |
+| `dist/PlanBranch-0.2.0-windows-x64.zip` | `20b93690418a77a8660b371c840232a8f33aed55e9cf19cea0f3fddbae2101c7` |
+
+These are local artifacts, not a published release. No push or release publication was performed. The Linux source/core checks ran in Ubuntu under WSL2; the final wheel install and browser gate ran on Windows. A fresh installed Linux wheel/browser check was not repeated in this pass.
+
+
+## Live local-model checks
+
+Ollama 0.34.2 was installed from the verified official Windows installer. The laptop reports an RTX 4060 Laptop GPU with 8 GB VRAM and approximately 24 GB system memory. The initial `qwen3:4b` tag resolves to the thinking variant. It returned a valid structured clarification question and a valid minimal node/Build-task proposal; the proposal was applied, then restored exactly through restart and Undo/Redo with Codex discovery disabled. Larger attempts produced invalid references/duplicate IDs and were rejected without application.
+
+A 32,768-token context allocated about 7.95 GB and spilled into CPU memory. New version-2 requests default to 24,576, configurable through `PLANBRANCH_OLLAMA_CONTEXT_WINDOW`; the observed 24,576 allocation fit on the GPU at about 6.32 GB. Version-1 retries retain their original profile. These are measurements on this fixture and machine, not a performance guarantee. A malformed coding tool call was stopped before command execution and retained as an interrupted run; it was not silently replayed.
+
+The final live coding gate used the separately installed **qwen3:4b-instruct** (2.5 GB) with Codex discovery disabled. The first instruct attempt edited correctly but omitted the test; the app recorded that no tests ran and did not mark the task complete. After the disposable task was explicitly refined and approved to require an observed command, the final run created only `sum.cjs`, executed `node --test test.cjs` in the reviewed local `node:22.16.0-bookworm-slim` Docker image, and recorded exit 0 with TAP output (one passing test covering three sums). The test separately accepted the diff, completed the task, and applied it to the disposable checkout, checking that the original checkout stayed unchanged until Apply and an unrelated uncommitted file survived.
+
+The final live receipt is `output/ollama-live-final-receipt.json`, run `f9461b7f-1542-47ea-85ec-a92aa89aed16`. Planning/restart receipts remain under `output/ollama-live-ba9ae600`; live logs are `output/provider-ollama-minimal.log` and `output/provider-ollama-coding-final.log`. A preceding run stopped on a transient Windows atomic-file replacement failure under OneDrive, preserving its changes without replay. The final live data used an unrelated temporary directory; a bounded Windows file-replacement retry is covered separately without retrying any tool effect. Ollama and its two models remain installed; no existing model was removed and global provider configuration was unchanged.
+
+## Boundaries and remaining limitations
+
+Model file tools reject paths outside the worktree, Git metadata, links and stale write hashes. Independent native-provider commands use a local, explicitly selected Docker image with no network, a read-only root/input copy, non-root model process, bounded tmpfs and resource limits. The collector validates the complete output before copy-back. Host process supervision and Git worktrees alone are not described as sandboxes. Missing isolation leaves constrained file editing available and commands/tests honestly marked not run.
+
+Normal cancellation preserves validated worktree changes. A hard server crash can lose changes still inside a command's temporary filesystem; pending tool effects are never replayed automatically. No owned command containers remained after final live verification. No real cloud billing/cancellation behavior, other browser engines, screen readers or native Linux desktop UI was verified. Native Codex sandbox enforcement was not reverified. Small local models remain fallible, and larger projects may exceed the conservative input budget. The production bundle-size advisory remains non-failing.
+
+The [provider guide](docs/Providers.md) documents environment configuration, optional runtime requirements, frozen requests, credentials and backup/recovery. The package contains no Ollama/models, Codex, Docker/images, Git or credentials.
+
+---
+
 # Workspace simplification verification — 22 September 2026
 
 The UI simplification builds on the completed quality-of-life pass on local branch `codex/ui-simplification`. A single header now contains Diagram/Build navigation, save feedback and panel controls. Project groups the brief, manual save, scanner, exports, import, example and backup actions. The sidebar contains projects and diagrams without a duplicate node palette. Chat keeps model/reasoning and Send together, with writing recovery and help in a compact footer.

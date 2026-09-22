@@ -23,7 +23,7 @@ Discuss a coding goal beside an editable diagram. Review the proposed changes, a
 | Workspace | What it provides |
 | --- | --- |
 | Diagram | Branches, merges, loops, notes, checklists, blockers and implementation targets. Tidy previews horizontal or vertical arrangements with pins and single-action Undo. |
-| Chat and review | Existing Codex CLI sign-in, available model/reasoning choices, node comments, structured questions, durable drafts and navigable review hints. |
+| Chat and review | Ollama, OpenAI, Anthropic, Gemini or Codex CLI; independent planning/coding defaults, node comments, structured questions, durable drafts and navigable review hints. |
 | Brief and Build | Persistent requirements and separate implementation tasks, including explicit review of agent-proposed edits. |
 | Plan versus code | Human-authored variables kept separate from read-only Python evidence. Confirm links yourself; scans do not mark work complete. |
 | Local storage | Multiple projects and diagrams, autosave, restart-safe Undo/Redo, SQLite backups, JSON/Markdown sharing and full-diagram PNG. |
@@ -32,11 +32,15 @@ Discuss a coding goal beside an editable diagram. Review the proposed changes, a
 
 Extract a prepared **PlanBranch 0.2.0 Windows x64** ZIP to an ordinary folder and run `planbranch.cmd`. Open **[127.0.0.1:4310](http://127.0.0.1:4310)**. The package contains Python and the built interface; Node, a Python installation and a frontend build are unnecessary. `flowdesk.cmd` remains a compatible alias.
 
-The first screen checks Codex availability and sign-in. **New project** and **Load example** remain usable without Codex. Reopen the check through **Layout → Codex connection**. Setup links do not install anything automatically.
+The first screen shows the selected provider’s connection status. **New project** and **Load example** remain usable without a model connection. Cloud connections require an explicit metadata check; key presence alone is not a verified connection. Reopen the check through **Layout → Provider connection**. Setup links do not install anything automatically.
 
 Portable artifacts are built locally with `scripts/build_windows_portable.py`; CI is configured to generate them on Windows. This repository also supports source and wheel installations below.
 
-For AI features, separately [install Codex CLI](https://developers.openai.com/codex/cli/) and sign in with `codex login`. Retry the connection check afterward; restart PlanBranch if your installation changed the system PATH. Coding execution also needs Git and Codex's configured sandbox. Model choices come from your installed CLI and account. No API key or PlanBranch account is required.
+Choose **Settings → Agent** to use local Ollama, OpenAI API, Anthropic API, Gemini API, or the optional Codex CLI. Planning and Coding have separate defaults. API credentials stay in the backend environment; Codex sign-in does not supply API access or billing. Existing requests and retries retain their original provider and settings.
+
+Native-provider coding uses the existing one-task review workflow and a shared bounded tool loop. Commands require a separately installed local Docker engine and an explicitly selected, already prepared image. Without that runtime, constrained file editing remains available and checks are marked not run. Codex retains its separate executor. Nothing installs dependencies, enables network access, accepts changes or applies code automatically.
+
+See [model setup and coding boundaries](docs/Providers.md) for credentials, local/cloud destinations, supported runtime requirements and recovery.
 
 ## Source or wheel installation
 
@@ -75,13 +79,13 @@ npm run build --prefix frontend
 
 For an already-built wheel, install `flowdesk-0.2.0-py3-none-any.whl` in a Python 3.14 environment, then run `planbranch`, `flowdesk` or `python -m flowdesk`. Node and the source checkout are unnecessary. The distribution and module retain the `flowdesk` name for compatibility.
 
-The editor, scanner and exports work offline. Dependency downloads and optional Codex requests need internet access. The Python launcher serves both the interface and API; a separate frontend server is unnecessary.
+The editor, scanner and exports work offline. Dependency downloads and optional cloud requests need internet access. The Python launcher serves both the interface and API; a separate frontend server is unnecessary.
 
 ## Make the workspace yours
 
 The compact header keeps Diagram/Build, panel toggles, search and settings together. **Project** groups the brief, save, scan, export and backup tools; **Add node** is the single canvas creation menu.
 
-Open **Settings** from the toolbar or welcome screen for Light, Dark or System appearance, readable text sizes, compact spacing, grid/minimap controls and snapping. Model defaults and the Codex connection check are available in Agent; Data & About shows the local data folder and backup action. Preferences stay in this browser and never edit a plan.
+Open **Settings** from the toolbar or welcome screen for Light, Dark or System appearance, readable text sizes, compact spacing, grid/minimap controls and snapping. Independent Planning/Coding defaults and provider connection checks are available in Agent; Data & About shows the local data folder and backup action. Preferences stay in this browser and never edit a plan.
 
 By default, PlanBranch reopens your last project, diagram and Diagram/Build view. Choose **Settings → Editor → Startup → Show projects** to start with project selection instead. Full-diagram PNGs use a consistent light palette regardless of the workspace theme.
 
@@ -96,12 +100,12 @@ Quiet notices report planning, scan and coding results for the open project. Opt
 ## Your data and your decisions
 
 - **Saved locally.** The default data folder remains `%LOCALAPPDATA%\FlowDesk` on Windows, or `$XDG_DATA_HOME/flowdesk` / `~/.local/share/flowdesk` on Linux. Use `--data-dir` and `--port` to override defaults. The server binds to loopback only.
-- **Planning context is explicit.** Chat sends the manual plan, brief and discussion, including the visible candidate when requesting revisions. Scanner observations and attached source files are excluded from planning chat. Execution separately gives Codex the chosen worktree and task context.
+- **Planning context is explicit.** Chat sends the manual plan, brief and discussion, including the visible candidate when requesting revisions. Scanner observations and attached source files are excluded from planning chat. Execution separately gives the selected provider the task context and permitted workspace data.
 - **Edits require review.** Draft saving, applying a plan, approving a plan, starting code execution, accepting a diff, completing a task and applying code are distinct actions. Failed or uncertain operations preserve recovery state.
 - **The checkout is preserved.** Runs use isolated worktrees from committed source. Apply checks for conflicting file/index changes, preserves unrelated edits, and records partial progress for deliberate recovery. It does not stage or commit.
 - **Evidence stays evidence.** Python scanning is static, read-only and explicitly authorized. It neither imports the scanned code nor proves correctness. Agent summaries are shown separately from observed command output and exit codes.
 
-Execution uses separate versioned instructions and documented Codex sandbox settings. On Windows it requests Codex's elevated sandbox, without automatic setup or fallback. Connection checks are not proof of OS sandbox enforcement; see [validation notes](VALIDATION.md) for actual checks and limitations. Repositories containing symlinks or submodules and oversized snapshots are unsupported in this release.
+Execution uses separate versioned instructions. Native-provider commands use local Docker isolation; Codex uses its existing native sandbox. Neither falls back to unrestricted host commands. Connection checks are not proof of OS sandbox enforcement; see [validation notes](VALIDATION.md) for actual checks and limitations. Repositories containing symlinks or submodules and oversized snapshots are unsupported in this release.
 
 ## Upgrade, backup and uninstall
 
@@ -109,7 +113,7 @@ Stop PlanBranch before upgrading. Extract a new portable package to a **new fold
 
 `planbranch.cmd backup` (portable) or `python -m flowdesk backup` creates a consistent SQLite backup. **That database backup does not contain coding worktrees.** To preserve execution recovery, stop PlanBranch and copy its entire data directory, plus your source repositories. Portable JSON exports omit machine permissions, execution records and undo history.
 
-To uninstall the portable app, stop it and remove its extracted application folder. Data is stored separately and remains until you deliberately remove it. Retained worktrees may contain unaccepted code; preserve that work before removing the data folder. Codex and Git are separate installations.
+To uninstall the portable app, stop it and remove its extracted application folder. Data is stored separately and remains until you deliberately remove it. Retained worktrees may contain unaccepted code; preserve that work before removing the data folder. Model runtimes, Codex, Docker, images and Git are separate installations.
 
 See the [user guide](docs/User_Guide.md) for keyboard controls, draft recovery, scanner/execution limits and detailed workflow instructions.
 
