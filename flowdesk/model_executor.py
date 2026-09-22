@@ -24,7 +24,8 @@ MAX_TURNS, MAX_CALLS, MAX_SECONDS, MAX_CONTEXT = 24, 80, 1200, 1_500_000
 def harness_policy(value):
     # Earlier records from this same instruction version used this fixed profile.
     value = deepcopy(value) if value is not None else {"version": 1, "maxTurns": 24, "maxCalls": 80, "maxSeconds": 1200, "maxContextBytes": 1_500_000}
-    if not isinstance(value, dict) or set(value) != {"version", "maxTurns", "maxCalls", "maxSeconds", "maxContextBytes"} or value["version"] != 1:
+    if (not isinstance(value, dict) or set(value) != {"version", "maxTurns", "maxCalls", "maxSeconds", "maxContextBytes"}
+            or type(value["version"]) is not int or value["version"] != 1):
         raise WorkspaceError("The frozen harness policy is unsupported. Preview a new Run step.")
     for key, maximum in (("maxTurns", 24), ("maxCalls", 80), ("maxContextBytes", 1_500_000)):
         if type(value[key]) is not int or not 1 <= value[key] <= maximum:
@@ -142,10 +143,19 @@ class ModelExecutor:
                 "harnessPolicy": {"version": 1, "maxTurns": MAX_TURNS, "maxCalls": MAX_CALLS, "maxSeconds": MAX_SECONDS, "maxContextBytes": MAX_CONTEXT}}
 
     def run(self, context, worktree, cancel, on_event):
+        started = time.monotonic()
         journal = ToolJournal(self.data_dir, context["runId"])
         generation = context["generation"]
         result = {"status": "interrupted", "summary": "", "commands": []}
         commands, state = {}, journal.load()
+        elapsed_base = None
+        def save_state():
+            if elapsed_base is not None:
+                # Account only while this invocation owns the work. Awaiting an
+                # answer, server downtime and explicit retry delays are idle.
+                state["elapsedSeconds"] = max(state["elapsedSeconds"],
+                    elapsed_base + max(0, time.monotonic() - started))
+            journal.save(state)
         def event(value):
             if value.get("type") == "command":
                 commands[value["command"]["id"]] = deepcopy(value["command"])
@@ -157,14 +167,26 @@ class ModelExecutor:
                 raise WorkspaceError("The frozen coding instruction identity is invalid.")
             policy = harness_policy(generation.get("harnessPolicy"))
             identity = fingerprint({key: context[key] for key in ("task", "brief", "linkedNodes", "sourceCommit", "generation")})
-            tools = WorkspaceTools(worktree)
             if state is None:
-                state = {"version": 1, "identity": identity, "state": "running", "calls": [], "messages": [], "turns": 0, "invocation": 1}
+                state = {"version": 1, "identity": identity, "state": "running", "calls": [], "messages": [], "turns": 0, "invocation": 1,
+                         "elapsedSeconds": 0}
             elif state.get("identity") != identity:
                 raise WorkspaceError("The frozen task or provider changed; this run cannot continue.")
             elif state.get("state") != "answered" or any(call["state"] == "pending" for call in state["calls"]):
                 raise WorkspaceError("This run has an interrupted or uncertain operation. Inspect retained work; it was not replayed.")
-            else:
+            elif "elapsedSeconds" not in state:
+                # Older journals did not retain active time. Granting a fresh
+                # budget could exceed the original authority; retain all work.
+                raise WorkspaceError("This older run has no saved elapsed-time record and cannot safely continue. Review its retained work and preview a new Run step.")
+            elapsed = state["elapsedSeconds"]
+            if type(elapsed) not in (int, float) or not math.isfinite(elapsed) or elapsed < 0:
+                raise WorkspaceError("The saved coding elapsed time is invalid. Review retained work and preview a new Run step.")
+            if elapsed >= policy["maxSeconds"]:
+                raise WorkspaceError("This run's coding time limit was reached. Review retained work and preview a new Run step.")
+            elapsed_base = elapsed
+            deadline = started + policy["maxSeconds"] - elapsed_base
+            bounded_cancel = DeadlineCancel(cancel, deadline)
+            if state["state"] == "answered":
                 answer = state["answerRequest"]
                 call = next(item for item in state["calls"] if item["id"] == state["question"]["toolCallId"])
                 call.update(state="done", result={"answers": answer["answers"]})
@@ -175,7 +197,8 @@ class ModelExecutor:
                 if call.get("result", {}).get("command"):
                     record = call["result"]["command"]
                     commands[record["id"]] = record
-            journal.save(state)  # started before requesting any model work
+            save_state()  # consume an answer before any owned workspace/model work
+            tools = WorkspaceTools(worktree)
             payload = {key: context[key] for key in ("task", "brief", "linkedNodes", "sourceCommit")}
             payload["commandPolicy"] = generation["commandPolicy"]
             # Native reasoning/signatures stay only in memory during this loop.
@@ -183,16 +206,16 @@ class ModelExecutor:
             payload["priorVisibleWork"] = state["messages"]
             messages = [{"role": "system", "content": generation["instructions"]},
                         {"role": "user", "content": encoded(payload)}]
-            deadline = time.monotonic() + policy["maxSeconds"]
-            bounded_cancel = DeadlineCancel(cancel, deadline)
             for _ in range(policy["maxTurns"]):
                 if cancel.is_set():
                     result["status"] = "cancelled"
                     break
-                if time.monotonic() > deadline or state["turns"] >= policy["maxTurns"] or len(encoded(messages).encode()) > policy["maxContextBytes"]:
-                    raise WorkspaceError("The coding turn, time or context limit was reached. Review the retained work.")
+                if time.monotonic() >= deadline:
+                    raise WorkspaceError("The coding time limit was reached before the next provider turn. Review the retained work.")
+                if state["turns"] >= policy["maxTurns"] or len(encoded(messages).encode()) > policy["maxContextBytes"]:
+                    raise WorkspaceError("The coding turn or context limit was reached. Review the retained work.")
                 state["turns"] += 1
-                journal.save(state)
+                save_state()
                 on_event({"type": "progress", "message": "The selected model is working on this step."})
                 reply = self.registry.turn(generation["providerGeneration"], messages, deepcopy(TOOLS), cancel=bounded_cancel)
                 if time.monotonic() >= deadline:
@@ -212,7 +235,7 @@ class ModelExecutor:
                 visible = {"role": "assistant", "content": text, "toolCalls": calls}
                 messages.append({**visible, "continuation": reply.get("continuation")})
                 state["messages"].append(deepcopy(visible))
-                journal.save(state)
+                save_state()
                 if not calls and reply.get("done"):
                     result["status"] = "succeeded"
                     break
@@ -236,7 +259,7 @@ class ModelExecutor:
                             raise WorkspaceError("The coding tool-call limit was reached.")
                         record = {"id": key, "nativeId": native_key, "name": name, "arguments": deepcopy(args), "signature": signature, "state": "pending"}
                         state["calls"].append(record)
-                        journal.save(state)  # intent precedes every tool effect
+                        save_state()  # intent precedes every tool effect
                         try:
                             definition = next((tool for tool in TOOLS if tool["name"] == name), None)
                             if definition is None or set(args) - set(definition["parameters"]["properties"]) or not set(definition["parameters"]["required"]) <= set(args):
@@ -247,7 +270,7 @@ class ModelExecutor:
                                 state.update(state="question", question={"id": str(uuid4()), "questions": questions,
                                     "createdAt": now(), "toolCallId": key})
                                 record["state"] = "waiting"
-                                journal.save(state)
+                                save_state()
                                 result.update(status="interrupted", error="Answer the execution question to continue this step.")
                                 return {**result, "commands": list(commands.values())}
                             if name == "run_command":
@@ -262,13 +285,13 @@ class ModelExecutor:
                         record.update(state="done", result=deepcopy(output))
                         failed = output.get("error") or output.get("executed") is False or (output.get("command") and output["command"].get("status") != "completed")
                         state["consecutiveFailures"] = state.get("consecutiveFailures", 0) + 1 if failed else 0
-                        journal.save(state)
+                        save_state()
                         if state["consecutiveFailures"] >= 3:
                             raise WorkspaceError("Three consecutive tool operations failed. Review the retained work before another run.")
                     message = {"role": "tool", "toolCallId": native_key, "content": encoded(output)}
                     messages.append(message)
                     state["messages"].append(message)
-                    journal.save(state)
+                    save_state()
             if cancel.is_set(): result["status"] = "cancelled"
             elif result["status"] == "interrupted": result["error"] = "The coding turn limit was reached. Review the retained work."
             if not commands:
@@ -276,9 +299,16 @@ class ModelExecutor:
             elif any(item["exitCode"] not in (None, 0) for item in commands.values()):
                 result["summary"] += "\nObserved command failures remain in the run results."
             state["state"] = result["status"]
-            journal.save(state)
+            save_state()
         except Exception as exc:
             result.update(status="cancelled" if cancel.is_set() else "interrupted", error=str(exc)[:4000])
             # Leave pending tool intents untouched. Restart must never repeat them.
+            if elapsed_base is not None:
+                try:
+                    save_state()
+                except Exception:
+                    # Keep the original error; a failed durable checkpoint must
+                    # never turn into an implicit replay or a fresh time budget.
+                    result["error"] += " Elapsed usage could not be saved; this run was not retried."
         result["commands"] = list(commands.values())
         return result

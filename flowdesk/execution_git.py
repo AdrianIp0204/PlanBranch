@@ -20,6 +20,7 @@ import stat
 import subprocess
 import tempfile
 import threading
+import time
 from uuid import UUID, uuid4
 
 MAX_FILES = 5000
@@ -102,7 +103,19 @@ def _atomic_json(path, value):
             stream.write(_encode(value))
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        # Windows readers, antivirus or sync clients can briefly deny delete
+        # sharing. Retry only this exact prepared file, never the tool operation
+        # whose intent/result it records. Other failures remain immediate.
+        retry_until = time.monotonic() + .25
+        while True:
+            try:
+                os.replace(temporary, path)
+                break
+            except PermissionError as exc:
+                remaining = retry_until - time.monotonic()
+                if getattr(exc, "winerror", None) not in (5, 32, 33) or remaining <= 0:
+                    raise
+                time.sleep(min(.025, remaining))
     finally:
         if temporary.is_file() and _plain(temporary):
             temporary.unlink()

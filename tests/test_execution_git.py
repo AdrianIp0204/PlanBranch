@@ -10,6 +10,64 @@ import pytest
 from flowdesk.execution_git import GitWorkspace, WorkspaceError
 
 
+@pytest.mark.parametrize('winerror', [5, 32, 33])
+def test_atomic_json_retries_only_prepared_bytes_after_transient_windows_lock(tmp_path, monkeypatch, winerror):
+    import flowdesk.execution_git as module
+    target = tmp_path / 'journal.json'; target.write_bytes(b'old record')
+    original = module.os.replace
+    prepared, clock = [], [0.0]
+    monkeypatch.setattr(module.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(module.time, 'sleep', lambda delay: clock.__setitem__(0, clock[0] + delay))
+    def temporarily_locked(source, destination):
+        prepared.append((source, source.read_bytes(), destination))
+        assert target.read_bytes() == b'old record'
+        if len(prepared) <= 2:
+            error = PermissionError('Fixture sharing lock'); error.winerror = winerror
+            raise error
+        original(source, destination)
+    monkeypatch.setattr(module.os, 'replace', temporarily_locked)
+    module._atomic_json(target, {'record': 'new'})
+    assert len(prepared) == 3 and all(entry == prepared[0] for entry in prepared)
+    assert target.read_bytes() == b'{"record":"new"}'
+    assert list(tmp_path.iterdir()) == [target] and clock[0] == .05
+
+
+def test_atomic_json_persistent_windows_lock_stops_with_original_record_intact(tmp_path, monkeypatch):
+    import flowdesk.execution_git as module
+    target = tmp_path / 'journal.json'; target.write_bytes(b'old record')
+    clock, attempts = [0.0], []
+    monkeypatch.setattr(module.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(module.time, 'sleep', lambda delay: clock.__setitem__(0, clock[0] + delay))
+    error = PermissionError('Fixture persistent lock'); error.winerror = 32
+    def locked(source, destination):
+        attempts.append(source.read_bytes())
+        raise error
+    monkeypatch.setattr(module.os, 'replace', locked)
+    with pytest.raises(PermissionError) as raised:
+        module._atomic_json(target, {'record': 'new'})
+    assert raised.value is error and all(packet == attempts[0] for packet in attempts)
+    assert len(attempts) <= 12 and clock[0] == .25
+    assert target.read_bytes() == b'old record' and list(tmp_path.iterdir()) == [target]
+
+
+@pytest.mark.parametrize('winerror', [None, 87])
+def test_atomic_json_does_not_retry_other_permission_failures(tmp_path, monkeypatch, winerror):
+    import flowdesk.execution_git as module
+    target = tmp_path / 'journal.json'; target.write_bytes(b'old record')
+    attempts = []
+    error = PermissionError('Fixture non-sharing error')
+    if winerror is not None: error.winerror = winerror
+    def failed(source, destination):
+        attempts.append(source)
+        raise error
+    monkeypatch.setattr(module.os, 'replace', failed)
+    monkeypatch.setattr(module.time, 'sleep', lambda _: pytest.fail('Must fail immediately'))
+    with pytest.raises(PermissionError) as raised:
+        module._atomic_json(target, {'record': 'new'})
+    assert raised.value is error and len(attempts) == 1
+    assert target.read_bytes() == b'old record' and list(tmp_path.iterdir()) == [target]
+
+
 def git(root, *args):
     env = {key: value for key, value in os.environ.items() if not key.upper().startswith('GIT_')}
     env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)

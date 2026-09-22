@@ -220,3 +220,131 @@ def test_harness_limits_are_frozen_and_older_records_use_fixed_v1_profile(tmp_pa
     assert executor.run(context,root,threading.Event(),lambda _:None)['status']=='succeeded'
     assert module.harness_policy(None)['maxTurns']==24
     with pytest.raises(WorkspaceError): module.harness_policy({**context['generation']['harnessPolicy'],'maxCalls':999})
+
+
+@pytest.mark.parametrize('version', [True, 1.0, '1', None])
+def test_harness_version_requires_an_integer(version):
+    from flowdesk.model_executor import harness_policy
+    with pytest.raises(WorkspaceError, match='unsupported'):
+        harness_policy({**harness_policy(None), 'version': version})
+
+
+def answer_current(journal):
+    public = journal.public_question()
+    journal.answer({'questionId': public['id'], 'answers': [
+        {'questionId': q['id'], 'optionId': None, 'text': 'Chosen'} for q in public['questions']]})
+
+
+def test_active_budget_accumulates_across_two_question_continuations_without_idle_time(tmp_path, monkeypatch):
+    import flowdesk.model_executor as module
+    root, executor, context, _ = setup(tmp_path, [])
+    context['generation']['harnessPolicy']['maxSeconds'] = 10
+    clock = [100.0]
+    monkeypatch.setattr(module.time, 'monotonic', lambda: clock[0])
+    journal = ToolJournal(executor.data_dir, context['runId'])
+    for duration, expected in ((3, 3), (4, 7)):
+        q = question()
+        def ask(*_args, **_kwargs):
+            clock[0] += duration
+            return reply('ask_question', {'questions': [q]})
+        executor.registry.turn = ask
+        assert executor.run(context, root, threading.Event(), lambda _: None)['status'] == 'interrupted'
+        assert journal.load()['elapsedSeconds'] == expected
+        clock[0] += 10000  # user/server idle time is not execution time
+        answer_current(journal)
+        executor = ModelExecutor(executor.data_dir, Registry([]), Runner())
+    def over_remaining_budget(_generation, _messages, _tools, cancel):
+        assert not cancel.is_set()
+        clock[0] += 4
+        assert cancel.is_set()
+        return reply('write_file', {'path': 'too-late.txt', 'content': 'no', 'expectedSha256': None})
+    executor.registry.turn = over_remaining_budget
+    result = executor.run(context, root, threading.Event(), lambda _: None)
+    assert 'time limit' in result['error'] and not (root / 'too-late.txt').exists()
+    assert journal.load()['elapsedSeconds'] == 11
+    assert journal.load()['turns'] == 3
+
+
+@pytest.mark.parametrize('cancelled', [False, True])
+def test_cancel_and_provider_error_preserve_active_elapsed_time(tmp_path, monkeypatch, cancelled):
+    import flowdesk.model_executor as module
+    root, executor, context, _ = setup(tmp_path, [])
+    clock = [10.0]; cancel = threading.Event()
+    monkeypatch.setattr(module.time, 'monotonic', lambda: clock[0])
+    def fail(*_args, **_kwargs):
+        clock[0] += 3
+        if cancelled: cancel.set()
+        raise WorkspaceError('Original provider failure')
+    executor.registry.turn = fail
+    result = executor.run(context, root, cancel, lambda _: None)
+    assert result['status'] == ('cancelled' if cancelled else 'interrupted')
+    assert result['error'] == 'Original provider failure'
+    journal = ToolJournal(executor.data_dir, context['runId'])
+    assert journal.load()['elapsedSeconds'] == 3
+    again = executor.run(context, root, threading.Event(), lambda _: None)
+    assert 'not replayed' in again['error'] and journal.load()['elapsedSeconds'] == 3
+
+
+def test_uncertain_command_preserves_elapsed_and_pending_intent(tmp_path, monkeypatch):
+    import flowdesk.model_executor as module
+    root, executor, context, _ = setup(tmp_path, [reply('run_command', {'command': 'check'})])
+    clock = [0.0]
+    monkeypatch.setattr(module.time, 'monotonic', lambda: clock[0])
+    def fail(*_args, **_kwargs):
+        clock[0] += 5
+        raise WorkspaceError('Command transport interrupted')
+    executor.runner.run = fail
+    result = executor.run(context, root, threading.Event(), lambda _: None)
+    state = ToolJournal(executor.data_dir, context['runId']).load()
+    assert result['error'] == 'Command transport interrupted'
+    assert state['elapsedSeconds'] == 5 and state['calls'][0]['state'] == 'pending'
+
+
+def test_unwritable_elapsed_checkpoint_keeps_original_error(tmp_path, monkeypatch):
+    import flowdesk.model_executor as module
+    root, executor, context, _ = setup(tmp_path, [])
+    def fail(*_args, **_kwargs):
+        def no_save(*_a, **_k): raise OSError('Fixture journal unavailable')
+        monkeypatch.setattr(ToolJournal, 'save', no_save)
+        raise WorkspaceError('Original provider failure')
+    executor.registry.turn = fail
+    result = executor.run(context, root, threading.Event(), lambda _: None)
+    assert result['error'].startswith('Original provider failure')
+    assert 'could not be saved' in result['error']
+    assert ToolJournal(executor.data_dir, context['runId']).load()['state'] == 'running'
+
+
+def test_legacy_journal_keeps_question_and_work_without_granting_new_time(tmp_path):
+    root, executor, context, _ = setup(tmp_path, [reply('ask_question', {'questions': [question()]})])
+    executor.run(context, root, threading.Event(), lambda _: None)
+    journal = ToolJournal(executor.data_dir, context['runId'])
+    answer_current(journal)
+    state = journal.load(); state.pop('elapsedSeconds'); journal.save(state)
+    registry = Registry([reply('write_file', {'path': 'unexpected', 'content': 'no', 'expectedSha256': None})])
+    result = ModelExecutor(executor.data_dir, registry, Runner()).run(context, root, threading.Event(), lambda _: None)
+    assert 'older run' in result['error'] and 'preview a new Run step' in result['error']
+    assert journal.load() == state and journal.public_question() is not None
+    assert registry.seen == [] and not (root / 'unexpected').exists()
+
+
+@pytest.mark.parametrize('elapsed', [True, -1, float('nan'), float('inf'), '0'])
+def test_invalid_saved_elapsed_never_extends_authority(tmp_path, elapsed):
+    root, executor, context, _ = setup(tmp_path, [reply('ask_question', {'questions': [question()]})])
+    executor.run(context, root, threading.Event(), lambda _: None)
+    journal = ToolJournal(executor.data_dir, context['runId']); answer_current(journal)
+    state = journal.load(); state['elapsedSeconds'] = elapsed
+    journal.path.write_text(json.dumps(state), encoding='utf-8')
+    registry = Registry([reply(text='Must not run')])
+    result = ModelExecutor(executor.data_dir, registry, Runner()).run(context, root, threading.Event(), lambda _: None)
+    assert 'elapsed time is invalid' in result['error'] and registry.seen == []
+
+
+def test_exhausted_saved_elapsed_retains_answer_and_stops_before_provider(tmp_path):
+    root, executor, context, _ = setup(tmp_path, [reply('ask_question', {'questions': [question()]})])
+    executor.run(context, root, threading.Event(), lambda _: None)
+    journal = ToolJournal(executor.data_dir, context['runId']); answer_current(journal)
+    state = journal.load(); state['elapsedSeconds'] = context['generation']['harnessPolicy']['maxSeconds']; journal.save(state)
+    registry = Registry([reply(text='Must not run')])
+    result = ModelExecutor(executor.data_dir, registry, Runner()).run(context, root, threading.Event(), lambda _: None)
+    assert 'time limit was reached' in result['error'] and registry.seen == []
+    assert journal.load() == state and journal.public_question() is not None
