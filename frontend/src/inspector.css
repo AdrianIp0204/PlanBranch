@@ -12,7 +12,7 @@
   padding: 10px 0;
   cursor: pointer;
   list-style: none;
-  font-size: 13px;
+  font-size: var(--font-small);
   font-weight: 600;
 }
 
@@ -25,7 +25,7 @@
   flex: none;
   width: 9px;
   color: var(--muted);
-  font-size: 18px;
+  font-size: 1.285714rem;
   line-height: 1;
   transition: transform 120ms ease;
 }
@@ -42,7 +42,7 @@
   margin-left: auto;
   flex: none;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-small);
   font-weight: 400;
   white-space: nowrap;
 }
@@ -64,7 +64,7 @@
 .inspector .inspector-section-body > small {
   display: block;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-small);
   line-height: 1.5;
 }
 
@@ -85,13 +85,13 @@
   white-space: normal;
   overflow: visible;
   overflow-wrap: anywhere;
-  font-size: 13px;
+  font-size: var(--font-small);
 }
 
 .inspector .linked-variable > small {
   grid-column: 1;
   margin-left: 0;
-  font-size: 13px;
+  font-size: var(--font-small);
   color: var(--muted);
 }
 
@@ -99,7 +99,7 @@
   grid-column: 1 / -1;
   grid-row: 3;
   width: 100%;
-  font-size: 13px;
+  font-size: var(--font-small);
 }
 
 .inspector .linked-variable > .icon-button {
@@ -107,7 +107,7 @@
   grid-row: 1;
   width: 32px;
   height: 32px;
-  font-size: 18px;
+  font-size: 1.285714rem;
 }
 
 .inspector .variable-link-picker {
@@ -123,7 +123,7 @@
   display: block;
   margin-top: 8px;
   padding-left: 0;
-  font-size: 13px;
+  font-size: var(--font-small);
 }
 
 .inspector .inspector-actions {
@@ -134,7 +134,7 @@
 }
 
 .inspector .inspector-actions > button {
-  font-size: 13px;
+  font-size: var(--font-small);
 }
 
 .inspector > .muted,

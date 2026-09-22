@@ -7,6 +7,10 @@ import {
 } from "react";
 
 export const LAYOUT_KEY = "flowdesk.layout.v1";
+export function resetLayout() {
+  try { localStorage.removeItem(LAYOUT_KEY); } catch { /* In-memory reset still works. */ }
+  window.dispatchEvent(new Event("planbranch:reset-layout"));
+}
 export type Layout = {
   navigationOpen: boolean;
   inspectorOpen: boolean;
@@ -63,6 +67,11 @@ export function useLayout() {
     width: window.innerWidth,
     height: window.innerHeight,
   });
+  useEffect(() => {
+    const reset = () => setLayout(defaultLayout());
+    window.addEventListener("planbranch:reset-layout", reset);
+    return () => window.removeEventListener("planbranch:reset-layout", reset);
+  }, []);
   useEffect(() => {
     try {
       localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));

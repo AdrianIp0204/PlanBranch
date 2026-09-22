@@ -1,0 +1,209 @@
+/* Semantic colors inherit into every workspace surface. Export roots deliberately
+   start a fresh light scope, independent of the surrounding document theme. */
+:root,
+.png-export {
+  color-scheme: light;
+  --ink: #223e39;
+  --muted: #586e61;
+  --accent: #174f45;
+  --accent-hover: #236554;
+  --accent-contrast: #ffffff;
+  --accent-soft: #e6eee8;
+  --focus: #28765d;
+  --paper: #ffffff;
+  --surface: var(--paper);
+  --app-bg: #f6f8f5;
+  --sidebar: #f2f5ef;
+  --toolbar: #f9faf7;
+  --subtle: #f3f6f3;
+  --pale: #edf3ed;
+  --hover: #e9efe9;
+  --line: #dce4dd;
+  --line-strong: #b7c9bd;
+  --placeholder: #65776d;
+  --canvas: #f7f9f7;
+  --grid: #c9d6d2;
+  --edge: #718d83;
+  --edge-label-text: var(--ink);
+  --minimap-node: #b2c9c1;
+  --minimap-note: #d8d4c7;
+  --minimap-mask: #f2f5f2c9;
+  --node-hover-line: #82a184;
+  --handle: #668561;
+  --io-line: #b7cebf;
+  --resizer-hover: #d5e4d7;
+  --resizer-grip: #799382;
+  --status-idle: #758672;
+  --status-progress: #7d984f;
+  --status-blocked: #ad663b;
+  --status-done: #568465;
+  --done-bg: #f3f8ef;
+  --decision-bg: #f4f7e9;
+  --decision-line: #bac99e;
+  --note-bg: #f6f2e4;
+  --note-text: #6d6249;
+  --note-line: #d2c7aa;
+  --added-text: #1c6556;
+  --added-line: #397f65;
+  --added-bg: #e4eee8;
+  --changed-text: #6f5527;
+  --changed-line: #967335;
+  --changed-bg: #f2ebd9;
+  --removed-text: #815323;
+  --removed-line: #996232;
+  --removed-bg: #f4e8da;
+  --warning-text: #775522;
+  --warning-line: #a47b3f;
+  --warning-bg: #faf5e9;
+  --danger-text: #974335;
+  --danger-line: #a55444;
+  --danger-bg: #fff1e9;
+  --shadow-soft: #20382b12;
+  --shadow: #17391b26;
+  --selection-halo: #689a6333;
+  --backdrop: #17392338;
+  --busy-overlay: #f7f9f6cc;
+  --ui-root-size: 14px;
+  --font-base: 1rem;
+  --font-small: 0.928571rem;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #e1ebe4;
+  --muted: #a6b9ac;
+  --accent: #9ed7bd;
+  --accent-hover: #b8e6cd;
+  --accent-contrast: #143429;
+  --accent-soft: #293e33;
+  --focus: #9ed7bd;
+  --paper: #1e2924;
+  --app-bg: #17211c;
+  --sidebar: #1b261f;
+  --toolbar: #19241e;
+  --subtle: #24312a;
+  --pale: #28372e;
+  --hover: #304238;
+  --line: #3c4e42;
+  --line-strong: #647e6b;
+  --placeholder: #a1b2a6;
+  --canvas: #15201a;
+  --grid: #33493d;
+  --edge: #94b9ab;
+  --minimap-node: #648a79;
+  --minimap-note: #a69970;
+  --minimap-mask: #15201acf;
+  --node-hover-line: #9db69f;
+  --handle: #a8c5a1;
+  --io-line: #6f9b82;
+  --resizer-hover: #415c48;
+  --resizer-grip: #9fbda7;
+  --status-idle: #adbfac;
+  --status-progress: #bdcf86;
+  --status-blocked: #e3a276;
+  --status-done: #98c9a5;
+  --done-bg: #23372a;
+  --decision-bg: #303828;
+  --decision-line: #718555;
+  --note-bg: #373326;
+  --note-text: #ded0a4;
+  --note-line: #8a7e5c;
+  --added-text: #a3d9bd;
+  --added-line: #7ac49c;
+  --added-bg: #264335;
+  --changed-text: #eed596;
+  --changed-line: #c8aa61;
+  --changed-bg: #423b29;
+  --removed-text: #efbe92;
+  --removed-line: #cb9462;
+  --removed-bg: #44352a;
+  --warning-text: #eed29c;
+  --warning-line: #bd9b60;
+  --warning-bg: #3c3526;
+  --danger-text: #f5b1a4;
+  --danger-line: #d48677;
+  --danger-bg: #432e2a;
+  --shadow-soft: #00000026;
+  --shadow: #00000059;
+  --selection-halo: #9ed7bd40;
+  --backdrop: #08140fc2;
+  --busy-overlay: #17211ccc;
+}
+
+:root[data-text-size="large"] {
+  --ui-root-size: 16px;
+}
+
+/* Graph typography and geometry form a shared contract with Tidy and label
+   collision placement. UI scaling applies to the surrounding editor; canvas
+   zoom is the separate control for scaling the graph. */
+.graph,
+.tidy-preview,
+.png-export {
+  --font-base: 14px;
+  --font-small: 13px;
+  --xy-background-color: var(--canvas);
+  --xy-background-pattern-color: var(--grid);
+  --xy-edge-stroke: var(--edge);
+  --xy-edge-stroke-selected: var(--focus);
+  --xy-minimap-background-color: var(--paper);
+  --xy-minimap-mask-background-color: var(--minimap-mask);
+  --xy-minimap-node-background-color: var(--minimap-node);
+  --xy-controls-button-background-color: var(--paper);
+  --xy-controls-button-background-color-hover: var(--hover);
+  --xy-controls-button-color: var(--ink);
+  --xy-controls-button-color-hover: var(--ink);
+  --xy-controls-button-border-color: var(--line);
+  --xy-selection-background-color: var(--selection-halo);
+  --xy-selection-border: 1px dotted var(--focus);
+}
+
+/* Density only changes surrounding chrome, never the canvas node dimensions. */
+:root[data-density="compact"] .workspace .topbar {
+  min-height: 50px;
+  padding-block: 4px;
+}
+:root[data-density="compact"] .sidebar {
+  padding-block: 10px;
+}
+:root[data-density="compact"]
+  .sidebar
+  :is(.project-list, .diagram-list)
+  > button {
+  padding-block: 5px;
+}
+:root[data-density="compact"] .palette > button {
+  padding-block: 4px;
+}
+:root[data-density="compact"] .workspace .canvas-toolbar {
+  padding-block: 6px;
+}
+:root[data-density="compact"] .workspace .status-strip {
+  padding-bottom: 5px;
+}
+:root[data-density="compact"] .inspector-pane > .inspector {
+  padding: 12px;
+}
+:root[data-density="compact"] .inspector .field {
+  margin-block: 10px;
+}
+:root[data-density="compact"] .inspector-section > summary {
+  min-height: 38px;
+  padding-block: 6px;
+}
+:root[data-density="compact"]
+  :is(.planning-message, .planning-comments > li, .planning-proposal) {
+  padding-block: 9px;
+}
+:root[data-density="compact"] .variable-panel :is(th, td) {
+  padding-block: 8px;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+input[type="radio"],
+progress {
+  accent-color: var(--accent);
+}

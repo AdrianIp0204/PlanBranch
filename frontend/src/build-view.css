@@ -12,7 +12,7 @@
   padding: 5px 12px;
 }
 .workspace-mode button[aria-pressed="true"] {
-  background: var(--accent-soft, #e8f0e9);
+  background: var(--accent-soft);
   font-weight: 650;
 }
 .workspace-mode .back-build {
@@ -29,11 +29,11 @@
   margin-bottom: 12px;
 }
 .build-view-heading h1 {
-  font-size: 20px;
+  font-size: 1.428571rem;
   margin: 0;
 }
 .build-view-heading p {
   color: var(--muted);
   margin: 4px 0;
-  font-size: 13px;
+  font-size: var(--font-small);
 }

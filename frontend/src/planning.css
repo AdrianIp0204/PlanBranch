@@ -5,9 +5,9 @@
   flex-shrink: 1;
   display: flex;
   flex-direction: column;
-  background: var(--surface, #fff);
-  color: var(--ink, #263c30);
-  font-size: 14px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--font-base);
 }
 .inspector-pane.planning-pane {
   overflow: hidden;
@@ -18,7 +18,7 @@
 .planning-panel button,
 .planning-panel textarea,
 .planning-panel select {
-  font-size: 13px;
+  font-size: var(--font-small);
 }
 .planning-panel h2,
 .planning-panel h3,
@@ -36,54 +36,54 @@
   justify-content: space-between;
   gap: 6px;
   padding: 8px 10px;
-  border-bottom: 1px solid var(--line, #dbe5df);
+  border-bottom: 1px solid var(--line);
 }
 .planning-heading h2 {
-  font-size: 15px;
+  font-size: 1.071429rem;
   line-height: 1.4;
 }
 .planning-heading p,
 .planning-panel time,
 .planning-proposal-context,
 .planning-comment-meta {
-  color: #52675a;
-  font-size: 13px;
+  color: var(--muted);
+  font-size: var(--font-small);
 }
 .planning-heading p {
   margin-top: 3px;
 }
 .planning-approval {
   padding: 12px 16px;
-  background: #f3f6f3;
+  background: var(--subtle);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  border-bottom: 1px solid var(--line, #dbe5df);
+  border-bottom: 1px solid var(--line);
 }
 .planning-approval > div {
   flex: 1 1 170px;
 }
 .planning-approval strong {
-  font-size: 14px;
+  font-size: var(--font-base);
 }
 .planning-approval p {
-  font-size: 13px;
+  font-size: var(--font-small);
   line-height: 1.45;
   margin-top: 4px;
 }
 .planning-approval.is-approved {
-  background: #eaf4ed;
+  background: var(--accent-soft);
 }
 .planning-approval .planning-approval-reason {
   flex-basis: 100%;
-  color: #5d5140;
+  color: var(--warning-text);
 }
 .planning-tabs {
   display: flex;
   gap: 4px;
   padding: 0 8px;
-  border-bottom: 1px solid var(--line, #dbe5df);
+  border-bottom: 1px solid var(--line);
 }
 .planning-tabs button {
   flex: 1;
@@ -95,9 +95,9 @@
   min-width: 0;
 }
 .planning-tabs button[aria-selected="true"] {
-  color: #245c3f;
-  border-bottom-color: #3f7855;
-  background: #f1f6f2;
+  color: var(--accent);
+  border-bottom-color: var(--focus);
+  background: var(--hover);
   font-weight: 650;
 }
 .planning-tab-content {
@@ -121,11 +121,11 @@
 .planning-empty {
   padding: 20px 16px;
   line-height: 1.6;
-  color: #52675a;
+  color: var(--muted);
 }
 .planning-empty h3 {
-  color: #263c30;
-  font-size: 15px;
+  color: var(--ink);
+  font-size: 1.071429rem;
   margin-bottom: 7px;
 }
 .planning-empty button {
@@ -142,11 +142,11 @@
 .planning-comments > li,
 .planning-proposal {
   padding: 13px 14px;
-  border-bottom: 1px solid var(--line, #dbe5df);
+  border-bottom: 1px solid var(--line);
   overflow-wrap: anywhere;
 }
 .planning-message.user {
-  background: #f7f9f6;
+  background: var(--canvas);
 }
 .planning-message-byline,
 .planning-proposal-byline {
@@ -168,8 +168,8 @@
 .planning-panel .planning-context-link {
   display: block;
   text-align: left;
-  font-size: 13px;
-  color: #245c3f;
+  font-size: var(--font-small);
+  color: var(--accent);
   max-width: 100%;
   padding: 5px 0;
   border: 0;
@@ -180,23 +180,23 @@
 .planning-context-link small,
 .planning-missing-node small {
   display: block;
-  font-size: 13px;
-  color: #52675a;
+  font-size: var(--font-small);
+  color: var(--muted);
   text-decoration: none;
   margin-top: 3px;
 }
 .planning-run-status {
   padding: 14px 16px;
-  background: #f2f6f1;
+  background: var(--subtle);
   line-height: 1.5;
 }
 .planning-feedback {
   margin: 10px;
   padding: 10px 12px;
-  border-left: 3px solid #947641;
-  background: #fcf7eb;
-  color: #594922;
-  font-size: 13px;
+  border-left: 3px solid var(--warning-line);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: var(--font-small);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -209,8 +209,8 @@
 .planning-composer {
   flex-shrink: 0;
   padding: 12px 16px;
-  border-top: 1px solid var(--line, #dbe5df);
-  background: #fff;
+  border-top: 1px solid var(--line);
+  background: var(--paper);
 }
 .planning-composer > label {
   display: block;
@@ -228,16 +228,16 @@
   line-height: 1.5;
 }
 .planning-composer > p {
-  font-size: 13px;
+  font-size: var(--font-small);
   line-height: 1.45;
-  color: #52675a;
+  color: var(--muted);
   margin: 8px 0;
 }
 .planning-panel .planning-check {
   display: flex;
   align-items: baseline;
   gap: 7px;
-  font-size: 13px;
+  font-size: var(--font-small);
   font-weight: normal;
   margin: 9px 0;
   line-height: 1.4;
@@ -255,18 +255,18 @@
   gap: 10px;
 }
 .planning-compose-actions span {
-  font-size: 13px;
-  color: #52675a;
+  font-size: var(--font-small);
+  color: var(--muted);
 }
 .planning-comment-filters {
   padding: 10px 16px;
-  border-bottom: 1px solid var(--line, #dbe5df);
+  border-bottom: 1px solid var(--line);
 }
 .planning-comment-filters > label:first-child {
   display: flex;
   gap: 10px;
   align-items: center;
-  font-size: 13px;
+  font-size: var(--font-small);
 }
 .planning-comment-filters select {
   flex: 1;
@@ -282,7 +282,7 @@
   padding: 5px 0 9px;
 }
 .planning-proposal h3 {
-  font-size: 15px;
+  font-size: 1.071429rem;
   line-height: 1.5;
   margin-bottom: 7px;
 }
@@ -291,14 +291,14 @@
   line-height: 1.5;
 }
 .planning-proposal-state {
-  font-size: 13px;
+  font-size: var(--font-small);
   font-weight: 650;
 }
 .planning-proposal-state.accepted {
-  color: #245c3f;
+  color: var(--accent);
 }
 .planning-proposal-state.stale {
-  color: #795b22;
+  color: var(--warning-text);
 }
 .planning-change-details {
   margin: 12px 0;
@@ -306,40 +306,40 @@
 .planning-change-details summary {
   cursor: pointer;
   padding: 7px 0;
-  font-size: 13px;
+  font-size: var(--font-small);
   font-weight: 600;
 }
 .planning-change {
   padding: 12px 0;
-  border-top: 1px solid var(--line, #dbe5df);
+  border-top: 1px solid var(--line);
 }
 .planning-change h4 {
-  font-size: 13px;
+  font-size: var(--font-small);
   line-height: 1.5;
   margin-bottom: 8px;
 }
 .planning-change-field {
   font-weight: normal;
-  color: #52675a;
+  color: var(--muted);
 }
 .planning-diff {
   display: grid;
   gap: 10px;
 }
 .planning-diff > div {
-  border-left: 2px solid #d0d9d2;
+  border-left: 2px solid var(--line);
   padding-left: 8px;
 }
 .planning-diff > div:last-child {
-  border-left-color: #719279;
+  border-left-color: var(--added-line);
 }
 .planning-diff strong {
-  font-size: 13px;
-  color: #52675a;
+  font-size: var(--font-small);
+  color: var(--muted);
 }
 .planning-diff pre {
   font:
-    13px/1.55 ui-monospace,
+    var(--font-small)/1.55 ui-monospace,
     Consolas,
     monospace;
   white-space: pre-wrap;
@@ -382,14 +382,14 @@
   height: 28px;
 }
 .planning-status {
-  background: #f1f4ef;
+  background: var(--subtle);
   border: 0;
-  color: #52675a;
-  font-size: 13px;
+  color: var(--muted);
+  font-size: var(--font-small);
 }
 .planning-status.is-approved {
-  color: #2e6346;
-  background: #e8f1e9;
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 .planning-tabs {
   flex: none;
@@ -404,8 +404,8 @@
 .planning-first-use {
   padding: 10px 14px;
   border-bottom: 1px solid var(--line);
-  color: #52675a;
-  font-size: 13px;
+  color: var(--muted);
+  font-size: var(--font-small);
   line-height: 1.5;
 }
 .planning-first-use button {
@@ -463,7 +463,7 @@
   width: 30px;
   min-width: 30px;
   padding: 4px;
-  font-size: 17px !important;
+  font-size: 1.214286rem !important;
 }
 .planning-jump {
   position: absolute;
@@ -472,7 +472,7 @@
   transform: translateX(-50%);
   z-index: 2;
   padding: 5px 10px;
-  box-shadow: 0 2px 5px #20382b18;
+  box-shadow: 0 2px 5px var(--shadow-soft);
 }
 .planning-tab-content:has(.message-composer) > .planning-jump {
   bottom: calc(var(--composer-height, 150px) + 17px);
@@ -520,7 +520,7 @@
   flex: 1;
   padding: 6px 3px;
   border-color: transparent;
-  background: #f6f8f4;
+  background: var(--subtle);
   text-overflow: ellipsis;
 }
 .planning-model-controls select:focus-visible {
@@ -564,7 +564,7 @@
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: #f8faf6;
+  background: var(--subtle);
   min-width: 0;
 }
 .planning-scroll > .planning-question-card {
@@ -572,7 +572,7 @@
 }
 .planning-question-progress {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-small);
   margin-bottom: 10px !important;
 }
 .planning-question-card fieldset {
@@ -611,7 +611,7 @@
   overflow-wrap: anywhere;
 }
 .planning-question-option strong {
-  font-size: 14px;
+  font-size: var(--font-base);
   font-weight: 500;
 }
 .planning-question-option small {
@@ -621,11 +621,11 @@
 .planning-question-option .planning-recommended {
   display: inline;
   margin-left: 7px;
-  color: #376247;
-  font-size: 13px;
+  color: var(--accent);
+  font-size: var(--font-small);
 }
 .planning-question-option:has(input:checked) {
-  background: #eaf2e8;
+  background: var(--accent-soft);
   border-radius: 4px;
 }
 .planning-question-text {
@@ -649,20 +649,20 @@
   margin-left: auto;
 }
 .planning-question-error {
-  color: #8b4126;
-  font-size: 13px;
+  color: var(--danger-text);
+  font-size: var(--font-small);
   margin-top: 8px !important;
 }
 .planning-question-outdated {
   padding-bottom: 12px;
-  color: #785c2e;
+  color: var(--warning-text);
 }
 .planning-question-outdated p {
   margin: 5px 0 8px !important;
 }
 .planning-question-summary {
   margin-top: 12px;
-  font-size: 13px;
+  font-size: var(--font-small);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -683,7 +683,7 @@
   right: 14px;
   z-index: 2;
   padding: 4px 8px;
-  box-shadow: 0 2px 5px #20382b18;
+  box-shadow: 0 2px 5px var(--shadow-soft);
 }
 .planning-panel .message-actions > .primary {
   max-width: 110px;
@@ -695,7 +695,7 @@
   align-items: center;
   gap: 8px;
   flex: none;
-  font-size: 13px;
+  font-size: var(--font-small);
   min-width: 0;
 }
 .planning-revision-context > span {

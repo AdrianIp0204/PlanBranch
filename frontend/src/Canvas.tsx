@@ -1,3 +1,4 @@
+import { usePreferences } from "./preferences";
 import { deletionNotice } from "./buildTasks";
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -179,7 +180,7 @@ function TaskEdgeShape(props: EdgeProps) {
           className="flow-edge-label-leader"
           d={`M ${x},${y} L ${placement.x},${placement.y}`}
           fill="none"
-          stroke={props.style?.stroke ?? "#7a9390"}
+          stroke={props.style?.stroke ?? "var(--edge)"}
           strokeWidth={1}
           strokeDasharray="3 3"
           pointerEvents="none"
@@ -229,9 +230,9 @@ export function flowEdges(
     type: "task",
     data: { onSelect: onSelect ? () => onSelect(e.id) : undefined },
     markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
-    style: { stroke: "#7a9390", strokeWidth: 1.7 },
-    labelStyle: { fill: "#294641", fontSize: 12, fontWeight: 500 },
-    labelBgStyle: { fill: "#f7f9f7" },
+    style: { stroke: "var(--edge)", strokeWidth: 1.7 },
+    labelStyle: { fill: "var(--edge-label-text)", fontSize: 12, fontWeight: 500 },
+    labelBgStyle: { fill: "var(--canvas)" },
     labelBgPadding: [7, 4] as [number, number],
     labelBgBorderRadius: 4,
   }));
@@ -257,6 +258,7 @@ export default function Canvas({
   onConnected: () => void;
   onAddNode?: () => void;
 }) {
+  const { preferences } = usePreferences();
   const { session, change, commit, setView } = useProject();
   const [nodes, setNodes] = useState<FlowNode[]>([]);
   const nodesRef = useRef<FlowNode[]>([]);
@@ -465,25 +467,25 @@ export default function Canvas({
         deleteKeyCode={null}
         minZoom={0.1}
         maxZoom={2.5}
-        snapToGrid
+        snapToGrid={preferences.snap}
         snapGrid={[10, 10]}
         onlyRenderVisibleElements={false}
         nodesConnectable
         edgesReconnectable
       >
-        <Background gap={22} size={1} color="#c9d6d2" />
+        {preferences.grid && <Background gap={22} size={1} color="var(--grid)" />}
         <Controls showInteractive={false} />
-        <MiniMap
+        {preferences.minimap && <MiniMap
           pannable
           zoomable
           nodeColor={(n) =>
             (n.data as { task: TaskNode }).task.type === "note"
-              ? "#d8d4c7"
-              : "#b2c9c1"
+              ? "var(--minimap-note)"
+              : "var(--minimap-node)"
           }
           nodeStrokeWidth={0}
-          maskColor="rgba(229,236,232,.55)"
-        />
+          maskColor="var(--minimap-mask)"
+        />}
       </ReactFlow>
       {!diagram.nodes.length && (
         <div className="canvas-empty">

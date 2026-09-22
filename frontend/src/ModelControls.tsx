@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { usePreferences } from "./preferences";
 import {
   validModelSelection,
   type ModelCapabilities,
@@ -76,7 +77,9 @@ export function selectModel(
   };
 }
 export function useModelSelection(active = true) {
-  const [selection, setSelection] = useState(readModelPreference);
+  const { preferences, updatePreferences } = usePreferences();
+  const selection = preferences.model;
+  const setSelection = (value: ModelSelection) => updatePreferences({ model: value });
   const [capabilities, setCapabilities] = useState<ModelCapabilities | null>(
     null,
   );
@@ -158,13 +161,6 @@ export function useModelSelection(active = true) {
   useEffect(() => {
     if (active && !capabilities) void refresh(false);
   }, [active]);
-  useEffect(() => {
-    try {
-      localStorage.setItem(MODEL_PREFERENCE_KEY, JSON.stringify(selection));
-    } catch {
-      /* Selecting still works when storage is unavailable. */
-    }
-  }, [selection]);
   return {
     selection,
     setSelection,

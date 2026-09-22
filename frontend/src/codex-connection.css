@@ -1,7 +1,7 @@
 .codex-connection {
   min-width: 0;
   max-width: 620px;
-  font-size: 14px;
+  font-size: var(--font-base);
   line-height: 1.5;
   color: var(--ink);
 }
@@ -19,12 +19,12 @@
 }
 .codex-connection-heading h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: 1.142857rem;
   font-weight: 600;
 }
 .codex-connection button {
   min-height: 36px;
-  font-size: 13px;
+  font-size: var(--font-small);
 }
 .codex-connection p {
   margin: 10px 0;
@@ -38,15 +38,15 @@
   font-weight: 600;
 }
 .codex-connection-status.ready {
-  color: #315d48;
+  color: var(--accent);
 }
 .codex-connection-status.unavailable {
-  color: #785225;
+  color: var(--warning-text);
 }
 .codex-connection-version,
 .codex-connection-manual {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-small);
   font-weight: 400;
 }
 .codex-connection a {

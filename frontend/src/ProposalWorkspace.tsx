@@ -454,10 +454,10 @@ function Workspace({
       ...e.style,
       stroke:
         edgeMarks[e.id] === "Removed"
-          ? "#996232"
+          ? "var(--removed-line)"
           : edgeMarks[e.id]
-            ? "#1c6556"
-            : "#7a9390",
+            ? "var(--added-line)"
+            : "var(--edge)",
       strokeDasharray: edgeMarks[e.id] === "Removed" ? "6 4" : undefined,
       strokeWidth: edgeMarks[e.id] ? 2.5 : 1.7,
     },
@@ -1201,7 +1201,7 @@ function Workspace({
                   previewViews.current[side] = view;
                 }}
               >
-                <Background gap={22} size={1} color="#c9d6d2" />
+                <Background gap={22} size={1} color="var(--grid)" />
                 <Controls showInteractive={false} />
               </ReactFlow>
             )}

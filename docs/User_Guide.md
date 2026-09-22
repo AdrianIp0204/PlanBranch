@@ -273,3 +273,12 @@ Use `planbranch.cmd --port 4320 --data-dir "D:\PlanBranch data"` for a different
 `planbranch.cmd backup` backs up SQLite into the configured data folder. It does not copy execution worktrees. For complete recovery, stop the server and copy the entire data directory and relevant repositories. Removing the extracted app folder uninstalls the portable app but does not delete your data, Codex or Git. Retained coding worktrees may contain unaccepted work; do not delete them without reviewing it.
 
 Maintainers build the wheel with `python scripts/build_release.py`, then create the portable archive with `python scripts/build_windows_portable.py`. Runtime and dependency downloads are pinned and checked by hash; a verified local cache supports offline rebuilding. The package includes licenses and an input/file manifest. Run `scripts/smoke_windows_portable.py` against the artifact to verify it from a separate disposable directory. CI is configured to upload build artifacts; local builds do not publish releases.
+
+
+## Appearance, preferences and startup
+
+Open **Settings** in the top bar, including before opening a project. Appearance offers System/Light/Dark, 14 or 16 px surrounding interface text, and Comfortable/Compact density. Canvas nodes retain their geometry; use canvas zoom to enlarge diagram text. Status and change highlights retain their meaning in both themes. PNG exports deliberately use the light palette.
+
+Editor contains grid/minimap visibility, optional 10-pixel snapping for future moves, startup behavior and Restore default layout. Existing positions are never snapped merely by enabling the preference. Panel sizes, model defaults, last-workspace navigation and other preferences are stored in this browser, outside project content, Undo and approval. Browser storage restrictions may prevent these preferences surviving closure.
+
+Startup reopens the last available project, diagram and Diagram/Build view; missing references fall back to valid content. Choose **Show projects** to open the project list instead. Agent Settings reuses chat's discovered model choices; changes affect new requests, while retries retain their captured settings. No global Codex configuration is changed. Data & About shows the configured data folder, app version, loopback connection and database backup action.

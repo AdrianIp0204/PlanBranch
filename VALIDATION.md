@@ -267,3 +267,12 @@ Numbered migration regressions cover fresh databases, version-1 databases with a
 - Python scanning is static and bounded; wildcard imports and PEP 695 type-parameter scopes are explicitly unsupported. It does not infer runtime values or prove correctness.
 - Imported evidence and evidence from a replaced source root require manual relinking to fresh scan results. Attaching a directory never retroactively grants trust to imported observations.
 - There is no automatic conflict merge; the second draft can be kept as a new project or explicitly discarded.
+
+
+## Quality-of-life pass — milestone 1 (2026-09-22)
+
+Shared browser preferences, Settings, semantic System/Light/Dark themes, fixed canvas geometry through interface size/density changes, and an explicit light PNG export palette are implemented. Settings startup is functional with validated last-project/diagram/Build-view restoration. Existing model choices migrate and synchronize with chat; requests/retries retain their captured settings.
+
+Windows: production build passed; full frontend suite passed **223 tests**, plus **2 workspace-memory tests**. Four focused browser scenarios passed across initial run and affected-fixture rerun: preference persistence and unchanged history/approval, model synchronization, system appearance, contrast/graph dimensions, narrow/real 200% keyboard access, and light full-diagram PNG from dark mode. Existing fixture assumptions were updated to explicitly select the requested project after reload. External browser requests were blocked; all data was disposable.
+
+Baseline images: `output/playwright/qol-baseline-8xmPUw`; comparable light images: `output/playwright/qol-after-xkUpjR`; dark/light images: `output/playwright/qol-settings-vnmxd3`; narrow/zoom: `output/playwright/qol-settings-access-jblwxQ`; PNG: `output/playwright/qol-light-export-zGYBiE`. Browser logs: `output/qol-m1-browser*.log`. Later milestone and package checks follow below.

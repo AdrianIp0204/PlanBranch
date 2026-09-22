@@ -6,7 +6,7 @@
   align-items: start;
   min-width: 0;
   gap: 20px;
-  font-size: 14px;
+  font-size: var(--font-base);
 }
 .build-task-list {
   min-width: 0;
@@ -53,12 +53,12 @@
   border-color: transparent;
 }
 .build-task-choice[aria-pressed="true"] {
-  background: #e7eee8;
-  border-color: #bdcec2;
+  background: var(--accent-soft);
+  border-color: var(--line-strong);
 }
 .build-task-number {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-small);
 }
 .build-task-title {
   overflow-wrap: anywhere;
@@ -66,8 +66,8 @@
 }
 .build-task-status {
   grid-column: 2;
-  color: #52665e;
-  font-size: 13px;
+  color: var(--muted);
+  font-size: var(--font-small);
 }
 .build-task-detail {
   min-width: 0;
@@ -80,7 +80,7 @@
 }
 .build-task-heading h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: 1.285714rem;
   overflow-wrap: anywhere;
   flex: 1 1 150px;
 }
@@ -103,7 +103,7 @@
 .build-task-fields select {
   width: 100%;
   min-width: 0;
-  font-size: 14px;
+  font-size: var(--font-base);
 }
 .build-task-fields textarea {
   resize: vertical;
@@ -111,7 +111,7 @@
 }
 .build-task-fields input[readonly],
 .build-task-fields textarea[readonly] {
-  background: #f6f8f5;
+  background: var(--app-bg);
 }
 .build-task-section {
   border-top: 1px solid var(--line);
@@ -120,7 +120,7 @@
 }
 .build-task-section h3,
 .build-task-section summary {
-  font-size: 14px;
+  font-size: var(--font-base);
   font-weight: 600;
   margin: 0;
 }
@@ -157,8 +157,8 @@
 .build-task-link small,
 .build-task-prerequisite small {
   display: block;
-  color: #657265;
-  font-size: 13px;
+  color: var(--muted);
+  font-size: var(--font-small);
 }
 .build-task-link .quiet {
   max-width: 100%;
@@ -170,9 +170,9 @@
   flex: 1 1 160px;
 }
 .build-task-missing {
-  color: #88571e;
+  color: var(--warning-text);
   display: block;
-  font-size: 13px;
+  font-size: var(--font-small);
 }
 .build-task-link-add {
   display: flex;
@@ -199,11 +199,11 @@
   color: var(--muted);
 }
 .build-task-empty h2 {
-  font-size: 20px;
+  font-size: 1.428571rem;
   color: var(--ink);
 }
 .build-tasks-editor button {
-  font-size: 13px;
+  font-size: var(--font-small);
   min-height: 34px;
 }
 @container build-editor (max-width: 700px) {

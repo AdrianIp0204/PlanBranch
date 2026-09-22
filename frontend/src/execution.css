@@ -7,12 +7,12 @@ dialog:has(> .execution-dialog) {
 }
 .execution-dialog {
   min-width: 0;
-  font-size: 14px;
+  font-size: var(--font-base);
 }
 .execution-dialog button,
 .execution-dialog select,
 .execution-dialog input {
-  font-size: 14px;
+  font-size: var(--font-base);
 }
 .execution-dialog button {
   min-height: 36px;
@@ -24,20 +24,20 @@ dialog:has(> .execution-dialog) {
   border: 0;
 }
 .execution-dialog code {
-  font-size: 13px;
+  font-size: var(--font-small);
   overflow-wrap: anywhere;
 }
 .execution-dialog h2 {
-  font-size: 20px;
+  font-size: 1.428571rem;
   margin: 0 0 8px;
   overflow-wrap: anywhere;
 }
 .execution-dialog h3 {
-  font-size: 16px;
+  font-size: 1.142857rem;
   margin: 0 0 10px;
 }
 .execution-dialog h4 {
-  font-size: 14px;
+  font-size: var(--font-base);
   margin: 0 0 8px;
 }
 .execution-dialog p {
@@ -116,20 +116,20 @@ dialog:has(> .execution-dialog) {
 .execution-notice,
 .execution-recovery {
   padding: 10px 12px;
-  border-left: 3px solid #9d7134;
-  background: #fbf5e9;
-  color: #664820;
+  border-left: 3px solid var(--warning-line);
+  background: var(--warning-bg);
+  color: var(--warning-text);
   line-height: 1.5;
   margin: 12px 0;
   overflow-wrap: anywhere;
 }
 .execution-error {
-  color: #813b31;
-  border-color: #a55444;
-  background: #fcf0eb;
+  color: var(--danger-text);
+  border-color: var(--danger-line);
+  background: var(--danger-bg);
 }
 .execution-issues {
-  color: #785225;
+  color: var(--warning-text);
 }
 .execution-task-context {
   display: grid;
@@ -148,14 +148,14 @@ dialog:has(> .execution-dialog) {
   border: 1px solid var(--line);
   border-radius: 4px;
   text-transform: capitalize;
-  color: #375f4e;
-  background: #edf2ec;
+  color: var(--accent);
+  background: var(--pale);
 }
 .execution-state.failed,
 .execution-state.interrupted,
 .execution-state.cancelled {
-  background: #f7edde;
-  color: #785225;
+  background: var(--warning-bg);
+  color: var(--warning-text);
 }
 .execution-command {
   margin-top: 8px;
@@ -176,7 +176,7 @@ dialog:has(> .execution-dialog) {
 }
 .execution-command summary span {
   flex-shrink: 0;
-  font-size: 13px;
+  font-size: var(--font-small);
 }
 .execution-command pre,
 .execution-diff pre {
@@ -184,9 +184,9 @@ dialog:has(> .execution-dialog) {
   overflow: auto;
   padding: 12px;
   border: 1px solid var(--line);
-  background: #f4f6f3;
-  color: #20362d;
-  font-size: 13px;
+  background: var(--subtle);
+  color: var(--ink);
+  font-size: var(--font-small);
   line-height: 1.5;
   white-space: pre;
   tab-size: 4;
@@ -212,7 +212,7 @@ dialog:has(> .execution-dialog) {
 }
 .execution-review-actions p {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-small);
 }
 .execution-busy {
   color: var(--muted);
@@ -225,7 +225,7 @@ dialog:has(> .execution-dialog) {
   margin-top: 12px;
 }
 .build-execution-actions > span {
-  font-size: 13px;
+  font-size: var(--font-small);
   color: var(--muted);
   overflow-wrap: anywhere;
 }

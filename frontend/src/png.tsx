@@ -29,21 +29,26 @@ export async function exportPng(diagram: Diagram) {
     );
   const host = document.createElement("div");
   host.className = "png-export";
+  // Exports intentionally use the light token scope in theme.css. Read its
+  // computed background after attaching so SVG/HTML and the image share a palette.
+  host.dataset.theme = "light";
   Object.assign(host.style, {
     position: "fixed",
     left: "-100000px",
     top: "0",
     width: `${width}px`,
     height: `${height}px`,
-    background: "#f7f9f7",
+    background: "var(--canvas)",
   });
   document.body.appendChild(host);
+  const backgroundColor = getComputedStyle(host).backgroundColor;
   const root = createRoot(host);
   try {
     const instance = await new Promise<ReactFlowInstance<FlowNode>>(
       (resolve) => {
         root.render(
           <ReactFlow<FlowNode>
+            colorMode="light"
             nodes={nodes}
             edges={flowEdges(diagram)}
             nodeTypes={nodeTypes}
@@ -95,7 +100,7 @@ export async function exportPng(diagram: Diagram) {
       width,
       height,
       pixelRatio: Math.min(2, Math.sqrt(64000000 / (width * height))),
-      backgroundColor: "#f7f9f7",
+      backgroundColor,
       // Reset both physical and logical positioning: computed inset-inline otherwise
       // retains the offscreen offset and overrides left/top inside the SVG clone.
       style: {

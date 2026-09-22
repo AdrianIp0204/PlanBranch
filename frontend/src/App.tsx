@@ -5,6 +5,9 @@ import {
   useRef,
   useState,
 } from "react";
+import { readPreferences } from "./preferences";
+import { readWorkspaceMemory, rememberedPlace, rememberWorkspace } from "./workspaceMemory";
+import SettingsDialog from "./SettingsDialog";
 import type { ReactFlowInstance } from "@xyflow/react";
 import { api, ApiError, bootstrap, download, post } from "./api";
 import { ProjectProvider, useProject } from "./store";
@@ -68,6 +71,7 @@ function preserveDisclosureKeys(event: ReactKeyboardEvent<HTMLDivElement>) {
 }
 
 export default function App() {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [transition, setTransition] = useState(false);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [envelope, setEnvelope] = useState<Envelope | null>(null);
@@ -89,8 +93,10 @@ export default function App() {
         const p = await api<{ projects: ProjectSummary[] }>("/projects");
         if (!alive) return;
         setProjects(p.projects);
-        if (p.projects.length) {
-          const e = await api<Envelope>(`/projects/${p.projects[0].id}`);
+        if (p.projects.length && readPreferences().startup === "resume") {
+          const saved = readWorkspaceMemory().projectId;
+          const id = p.projects.some(p => p.id === saved) ? saved : p.projects[0].id;
+          const e = await api<Envelope>(`/projects/${id}`);
           if (alive) setEnvelope(e);
         }
       } catch (e) {
@@ -202,6 +208,7 @@ export default function App() {
         >
           <div className="application-content" inert={transition}>
             <Workbench
+              onSettings={() => setSettingsOpen(true)}
               projects={projects}
               onOpen={open}
               onNew={() => setCreating(true)}
@@ -224,11 +231,12 @@ export default function App() {
               PlanBranch
             </div>
             <span className="local-label">LOCAL WORKSPACE</span>
+            <button className="quiet" onClick={() => setSettingsOpen(true)}>Settings</button>
           </header>
           <main>
             <div className="welcome-kicker">VISUAL AI CODING PLANNER</div>
             <h1 id="canvas-title" tabIndex={-1}>
-              Create your first project
+              {projects.length ? "Open a project" : "Create your first project"}
             </h1>
             <p>
               Describe a goal in chat, review the diagram, and refine the plan
@@ -254,6 +262,7 @@ export default function App() {
                 Import JSON
               </button>
             </div>
+            {projects.length > 0 && <nav className="welcome-projects" aria-label="Projects">{projects.map(project => <button key={project.id} onClick={() => void open(project.id)}>{project.name}</button>)}</nav>}
             <CodexConnection />
             <div className="welcome-flow" aria-hidden="true">
               <span>Start</span>
@@ -273,6 +282,7 @@ export default function App() {
           Opening project…
         </div>
       )}
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
       {newDialog}
       {error && (
         <Dialog title="Something needs attention" onClose={() => setError("")}>
@@ -308,6 +318,7 @@ function Brand() {
   );
 }
 function Workbench({
+  onSettings,
   projects,
   onOpen,
   onNew,
@@ -316,6 +327,7 @@ function Workbench({
   onCopy,
   onDeleted,
 }: {
+  onSettings: () => void;
   projects: ProjectSummary[];
   onOpen: (id: string) => Promise<void>;
   onNew: () => void;
@@ -336,15 +348,16 @@ function Workbench({
     saveError,
   } = useProject();
   const content = session.content;
-  const [active, setActive] = useState(content.diagrams[0]?.id ?? "");
+  const [active, setActive] = useState(() => rememberedPlace(session.id, content).diagramId);
   const [briefOpen, setBriefOpen] = useState(false);
   const [connectionOpen, setConnectionOpen] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<"diagram" | "build">(
-    "diagram",
+    () => rememberedPlace(session.id, content).view,
   );
   const [selectedBuildTask, setSelectedBuildTask] = useState<string | null>(
-    null,
+    () => rememberedPlace(session.id, content).taskId,
   );
+  useEffect(() => { rememberWorkspace(session.id, { diagramId: active, view: workspaceView, taskId: selectedBuildTask }); }, [session.id, active, workspaceView, selectedBuildTask]);
   const [returnToBuild, setReturnToBuild] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [tidy, setTidy] = useState<{
@@ -1164,6 +1177,7 @@ function Workbench({
             Chat
           </button>
         </div>
+        <button className="quiet" onClick={onSettings}>Settings</button>
         <details
           className="layout-menu popup-menu"
           data-popup

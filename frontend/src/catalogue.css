@@ -13,11 +13,11 @@
 }
 .variable-panel .drawer-bar strong,
 .variable-panel .drawer-bar > .quiet {
-  font-size: 14px;
+  font-size: var(--font-base);
 }
 .variable-panel .drawer-bar .muted {
-  font-size: 13px;
-  color: #596b61;
+  font-size: var(--font-small);
+  color: var(--muted);
 }
 .variable-panel .variable-body {
   overflow: hidden;
@@ -38,9 +38,9 @@
   border-bottom: 0;
 }
 .variable-panel .catalogue-filters label {
-  font-size: 13px;
+  font-size: var(--font-small);
   font-weight: 500;
-  color: #435a4d;
+  color: var(--muted);
   min-width: 0;
 }
 .variable-panel .catalogue-filters input,
@@ -50,9 +50,9 @@
   max-width: none;
   min-width: 0;
   margin-top: 5px;
-  font-size: 13px;
+  font-size: var(--font-small);
   padding: 7px 8px;
-  background: #fff;
+  background: var(--paper);
   color: var(--ink);
 }
 .variable-panel .catalogue-results {
@@ -64,22 +64,22 @@
   justify-content: space-between;
   gap: 6px;
   border-bottom: 1px solid var(--line);
-  color: #596b61;
-  font-size: 13px;
+  color: var(--muted);
+  font-size: var(--font-small);
 }
 .variable-panel .catalogue-results button {
-  font-size: 13px;
+  font-size: var(--font-small);
   padding: 3px 6px;
 }
 .variable-panel table {
   min-width: 430px;
-  font-size: 13px;
+  font-size: var(--font-small);
 }
 .variable-panel th {
-  font-size: 13px;
+  font-size: var(--font-small);
   text-transform: none;
   letter-spacing: 0;
-  color: #52685a;
+  color: var(--muted);
   padding: 11px 14px;
   font-weight: 600;
   z-index: 1;
@@ -103,9 +103,9 @@
   line-height: 1.5;
 }
 .variable-panel .table-name {
-  font-size: 14px;
+  font-size: var(--font-base);
   line-height: 1.5;
-  color: #245747;
+  color: var(--accent);
   white-space: normal;
   overflow: visible;
   overflow-wrap: anywhere;
@@ -113,34 +113,34 @@
 }
 .variable-panel td > small {
   display: block;
-  font-size: 13px;
-  color: #596b61;
+  font-size: var(--font-small);
+  color: var(--muted);
   overflow: visible;
   margin-top: 4px;
 }
 .variable-panel .origin-label {
-  font-size: 13px;
+  font-size: var(--font-small);
   font-weight: 600;
-  color: #435a4d;
+  color: var(--muted);
 }
 .variable-panel .origin-label.detected {
-  color: #2a645c;
+  color: var(--accent);
 }
 .variable-panel .catalogue-row-status {
   line-height: 1.5;
 }
 .variable-panel tbody tr.selected {
-  background: #edf4ef;
-  box-shadow: inset 3px 0 #2c6b55;
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 var(--accent);
 }
 .variable-panel tbody tr:focus-within {
-  background: #edf4ef;
+  background: var(--accent-soft);
 }
 .variable-panel .small-empty {
   max-width: none;
   padding: 24px;
-  font-size: 14px;
-  color: #596b61;
+  font-size: var(--font-base);
+  color: var(--muted);
   line-height: 1.6;
 }
 .variable-panel .small-empty strong {
@@ -161,13 +161,13 @@
   padding: 0 18px 20px;
   position: relative;
   scroll-padding-top: 128px;
-  background: #fbfcfa;
+  background: var(--subtle);
 }
 .variable-panel .variable-detail-header {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: #fbfcfa;
+  background: var(--subtle);
   margin: 0 -18px 14px;
   padding: 9px 18px 8px;
   border-bottom: 1px solid var(--line);
@@ -178,18 +178,18 @@
 }
 .variable-panel .variable-detail-header h3 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-small);
   font-weight: 600;
-  color: #52685a;
+  color: var(--muted);
   letter-spacing: 0;
   text-transform: none;
 }
 .variable-panel .catalogue-back {
-  font-size: 13px;
+  font-size: var(--font-small);
   padding: 5px 7px;
 }
 .variable-panel .selected-variable-name {
-  font-size: 14px;
+  font-size: var(--font-base);
   line-height: 1.5;
   font-weight: 600;
   overflow-wrap: anywhere;
@@ -202,7 +202,7 @@
 }
 .variable-panel .variable-detail-nav button {
   padding: 5px 7px;
-  font-size: 13px;
+  font-size: var(--font-small);
 }
 .variable-panel .variable-detail .field {
   margin: 14px 0;
@@ -213,35 +213,35 @@
 .variable-panel .variable-detail .field > label,
 .variable-panel .variable-detail > button,
 .variable-panel .variable-detail small {
-  font-size: 13px;
+  font-size: var(--font-small);
 }
 .variable-panel .variable-detail .field > label {
   font-weight: 500;
-  color: #435a4d;
+  color: var(--muted);
 }
 .variable-panel .variable-detail small {
-  color: #596b61;
+  color: var(--muted);
   line-height: 1.5;
 }
 .variable-panel .catalogue-explanation {
-  font-size: 13px;
-  color: #596b61;
+  font-size: var(--font-small);
+  color: var(--muted);
   line-height: 1.6;
   margin: 10px 0 14px;
 }
 .variable-panel .variable-detail .section-heading {
-  font-size: 14px;
+  font-size: var(--font-base);
   letter-spacing: 0;
   text-transform: none;
   color: var(--ink);
 }
 .variable-panel .symbol-facts {
-  font-size: 13px;
+  font-size: var(--font-small);
   margin: 14px 0;
 }
 .variable-panel .symbol-facts dt {
-  font-size: 13px;
-  color: #52685a;
+  font-size: var(--font-small);
+  color: var(--muted);
   margin-top: 13px;
   font-weight: 500;
 }
@@ -251,23 +251,23 @@
   color: var(--ink);
 }
 .variable-panel .source-preview {
-  font-size: 13px;
-  color: #314f3f;
+  font-size: var(--font-small);
+  color: var(--accent);
 }
 .variable-panel .review-state {
-  font-size: 14px;
-  color: #2c5b43;
-  background: #eaf2e9;
+  font-size: var(--font-base);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 .variable-panel .review-note {
-  font-size: 13px;
-  color: #79551e;
+  font-size: var(--font-small);
+  color: var(--warning-text);
 }
 .variable-panel .linked-variable {
   min-width: 0;
 }
 .variable-panel .linked-variable > button.quiet {
-  font-size: 13px;
+  font-size: var(--font-small);
   white-space: normal;
   overflow-wrap: anywhere;
   text-align: left;
@@ -276,19 +276,19 @@
   overflow-wrap: anywhere;
 }
 .variable-panel .match-row {
-  font-size: 13px;
+  font-size: var(--font-small);
   gap: 8px;
   padding: 14px 0;
 }
 .variable-panel .match-row > strong,
 .variable-panel .match-row > small,
 .variable-panel .match-row > span {
-  font-size: 13px;
-  color: #435a4d;
+  font-size: var(--font-small);
+  color: var(--muted);
   overflow-wrap: anywhere;
 }
 .variable-panel .match-row > button {
-  font-size: 13px;
+  font-size: var(--font-small);
   padding: 6px 9px;
 }
 .variable-panel .match-row > .match-record {
@@ -297,16 +297,16 @@
   text-align: left;
   white-space: normal;
   overflow-wrap: anywhere;
-  color: #245747;
+  color: var(--accent);
 }
 .variable-panel .selected-binding-context {
-  font-size: 13px;
+  font-size: var(--font-small);
   line-height: 1.6;
   overflow-wrap: anywhere;
-  color: #435a4d;
+  color: var(--muted);
 }
 .variable-panel [tabindex="-1"]:focus-visible {
-  outline: 2px solid #2b7860;
+  outline: 2px solid var(--focus);
   outline-offset: 3px;
 }
 @container catalogue (max-width: 900px) {

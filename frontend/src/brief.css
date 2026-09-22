@@ -1,4 +1,6 @@
-dialog.project-brief-modal { width:min(780px,calc(100vw - 24px)); }
+dialog.project-brief-modal {
+  width: min(780px, calc(100vw - 24px));
+}
 .project-brief-dialog {
   width: 100%;
 }
@@ -17,7 +19,7 @@ dialog.project-brief-modal { width:min(780px,calc(100vw - 24px)); }
   width: 100%;
   min-height: 64px;
   resize: vertical;
-  font-size: 14px;
+  font-size: var(--font-base);
   line-height: 1.5;
 }
 .brief-field-read {
@@ -25,7 +27,7 @@ dialog.project-brief-modal { width:min(780px,calc(100vw - 24px)); }
 }
 .brief-field-read h3 {
   margin: 0 0 6px;
-  font-size: 14px;
+  font-size: var(--font-base);
 }
 .brief-field-read p {
   margin: 0;
@@ -43,7 +45,7 @@ dialog.project-brief-modal { width:min(780px,calc(100vw - 24px)); }
 .brief-actions [role="status"] {
   margin-right: auto;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-small);
 }
 @media (max-width: 720px) {
   .brief-fields {

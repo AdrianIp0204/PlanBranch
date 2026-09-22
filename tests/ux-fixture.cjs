@@ -133,6 +133,16 @@ async function prepareUxFixture(h) {
   );
   await h.page.reload();
   await h.page.getByTestId("diagram-canvas").waitFor();
+  // The application now resumes the last open project. Preparing a different
+  // project through the API must not rely on it becoming the first list item.
+  const fixtureNodeId = envelope.content.diagrams[0].nodes[0].id;
+  if (!(await h.page.locator(`.react-flow__node[data-id="${fixtureNodeId}"]`).count())) {
+    const navigation = h.page.getByRole("button", { name: "Toggle navigation", exact: true });
+    if ((await navigation.getAttribute("aria-expanded")) === "false") await navigation.click();
+    await h.page.getByRole("navigation", { name: "Projects", exact: true })
+      .getByRole("button").filter({ hasText: envelope.content.name }).click();
+    await h.page.locator(`.react-flow__node[data-id="${fixtureNodeId}"]`).waitFor();
+  }
   const decision = envelope.content.diagrams[0].nodes.find(
     (n) => n.type === "decision",
   );

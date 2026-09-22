@@ -77,6 +77,12 @@ For an already-built wheel, install `flowdesk-0.2.0-py3-none-any.whl` in a Pytho
 
 The editor, scanner and exports work offline. Dependency downloads and optional Codex requests need internet access. The Python launcher serves both the interface and API; a separate frontend server is unnecessary.
 
+## Make the workspace yours
+
+Open **Settings** from the toolbar or welcome screen for Light, Dark or System appearance, readable text sizes, compact spacing, grid/minimap controls and snapping. Planning model defaults and the Codex connection check are available in Agent; Data & About shows the local data folder and backup action. Preferences stay in this browser and never edit a plan.
+
+By default, PlanBranch reopens your last project, diagram and Diagram/Build view. Choose **Settings → Editor → Startup → Show projects** to start with project selection instead. Full-diagram PNGs use a consistent light palette regardless of the workspace theme.
+
 ## Your data and your decisions
 
 - **Saved locally.** The default data folder remains `%LOCALAPPDATA%\FlowDesk` on Windows, or `$XDG_DATA_HOME/flowdesk` / `~/.local/share/flowdesk` on Linux. Use `--data-dir` and `--port` to override defaults. The server binds to loopback only.

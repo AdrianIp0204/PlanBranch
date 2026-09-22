@@ -108,6 +108,12 @@ def create_app(data_dir=None, *, testing=False, planner=None, executor=None, exe
         from . import __version__
         return jsonify(token=token, version=__version__)
 
+    @app.get("/api/settings/info")
+    def settings_info():
+        from . import __version__
+        from .migrations import DATABASE_VERSION
+        return jsonify(version=__version__, dataDirectory=str(data_dir), schemaVersion=DATABASE_VERSION)
+
     @app.get("/api/connection")
     def connection():
         # Local capability/sign-in checks only; no prompt or agent run is sent.

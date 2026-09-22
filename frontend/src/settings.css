@@ -1,0 +1,14 @@
+.settings-dialog { width: min(620px, calc(100vw - 24px)); }
+.settings-tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); padding: 8px 0; }
+.settings-tabs button { border-color: transparent; background: transparent; }
+.settings-tabs button[aria-pressed="true"] { background: var(--pale); color: var(--accent); }
+.settings-content { padding-top: 16px; min-height: 240px; }
+.settings-content .field { margin-bottom: 16px; }
+.settings-content .field select, .settings-content .field input { width: 100%; }
+.settings-check { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.settings-dialog .muted { color: var(--muted); font-size: .95rem; }
+.settings-dialog .planning-model-controls { display: flex; flex-wrap: wrap; }
+.settings-dialog .planning-model-controls select { flex: 1; min-width: 140px; }
+
+.welcome-projects { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow: auto; margin: 16px 0; }
+.welcome-projects button { white-space: normal; overflow-wrap: anywhere; text-align: left; }
