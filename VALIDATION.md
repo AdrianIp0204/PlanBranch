@@ -310,3 +310,6 @@ The full Windows backend run passed **488 tests, 9 platform/configuration skips*
 Dark proposal and execution browser checks passed 2/2. Both 1280×800 and 1440×900 captures show added/changed/removed highlights and expanded execution output/diff. Measured execution contrast was 11.12:1; proposal badge contrast ranged 6.82–7.72:1. Evidence: `output/qol-final-backend.log`, `output/qol-final-frontend.log`, `output/qol-dark-review-browser.log`, `output/playwright/execution-FLBD0G/`, `output/playwright/guided-review-dark-8gZLOL/`.
 
 The production bundler retains its existing large-chunk advisory (about 650 kB before compression). No new runtime dependency, cloud service or execution permission was added. Final installed-package results follow.
+
+
+Final preference integration: Tidy and read-only proposal previews now use the same grid visibility preference as the editable canvas. A focused production-browser check passed for both previews and live Settings updates, while saved content/history stayed identical (`output/qol-preview-grid.log`). TypeScript and the production build passed again; final asset entry is `index-BkwJDtYJ.js`.

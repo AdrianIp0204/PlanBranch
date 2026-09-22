@@ -1,3 +1,4 @@
+import { usePreferences } from "./preferences";
 import { useMemo, useState } from "react";
 import { Background, Controls, ReactFlow } from "@xyflow/react";
 import { edgeTypes, flowEdges, flowNodes, nodeTypes } from "./Canvas";
@@ -16,6 +17,7 @@ export default function TidyDiagram({
   onApply: (candidate: Diagram) => void;
   onClose: () => void;
 }) {
+  const { preferences } = usePreferences();
   const [direction, setDirection] = useState<"horizontal" | "vertical">(
     "vertical",
   );
@@ -90,7 +92,7 @@ export default function TidyDiagram({
           deleteKeyCode={null}
           onlyRenderVisibleElements={false}
         >
-          <Background />
+          {preferences.grid && <Background gap={22} size={1} color="var(--grid)" />}
           <Controls showInteractive={false} />
         </ReactFlow>
       </div>

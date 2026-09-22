@@ -1,3 +1,4 @@
+import { usePreferences } from "./preferences";
 import {
   useLayoutEffect,
   useMemo,
@@ -144,6 +145,7 @@ function Workspace({
 }: ProposalWorkspaceProps & { storageKey: string }) {
   const { session, change, commit, undo, redo, getSnapshot, saveError, flush } =
     useProject();
+  const { preferences } = usePreferences();
   const durable = useProposalDraft();
   const recovering =
     retryingApply ||
@@ -1201,7 +1203,7 @@ function Workspace({
                   previewViews.current[side] = view;
                 }}
               >
-                <Background gap={22} size={1} color="var(--grid)" />
+                {preferences.grid && <Background gap={22} size={1} color="var(--grid)" />}
                 <Controls showInteractive={false} />
               </ReactFlow>
             )}

@@ -270,3 +270,35 @@ test("startup resumes the chosen project, diagram and Build task and permits the
   await p.locator("#canvas-title > span").filter({ hasText: prepared.content.diagrams[0].name }).waitFor();
   assert.equal((await h.api(`/projects/${second.id}/planning`)).request, null, "Recovery never sends an agent request");
 });
+
+
+test("grid preference also follows into Tidy and proposed-plan previews", { timeout: 90000 }, async (t) => {
+  const h = await setupBrowser(t, { name: "qol-preview-grid", planningFixture: true });
+  const p = h.page;
+  let dialog = await settings(p);
+  await dialog.getByRole("button", { name: "Editor", exact: true }).click();
+  await dialog.getByLabel("Show grid", { exact: true }).uncheck();
+  await p.keyboard.press("Escape");
+  await p.getByRole("button", { name: "Tidy diagram", exact: true }).click();
+  await p.getByTestId("tidy-preview").waitFor();
+  assert.equal(await p.getByTestId("tidy-preview").locator(".react-flow__background").count(), 0);
+  await p.getByRole("dialog", { name: "Tidy diagram", exact: true }).getByRole("button", { name: "Cancel", exact: true }).click();
+  await h.saved();
+  const before = await h.api(`/projects/${h.initial.id}`);
+  await p.getByRole("button", { name: "Toggle planning chat", exact: true }).click();
+  const composer = p.getByLabel("Message Codex", { exact: true });
+  await until(() => composer.isEditable());
+  await composer.fill("Suggest a review step for the grid preview fixture.");
+  await p.getByRole("button", { name: "Send", exact: true }).click();
+  const review = p.getByRole("region", { name: "Proposed changes workspace", exact: true });
+  await review.waitFor();
+  assert.equal(await review.locator(".react-flow__background").count(), 0);
+  dialog = await settings(p);
+  await dialog.getByRole("button", { name: "Editor", exact: true }).click();
+  await dialog.getByLabel("Show grid", { exact: true }).check();
+  await p.keyboard.press("Escape");
+  await until(async () => await review.locator(".react-flow__background").count() === 1);
+  const after = await h.api(`/projects/${h.initial.id}`);
+  assert.deepEqual(after.content, before.content);
+  assert.deepEqual(after.history, before.history);
+});
