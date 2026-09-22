@@ -297,3 +297,16 @@ A separate timing regression passed: hold a plan-save acknowledgement, navigate,
 ## Quality-of-life milestone 4 — workspace presets (2026-09-22)
 
 Two preset storage/bounds unit tests passed. The production preset browser workflow passed, then passed again after strengthening it to open Chat for the first time through a preset. Planning, Review, Build and personal layouts preserve exact selection, canvas transform, manual content and retained history. Personal layout survives reload; narrow layouts retain reachable toolbar controls. Evidence: `output/qol-navigation-browser-rerun.log`, `output/playwright/navigation-layouts-5LfZok/`.
+
+
+## Quality-of-life milestone 5 — completion notices (2026-09-22)
+
+Six backend activity tests passed, including project scoping, bounded metadata, exact response targeting, failed retry association, request protection and logical database non-mutation. Settings/operation tests passed for explicit permission gestures, denied/unsupported environments, sound opt-in, accurate outcome wording and deduplication. Exact historical execution and planning focus tests also passed.
+
+Four production-browser notification scenarios passed: completion/failure/cancellation while typing, no unsolicited sound/desktop permission or delivery, silent reload, exact older planning reply, exact older scan and exact historical coding result with its recorded failed check still visible. An initial fixture incorrectly expected superseded questions to remain open; corrected assertions verify navigation preserves the actual before/after state. No browser or source execution is triggered by notification navigation.
+
+The full Windows backend run passed **488 tests, 9 platform/configuration skips** in 659.88 s. The full frontend run passed **268 tests across 31 files** with two workers; TypeScript and the production build passed. Earlier unrestricted frontend concurrency produced four timing failures; all affected cases passed when rerun with bounded workers, now the default test setting.
+
+Dark proposal and execution browser checks passed 2/2. Both 1280×800 and 1440×900 captures show added/changed/removed highlights and expanded execution output/diff. Measured execution contrast was 11.12:1; proposal badge contrast ranged 6.82–7.72:1. Evidence: `output/qol-final-backend.log`, `output/qol-final-frontend.log`, `output/qol-dark-review-browser.log`, `output/playwright/execution-FLBD0G/`, `output/playwright/guided-review-dark-8gZLOL/`.
+
+The production bundler retains its existing large-chunk advisory (about 650 kB before compression). No new runtime dependency, cloud service or execution permission was added. Final installed-package results follow.

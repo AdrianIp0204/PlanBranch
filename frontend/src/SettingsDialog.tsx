@@ -5,6 +5,7 @@ import { usePreferences } from "./preferences";
 import ModelControls, { useModelSelection } from "./ModelControls";
 import CodexConnection from "./CodexConnection";
 import { resetLayout } from "./layout";
+import { desktopNotificationPermission, prepareNotificationSound, requestDesktopNotificationPermission } from "./operationNotifications";
 import "./settings.css";
 
 const sections = ["Appearance", "Editor", "Agent", "Data & About"] as const;
@@ -16,6 +17,16 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [desktopPermission, setDesktopPermission] = useState(desktopNotificationPermission);
+  const [soundBusy, setSoundBusy] = useState(false);
+  const [desktopBusy, setDesktopBusy] = useState(false);
+  const [notificationNotice, setNotificationNotice] = useState("");
+  useEffect(() => {
+    const refreshPermission = () => setDesktopPermission(desktopNotificationPermission());
+    refreshPermission();
+    window.addEventListener("focus", refreshPermission);
+    return () => window.removeEventListener("focus", refreshPermission);
+  }, [section]);
   useEffect(() => {
     let alive = true;
     api<{ version: string; dataDirectory: string }>("/settings/info")
@@ -50,6 +61,30 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
         <p className="muted">Used for new requests. Existing requests and retries keep their captured settings.</p>
         <button disabled={model.refreshing} onClick={() => void model.refresh()}>{model.refreshing ? "Refreshing…" : "Refresh models"}</button>
         <CodexConnection />
+        <h3>Notifications</h3>
+        <p className="muted">Quiet in-app notices report results for the open project. They never approve changes or run another step.</p>
+        <label className="settings-check"><input type="checkbox" checked={p.sound} disabled={soundBusy} onChange={async (event) => {
+          setNotificationNotice("");
+          if (!event.target.checked) { update({ sound: false }); return; }
+          setSoundBusy(true);
+          const available = await prepareNotificationSound();
+          update({ sound: available });
+          if (!available) setNotificationNotice("Sound is unavailable in this browser. In-app notices remain enabled.");
+          setSoundBusy(false);
+        }} />Play a short sound</label>
+        <p className="muted">Desktop notifications: {desktopPermission === "unsupported" ? "unavailable in this browser" : desktopPermission === "denied" ? "blocked by the browser" : p.desktop && desktopPermission === "granted" ? "on" : "off"}.</p>
+        {desktopPermission === "denied" && <p className="muted">Allow notifications in this site's browser permissions, then retry.</p>}
+        {(p.desktop || desktopPermission !== "unsupported") && <button disabled={desktopBusy} onClick={async () => {
+          setNotificationNotice("");
+          if (p.desktop) { update({ desktop: false }); return; }
+          setDesktopBusy(true);
+          const permission = desktopNotificationPermission() === "granted" ? "granted" : await requestDesktopNotificationPermission();
+          setDesktopPermission(permission);
+          update({ desktop: permission === "granted" });
+          if (permission === "default") setNotificationNotice("Desktop notifications stay off until permission is granted.");
+          setDesktopBusy(false);
+        }}>{desktopBusy ? "Checking permission…" : p.desktop ? "Disable desktop notifications" : desktopPermission === "denied" ? "Retry desktop notifications" : "Enable desktop notifications"}</button>}
+        {notificationNotice && <p role="status">{notificationNotice}</p>}
       </>}
       {section === "Data & About" && <>
         <h3>PlanBranch {info?.version ?? ""}</h3>

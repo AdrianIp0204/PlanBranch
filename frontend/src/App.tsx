@@ -12,6 +12,9 @@ import CommandPalette from "./CommandPalette";
 import type { CommandResult } from "./commandSearch";
 import { useQuickJumpShortcut } from "./useQuickJumpShortcut";
 import SettingsDialog from "./SettingsDialog";
+import ExecutionDialog from "./ExecutionDialog";
+import ActivityNotices from "./ActivityNotices";
+import { useOperationNotifications, type OperationTarget } from "./operationNotifications";
 import { presetLayout, readPersonalLayout, savePersonalLayout, boundLayout, type SavedLayout } from "./workspacePresets";
 import type { ReactFlowInstance } from "@xyflow/react";
 import { api, ApiError, bootstrap, download, post } from "./api";
@@ -409,6 +412,10 @@ function Workbench({
   const planning = layout.sidePanel === "planning";
   const [planningVisited, setPlanningVisited] = useState(planning);
   const [commentFocus, setCommentFocus] = useState(0);
+  const [conversationFocus, setConversationFocus] = useState(0);
+  const [messageFocus, setMessageFocus] = useState<string | null>(null);
+  const [executionTarget, setExecutionTarget] = useState<OperationTarget | null>(null);
+  const activity = useOperationNotifications(session.id, navigateActivity);
   const [proposalPreview, setProposalPreview] = useState<ProposalDetail | null>(
     null,
   );
@@ -467,6 +474,8 @@ function Workbench({
   });
   const [scanDialog, setScanDialog] = useState(false);
   const [scan, setScan] = useState<Scan | null>(null);
+  const [notificationScan, setNotificationScan] = useState<Scan | null>(null);
+  const displayedScan = notificationScan ?? scan;
   const [sourcePath, setSourcePath] = useState("");
   const [ignoreText, setIgnoreText] = useState("");
   const [allowRead, setAllowRead] = useState(false);
@@ -697,6 +706,7 @@ function Workbench({
     openPlanning();
   };
   const openSource = () => {
+    setNotificationScan(null);
     setScanDialog(true);
     void refreshEvidence(true);
   };
@@ -952,6 +962,28 @@ function Workbench({
       );
     }
   };
+  async function navigateActivity(target: OperationTarget) {
+    if (performing.current) throw Error("A workspace action is finishing. Try again when it completes.");
+    if (document.querySelector("dialog[open]")) throw Error("Close the open dialog before opening this result.");
+    if (proposalPreviewRef.current && proposalLeaveGuard.current && !(await proposalLeaveGuard.current()))
+      throw Error("Save or recover the proposal draft before opening this result.");
+    await flushForNavigation();
+    if (target.kind === "planning") {
+      setPlanningRefresh(value => value + 1);
+      setMessageFocus(target.messageId ?? null);
+      setConversationFocus(value => value + 1);
+      openPlanning();
+      if (!target.messageId) requestAnimationFrame(() => document.querySelector<HTMLElement>("#planning-pane [role=tab][aria-selected=true]")?.focus());
+    } else if (target.kind === "scan") {
+      const detail = await api<Scan>(`/projects/${session.id}/scans/${target.id}`);
+      setNotificationScan(detail);
+      setScanDialog(true);
+    } else {
+      // Validate the specific record before dismissing its notification.
+      await api(`/projects/${session.id}/execution/runs/${target.id}`);
+      setExecutionTarget(target);
+    }
+  }
   const chooseLayout = (saved: SavedLayout) => {
     applyLayout(boundLayout(saved.layout));
     if (saved.layout.sidePanel === "planning") setPlanningVisited(true);
@@ -1917,6 +1949,8 @@ function Workbench({
               composerHeight={layout.composerHeight}
               onComposerResize={(value) => preference("composerHeight", value)}
               focusComments={commentFocus}
+              focusConversation={conversationFocus}
+              focusMessageId={messageFocus ?? undefined}
               refreshKey={planningRefresh}
               onState={setPlanningSnapshot}
               onPreview={previewProposal}
@@ -2049,6 +2083,8 @@ function Workbench({
           }}
         />
       )}
+      <ActivityNotices {...activity} />
+      {executionTarget && <ExecutionDialog key={executionTarget.id} initialHistory initialRunId={executionTarget.id} taskId={executionTarget.taskId ?? null} onClose={() => setExecutionTarget(null)} onPlanning={() => { setExecutionTarget(null); openPlanning(); }} />}
       {briefOpen && <ProjectBriefDialog onClose={() => setBriefOpen(false)} />}
       {quickJump && <CommandPalette projects={projects} content={content} symbols={symbols} actions={[
         { id: "settings", title: "Open settings" }, { id: "new-project", title: "New project" },
@@ -2131,6 +2167,7 @@ function Workbench({
                   onClick={() =>
                     void perform(async () => {
                       setScanError("");
+                      setNotificationScan(null);
                       try {
                         setScan(
                           await post<Scan>(`/projects/${session.id}/scans`),
@@ -2150,17 +2187,17 @@ function Workbench({
           {source.attached && (
             <p className="attached-path mono">Attached: {source.root}</p>
           )}
-          {scan && (
+          {displayedScan && (
             <div className="scan-results">
               <div className="section-heading">
-                Scan {scan.status}
-                {scanRunning && (
+                Scan {displayedScan.status}
+                {scanRunning && !notificationScan && (
                   <button
                     className="quiet"
                     onClick={async () => {
                       try {
                         await post(
-                          `/projects/${session.id}/scans/${scan.id}/cancel`,
+                          `/projects/${session.id}/scans/${displayedScan.id}/cancel`,
                         );
                       } catch (e) {
                         setScanError((e as Error).message);
@@ -2171,9 +2208,9 @@ function Workbench({
                   </button>
                 )}
               </div>
-              {scan.summary && (
+              {displayedScan.summary && (
                 <dl className="scan-summary">
-                  {Object.entries(scan.summary).map(([key, value]) => (
+                  {Object.entries(displayedScan.summary).map(([key, value]) => (
                     <div key={key}>
                       <dt>{key.replaceAll("_", " ")}</dt>
                       <dd>
@@ -2186,7 +2223,7 @@ function Workbench({
                 </dl>
               )}
               <div className="scan-file-list">
-                {scan.files?.map((f, i) => (
+                {displayedScan.files?.map((f, i) => (
                   <div key={i}>
                     <code>{f.file ?? f.path}</code>
                     <span>{f.status}</span>

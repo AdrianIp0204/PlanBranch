@@ -296,3 +296,12 @@ Opening a result brings its item into view. Project switches and proposal naviga
 Choose **Layout → Planning layout**, **Review layout** or **Build layout** to adjust the visible panels and workspace view. Review layout opens the existing chat/review area; it does not open or approve a proposal automatically. An already-open proposal stays open. Selection, canvas viewport, writing and manual history are preserved.
 
 **Save personal layout** records the current panel sizes, visibility and Diagram/Build view in this browser. **Personal layout** restores it; dimensions are bounded to the current window. **Restore default layout** remains available from Layout and Settings. These preferences are not part of portable projects and never change approval freshness.
+
+
+## Completion notices
+
+For the open project, quiet in-app notices distinguish replies, questions needing an answer, proposed changes needing review, scan issues, failed work and cancellation. Arrival does not move keyboard focus. **Open result** navigates to the relevant reply, scan or coding run; **Dismiss** leaves your work in place. Previously completed operations do not replay as new notices after reload. The compact list retains up to three recent notices; complete history remains in the existing review and execution views.
+
+Sound and desktop delivery are off by default. Enable them explicitly in **Settings → Agent**. Desktop permission is requested only when you press Enable or Retry. A blocked or unavailable browser still receives in-app notices; browser or operating-system settings may suppress optional sound or desktop delivery. These preferences do not authorize execution, accept a diff or complete a task. Results for projects that are not open are not monitored by this browser window.
+
+Writing marked **Writing saved** is in SQLite and survives server/browser restart. Appearance, startup, layout and notification preferences live in this browser's local storage (for this server address/port), independently of project content and exports. If browser storage is unavailable, appearance works for the current window; save failures for durable writing remain visible and require recovery before leaving. Forced termination before a writing save is acknowledged cannot guarantee recovery of that last unsaved edit.

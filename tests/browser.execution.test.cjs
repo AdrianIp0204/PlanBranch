@@ -4,7 +4,7 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 const {execFileSync}=require('node:child_process');
 const {setupBrowser,until}=require('./browser-harness.cjs');
-const {withBrowserZoom}=require('./ux-fixture.cjs');
+const {withBrowserZoom,measureContrast}=require('./ux-fixture.cjs');
 const dialog=p=>p.getByRole('dialog',{name:'Run step',exact:true});
 function git(root,...args){return execFileSync('git',['-c',`safe.directory=${root}`,'-c','core.autocrlf=false','-C',root,...args],{windowsHide:true,env:{...process.env,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:process.platform==='win32'?'NUL':'/dev/null'}}).toString().trim();}
 async function fixture(t,title='Implement one observable result'){
@@ -53,6 +53,18 @@ test('explicit run, review, acceptance, completion and checkout apply remain sep
   assert.match(await d.getByRole('region',{name:'Observed commands'}).innerText(),/Exit 0/);
   assert.match(await d.locator('[aria-label="Diff for main.py"]').innerText(),/\+value = 2/);
   await p.screenshot({path:path.join(h.output,'execution-review-1440.png'),fullPage:true});
+  await d.getByRole('region',{name:'Observed commands'}).locator('summary').click();
+  await p.emulateMedia({colorScheme:'dark'});
+  await until(()=>p.locator('html').getAttribute('data-theme').then(value=>value==='dark'));
+  await d.getByRole('region',{name:'Changed files'}).scrollIntoViewIfNeeded();
+  const contrast=(await measureContrast(p)).filter(item=>item.selector.startsWith('.execution-'));
+  assert.equal(contrast.length,2);assert.ok(contrast.every(item=>item.ratio>=4.45));
+  await fs.writeFile(path.join(h.output,'execution-dark-contrast.json'),JSON.stringify(contrast,null,2));
+  await p.screenshot({path:path.join(h.output,'execution-dark-output-diff-1440.png'),fullPage:true});
+  await p.setViewportSize({width:1280,height:800});
+  await d.getByRole('region',{name:'Changed files'}).scrollIntoViewIfNeeded();
+  await p.screenshot({path:path.join(h.output,'execution-dark-output-diff-1280.png'),fullPage:true});
+  await p.setViewportSize({width:1440,height:900});await p.emulateMedia({colorScheme:'light'});
   await d.getByRole('button',{name:'Accept changes',exact:true}).click();
   await until(()=>d.getByRole('button',{name:'Complete task',exact:true}).isEnabled());await untouched(h);
   await h.restart();await showBuild(h);await open(h,true);

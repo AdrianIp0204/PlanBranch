@@ -1572,3 +1572,89 @@ it("allows approval of a manual build-only plan without inventing flow nodes", a
     else Reflect.deleteProperty(prototype, "close");
   }
 });
+
+it("opens conversation for a destination nonce without submitting or replacing writing", async () => {
+  const view = await mount();
+  fireEvent.change(screen.getByLabelText("Message Codex"), {
+    target: { value: "Unsent writing" },
+  });
+  fireEvent.click(screen.getByRole("tab", { name: "Comments" }));
+  expect(
+    screen.getByRole("tab", { name: "Comments" }).getAttribute("aria-selected"),
+  ).toBe("true");
+  view.rerender(<PlanningPanel {...props()} focusConversation={1} />);
+  await waitFor(() =>
+    expect(
+      screen.getByRole("tab", { name: "Chat" }).getAttribute("aria-selected"),
+    ).toBe("true"),
+  );
+  expect(
+    (screen.getByLabelText("Message Codex") as HTMLTextAreaElement).value,
+  ).toBe("Unsent writing");
+  expect(posts("/messages")).toHaveLength(0);
+});
+
+it("waits for the visible response then focuses the exact notification message once", async () => {
+  const scroll = vi.fn();
+  const original = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "scrollIntoView",
+  );
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: scroll,
+  });
+  try {
+    const response = (id: string, text: string) => ({
+      id,
+      text,
+      role: "assistant" as const,
+      createdAt: "2026-09-20T00:00:00Z",
+      diagramId: "diagram",
+      nodeId: null,
+      nodeTitle: null,
+      proposalId: null,
+    });
+    state.messages = [
+      response("earlier", "Earlier response"),
+      response("latest", "Latest response"),
+    ];
+    const view = render(
+      <PlanningPanel
+        {...props()}
+        active={false}
+        focusConversation={1}
+        focusMessageId="earlier"
+      />,
+    );
+    expect(scroll).not.toHaveBeenCalled();
+    view.rerender(
+      <PlanningPanel
+        {...props()}
+        active
+        focusConversation={1}
+        focusMessageId="earlier"
+      />,
+    );
+    const text = await screen.findByText("Earlier response");
+    const target = text.closest("[data-message-id]")!;
+    await waitFor(() => expect(document.activeElement).toBe(target));
+    expect(target.getAttribute("data-message-id")).toBe("earlier");
+    expect(scroll).toHaveBeenCalledExactlyOnceWith({
+      block: "start",
+      behavior: "instant",
+    });
+    const input = screen.getByLabelText("Message Codex");
+    input.focus();
+    fireEvent.change(input, { target: { value: "Unsent after navigation" } });
+    fireEvent.focus(window);
+    await act(async () => {});
+    expect(document.activeElement).toBe(input);
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(posts("/messages")).toHaveLength(0);
+  } finally {
+    if (original)
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", original);
+    else delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+  }
+});

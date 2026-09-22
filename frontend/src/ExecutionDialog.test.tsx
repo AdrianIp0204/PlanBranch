@@ -242,6 +242,69 @@ async function settle() {
 }
 
 describe("execution review and explicit actions", () => {
+  it("opens the exact historical notification run instead of the latest run", async () => {
+    const historical = {
+      ...copy(run),
+      id: "older",
+      previewId: "older-preview",
+      summary: "Historical result",
+    };
+    state.runs = [run, historical];
+    const originalRead = read;
+    read = async (path) =>
+      path === `${base}/runs/older` ? { run: historical } : originalRead(path);
+    render(
+      <ExecutionDialog
+        taskId="task"
+        onClose={vi.fn()}
+        initialHistory
+        initialRunId="older"
+      />,
+    );
+    await screen.findByText("Historical result");
+    expect(
+      (screen.getByLabelText("Execution history") as HTMLSelectElement).value,
+    ).toBe("older");
+    expect(api).not.toHaveBeenCalledWith(`${base}/runs/run`);
+    expect(post).not.toHaveBeenCalled();
+  });
+  it("keeps an unrelated uncertain action intact while viewing a notification run", async () => {
+    const historical = {
+      ...copy(run),
+      id: "older",
+      previewId: "older-preview",
+      summary: "Historical result",
+    };
+    state.runs = [run, historical];
+    const pending = {
+      kind: "apply" as const,
+      runId: run.id,
+      body: {
+        mutationId: "original-apply",
+        digest: "result-digest",
+        confirmed: true as const,
+      },
+    };
+    writeExecutionReceipt("project", pending);
+    const originalRead = read;
+    read = async (path) =>
+      path === `${base}/runs/older` ? { run: historical } : originalRead(path);
+    render(
+      <ExecutionDialog taskId="task" onClose={vi.fn()} initialRunId="older" />,
+    );
+    await screen.findByText("Historical result");
+    expect(readExecutionReceipt("project")).toEqual(pending);
+    expect(screen.getByRole("button", { name: "Retry apply" })).toBeTruthy();
+    expect(post).not.toHaveBeenCalled();
+    write = async () => ({ run: { ...run, applied: true } });
+    fireEvent.click(screen.getByRole("button", { name: "Retry apply" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledExactlyOnceWith(
+        `${base}/runs/run/apply`,
+        pending.body,
+      ),
+    );
+  });
   it("previews saved inputs without executing and starts only the reviewed preview", async () => {
     await open();
     expect(post).not.toHaveBeenCalled();

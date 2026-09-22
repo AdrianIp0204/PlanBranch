@@ -1,8 +1,9 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const fs = require("node:fs");
 const { setupBrowser, until } = require("./browser-harness.cjs");
-const { withBrowserZoom } = require("./ux-fixture.cjs");
+const { withBrowserZoom, measureContrast } = require("./ux-fixture.cjs");
 
 const workspace = (p) =>
   p.getByRole("region", { name: "Proposed changes workspace" });
@@ -150,6 +151,27 @@ async function manualDetails(p) {
   });
   if (await details.isVisible()) await details.click();
 }
+
+test("dark proposal highlights distinguish added, changed and removed nodes at both target sizes", { timeout: 100000 }, async t => {
+  const h = await fixture(t, "guided-review-dark"), p = h.page;
+  await p.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+  await until(() => p.locator("html").getAttribute("data-theme").then(value => value === "dark"));
+  const contrast = [];
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }]) {
+    await p.setViewportSize(viewport);
+    for (const [state, id] of [["added", h.added.id], ["changed", "review-store"], ["removed", "review-old"]]) {
+      await choose(p, `node:${id}`);
+      const badge = workspace(p).locator(`.react-flow__node[data-id="${id}"] .proposal-change-badge`);
+      assert.match(await badge.innerText(), new RegExp(state, "i"));
+      const sampled = (await measureContrast(p)).filter(item => item.selector.includes("proposal-change-badge"));
+      assert.ok(sampled.length && sampled.every(item => item.ratio >= 4.45));
+      contrast.push({ viewport, selectedState: state, samples: sampled });
+      await p.screenshot({ path: path.join(h.output, `proposal-dark-${state}-${viewport.width}x${viewport.height}.png`) });
+    }
+  }
+  fs.writeFileSync(path.join(h.output, "proposal-dark-contrast.json"), JSON.stringify(contrast, null, 2));
+  assert.deepEqual((await h.api(`/projects/${h.initial.id}`)).content, h.original.content);
+});
 
 test(
   "keyboard review visits added, changed and removed nodes and connections without losing the current edit",

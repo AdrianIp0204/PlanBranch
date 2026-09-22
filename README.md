@@ -89,6 +89,8 @@ Use **Search** or **Ctrl/Cmd+K** to jump to projects, diagram nodes, Build tasks
 
 The **Layout** menu offers Planning, Review and Build presets plus one saved personal layout. Switching layouts keeps your selections, viewport and drafts; it never applies a proposal or starts coding.
 
+Quiet notices report planning, scan and coding results for the open project. Optional sound and desktop delivery are off by default in **Settings → Agent**. A finished coding process still needs review and explicit acceptance.
+
 ## Your data and your decisions
 
 - **Saved locally.** The default data folder remains `%LOCALAPPDATA%\FlowDesk` on Windows, or `$XDG_DATA_HOME/flowdesk` / `~/.local/share/flowdesk` on Linux. Use `--data-dir` and `--port` to override defaults. The server binds to loopback only.

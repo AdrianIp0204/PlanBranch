@@ -26,8 +26,10 @@ export default function ExecutionDialog({
   onClose,
   onPlanning,
   initialHistory = false,
+  initialRunId,
 }: {
   initialHistory?: boolean;
+  initialRunId?: string;
   taskId: string | null;
   onClose: () => void;
   onPlanning?: () => void;
@@ -119,7 +121,14 @@ export default function ExecutionDialog({
     if (!alive.current || ticket !== stateTicket.current) return;
     setState(next);
     const pending = receiptRef.current;
-    if (pending?.kind === "start") {
+    if (initialRunId && initialSelection.current) {
+      // A notification names one historical run. Never redirect it to the latest
+      // run or retry an unrelated pending action as a side effect of opening it.
+      initialSelection.current = false;
+      selectedRun.current = initialRunId;
+      setSelectedRunId(initialRunId);
+      await loadRun(initialRunId);
+    } else if (pending?.kind === "start" && !initialRunId) {
       const found = next.runs.find(
         (item) => item.previewId === pending.body.previewId,
       );
@@ -128,7 +137,11 @@ export default function ExecutionDialog({
         setSelectedRunId(found.id);
         await loadRun(found.id);
       }
-    } else if (pending && initialSelection.current) {
+    } else if (
+      pending &&
+      pending.kind !== "start" &&
+      initialSelection.current
+    ) {
       selectedRun.current = pending.runId;
       setSelectedRunId(pending.runId);
       await loadRun(pending.runId);

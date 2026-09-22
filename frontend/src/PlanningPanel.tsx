@@ -106,6 +106,8 @@ export default function PlanningPanel({
   onClose,
   active = true,
   focusComments = 0,
+  focusConversation = 0,
+  focusMessageId,
   composerHeight = 150,
   onComposerResize,
   onPreview,
@@ -121,6 +123,8 @@ export default function PlanningPanel({
   onClose: () => void;
   active?: boolean;
   focusComments?: number;
+  focusConversation?: number;
+  focusMessageId?: string;
   composerHeight?: number;
   onComposerResize?: (height: number) => void;
   onPreview?: (proposalId: string) => void;
@@ -211,6 +215,8 @@ export default function PlanningPanel({
   const commentComposer = useRef<HTMLTextAreaElement>(null);
   const conversationScroll = useRef<HTMLDivElement>(null);
   const followConversation = useRef(true);
+  const messageElements = useRef(new Map<string, HTMLLIElement>());
+  const focusedMessageDestination = useRef("");
   const operation = useRef(false);
   const focusInteraction = useRef(0);
   const uncertainAcceptance = useRef<string | null>(null);
@@ -348,6 +354,9 @@ export default function PlanningPanel({
     if (active) requestAnimationFrame(() => commentComposer.current?.focus());
   }, [focusComments]);
   useEffect(() => {
+    if (focusConversation || focusMessageId) setTab("conversation");
+  }, [focusConversation, focusMessageId]);
+  useEffect(() => {
     if (!node) setAboutNode(false);
   }, [node?.id]);
   useEffect(() => {
@@ -366,6 +375,22 @@ export default function PlanningPanel({
     active,
     tab,
   ]);
+
+  useEffect(() => {
+    if (!active || tab !== "conversation" || !focusMessageId) return;
+    const key = `${focusConversation}:${focusMessageId}`;
+    if (focusedMessageDestination.current === key) return;
+    const target = messageElements.current.get(focusMessageId);
+    if (!target) return; // Initial refresh may not have loaded the response yet.
+    followConversation.current = false;
+    const frame = requestAnimationFrame(() => {
+      if (!target.isConnected) return;
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ block: "start", behavior: "instant" });
+      focusedMessageDestination.current = key;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [active, tab, focusConversation, focusMessageId, state?.messages]);
 
   useLayoutEffect(() => {
     const element = conversationView.current;
@@ -991,6 +1016,12 @@ export default function PlanningPanel({
             {state?.messages.map((message) => (
               <li
                 key={message.id}
+                ref={(element) => {
+                  if (element) messageElements.current.set(message.id, element);
+                  else messageElements.current.delete(message.id);
+                }}
+                data-message-id={message.id}
+                tabIndex={-1}
                 className={`planning-message ${message.role}`}
               >
                 <div className="planning-message-byline">

@@ -289,6 +289,12 @@ async function measureContrast(page) {
       ".task-kind",
       ".task-meta",
       ".flow-edge-label",
+      ".proposal-change-badge",
+      ".proposal-node.added .proposal-change-badge",
+      ".proposal-node.changed .proposal-change-badge",
+      ".proposal-node.removed .proposal-change-badge",
+      ".execution-command pre",
+      ".execution-diff pre",
     ];
     return selectors.flatMap((selector) => {
       const el = [...document.querySelectorAll(selector)].find(

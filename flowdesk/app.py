@@ -16,6 +16,7 @@ from .reconciliation import reconcile
 from .planning import PlanningService
 from .proposal_drafts import DraftConflictError
 from .execution import ExecutionService, ExecutionReceiptError
+from .operation_notifications import operation_snapshot
 from .writing_drafts import WritingDrafts, WritingConflict, MAX_BYTES as WRITING_MAX_BYTES
 
 
@@ -193,6 +194,10 @@ def create_app(data_dir=None, *, testing=False, planner=None, executor=None, exe
     @app.post("/api/planning/capabilities/refresh")
     def refresh_planning_capabilities():
         return jsonify(planning.capabilities(refresh=True))
+
+    @app.get("/api/projects/<project_id>/operations")
+    def get_operations(project_id):
+        return jsonify(operation_snapshot(store, project_id))
 
     @app.get("/api/projects/<project_id>/planning")
     def get_planning(project_id):
