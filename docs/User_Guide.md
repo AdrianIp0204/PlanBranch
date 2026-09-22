@@ -298,6 +298,8 @@ Choose **Layout → Planning layout**, **Review layout** or **Build layout** to 
 **Save personal layout** records the current panel sizes, visibility and Diagram/Build view in this browser. **Personal layout** restores it; dimensions are bounded to the current window. **Restore default layout** remains available from Layout and Settings. These preferences are not part of portable projects and never change approval freshness.
 
 
+At high zoom or in a short window, Chat and Comments can scroll between readable history and the writing controls. Keyboard focus brings the selected field or action into view.
+
 ## Completion notices
 
 For the open project, quiet in-app notices distinguish replies, questions needing an answer, proposed changes needing review, scan issues, failed work and cancellation. Arrival does not move keyboard focus. **Open result** navigates to the relevant reply, scan or coding run; **Dismiss** leaves your work in place. Previously completed operations do not replay as new notices after reload. A temporary Activity row below the workspace retains up to three recent notices without covering editing controls. On smaller screens, use its arrow buttons or Tab through each result. Complete history remains in the existing review and execution views.

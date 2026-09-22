@@ -17,4 +17,4 @@ Each milestone receives focused regression checks and its own local commit. Fina
 
 Draft acceptance contract: browser/server restart recovery; delayed save acknowledgements never replace newer writing; conditional revisions and idempotent retries retain concurrent copies; submission retires only the acknowledged writing version; failed/uncertain submission preserves writing and existing retry semantics. Recover session drafts conservatively, expose copy/discard for orphaned writing, and flush before project navigation. Recovery never sends a request automatically.
 
-Baseline and final evidence will be recorded in VALIDATION.md and output/playwright.
+All five milestones are implemented in separate local commits. Baseline, final captures and actual verification results are recorded in VALIDATION.md and output/playwright. Final regression fixes preserve durable writing, reading position and direct access to review controls; notifications use a transient reserved Activity row.

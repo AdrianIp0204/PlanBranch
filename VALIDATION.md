@@ -1,4 +1,60 @@
-# PlanBranch 0.2.0 release verification — 21 September 2026
+# PlanBranch quality-of-life verification — 22 September 2026
+
+The five quality-of-life milestones are implemented on local branch `codex/quality-of-life`, based on `main` at `ef431b6`: shared Settings and themes; workspace resume and durable unsent writing; guarded quick jump; workspace presets; and quiet operation notices. Application source is committed through `d7e0543`, with final browser regressions in `e94d153`. SQLite migration 9 is additive; appearance and layout remain browser preferences, separate from manual history, portable content and approval. No user database, source attachment, execution repository or running server was used. No changes have been pushed or published.
+
+## Current verification
+
+| Check | Windows | Linux (Ubuntu under WSL2) |
+| --- | --- | --- |
+| Backend full suite | 488 passed, 9 platform/configuration skips; final changed writing gate 19/19 and activity gate 6/6 passed | 495 passed, 3 Windows-specific skips; final changed writing gate 19/19 passed |
+| Frontend full suite | 278 passed across 31 files on the final compact-layout source | 275 passed across 31 files in the broad run; final changed behavior covered by the installed gates |
+| TypeScript / production build | Passed | Passed |
+| Release wheel and installed application byte audit | Passed | Passed, all 44 application/resource files match |
+| Standalone Windows portable smoke | All 7 checks passed on the final package using bundled Python 3.14.7 | Windows package is not a Linux distribution |
+| Final source browser gates | Activity geometry at desktop/narrow/200% zoom passed; delayed reading and review/history gates 2/2 | Covered by installed gates below |
+| Full installed browser regression | Initial broad run: 90/93 passed; final affected eight-file gate 49/49 passed | Initial broad run: 85/93 passed; affected eight-file gate 49/49 passed; final compact-layout gate 26/26 passed |
+
+These browser results combine the broad runs with passing focused reruns after fixes; the original broad logs were not failure-free. No unresolved failures remain in the tested workflows. The final Windows gate ran all 49 cases against the frozen portable package and produced 49 reports with no runtime errors or external requests. Its receipt is `output/qol-delivery-windows-exit.json`. `output/qol-package-integrity.json` verifies all 44 application/resource files and all 293 portable manifest hashes against the tested package.
+
+The broad backend runs preceded the final writing fixes; focused tests cover those final changed paths. Windows source checks used Python 3.14.3 and Node 24.14.0. Linux uses isolated source/runtime dependencies, a separately installed wheel and an unrelated working directory. All browser fixtures use disposable data, deterministic agents and blocked external requests. The final Linux gate has 26 browser reports with no runtime errors or external requests; all 44 application/resource files match the final source and both platform wheels. Its final gate log is `output/qol-composer-linux.log` and its byte/browser audit is `output/qol-linux-final-audit.json`.
+
+## Fixes found during final verification
+
+The installed browser check exposed a real Comments composer overflow at 200% zoom after adding writing-save feedback. Reserving actual control height fixes it; the original strict geometry assertion now passes. The broad installed runs also exposed notification overlays intercepting proposal review controls. A transient reserved Activity row replaces the overlays, retaining named Open/Dismiss actions without covering chat questions, review controls or the composer. Checks cover non-overlap and keyboard access at both desktop sizes, narrow width and true 200% zoom. Screenshot review caught a compressed message field at 200%: composer sizing now measures its actual controls and preserves a readable writing area. When space is insufficient, Chat and Comments scroll between a readable history/list and the full writing controls. The final stress gate includes larger text, a long revision title, node context, three notices, and keyboard access to history, Cancel revision and Send.
+
+The final recovery audit found that a lost legacy-import acknowledgement followed by another tab discarding the copy could recreate that copy on retry. Migration and Load other writing now preserve the original request identity and read fresh state after the immutable receipt. Tests cover retry and fresh initialization after discard. Retired version tokens, cleared comment entries and empty answer maps are pruned while preserving uncertain-submission tokens; regressions exceed 500 distinct targets.
+
+The unchanged clarification browser regression also found reload inside the writing debounce restored answers only as a saved copy. Dirty cached generations now resume their original conditional save even before the first request exists, including an intentionally cleared draft. A different server revision still produces recoverable conflict copies. Three added hook regressions and the 68-case focused frontend gate pass; installed follow-up results are recorded below.
+
+The Linux run exposed a delayed-send reading-position race: waiting for the writing save could overwrite a later decision to scroll upward. Send intent is now recorded before awaited saves, so subsequent reader movement wins. A deterministic browser regression holds the staged writing request while the user types and reads older messages. Other browser failures were stale navigation-error wording or checks acting before model discovery/manual-canvas initialization; readiness waits retain the original behavior assertions.
+
+Earlier failures remain in the logs: obsolete historical-schema test fixtures were corrected without changing migration expectations; four frontend timing failures under unrestricted concurrency passed with two workers, now the test default. The Linux repeated-build byte audit caught stale generated files after importing a timestamp-normalized source archive. Removing only that disposable generated build directory and rebuilding/reinstalling restored exact source/wheel/install equality. The failing audit is retained in `output/qol-linux-final-refresh.log`; corrected evidence is in `output/qol-linux-clean-package.log`.
+
+## Visual evidence and artifacts
+
+Comparable light baseline/after captures cover 1280×800 and 1440×900. Additional captures cover dark appearance, larger text, compact density, Settings, long content, inspector/catalogue, proposal highlights, execution output/diffs, narrow layout and real 200% zoom. Reduced-motion and keyboard/focus checks passed. PNG exports use the explicit light palette independently of dark workspace appearance, with full-diagram bounds/pixel checks. Execution contrast measured 11.12:1; proposal badge contrast ranged 6.82–7.72:1. These are focused checks, not a full accessibility certification.
+
+The screenshot index is `output/quality-of-life-review.md`. Final compact-layout captures include `output/playwright/qol-notification-placement-j8hY2f/` (including larger-text revision and focused-action captures). Final logs include `output/qol-final-backend.log`, `output/qol-frontend-final.log`, `output/qol-compact-composer-build.log`, `output/qol-compact-final-geometry.log`, `output/qol-delivery-release.log`, `output/qol-delivery-portable-build.log` and `output/qol-delivery-portable-smoke.log`. Installed browser logs include `output/qol-delivery-windows-browser.log`, `output/qol-delivery-linux.log` and `output/qol-composer-linux.log`. Linux final high-zoom captures are also copied to `output/qol-final-linux-screenshots`.
+
+| Local artifact | Size / SHA-256 |
+| --- | --- |
+| `dist/PlanBranch-0.2.0-windows-x64.zip` | 13,737,543 bytes; `1428a21d7e792f2234276887c21f5aa6cca7074d4175bd47c25e3b37f87b1b3e` |
+| `dist/flowdesk-0.2.0-py3-none-any.whl` | 346,758 bytes; `e6b4ef32dce61ea68726c879af6324e29d8447646314c16187c226aacaf02f4f` |
+| `output/qol-linux-verification/planbranch-qol.kOfiGQ/flowdesk-0.2.0-final-py3-none-any.whl` | `87f80b99d5ae883bd4d322740315b609d1f89e2e25df2355ffdca5817282cfef` |
+
+These are local development artifacts, not a published release. Final frontend assets are `index-D4Atb7vf.js`, `index-BYHYdR4Y.css` and `png-BnJPrvVN.js`. The Windows smoke receipt is `output/qol-portable-smoke/portable smoke 計劃 gi6ek7st/result.json`.
+
+## Remaining limits
+
+Notifications monitor the open project. Optional sound and desktop delivery depend on browser/OS support and permission; real OS delivery was not verified. Browser preferences belong to the server address/port and may not survive restricted browser storage. Acknowledged unsent writing is durable; forced termination before its save acknowledgement cannot guarantee the last edit. Recovery never sends it automatically.
+
+Linux verification uses WSL2, not a native Linux desktop. Other browser engines, screen readers and touch devices were not verified. Execution uses deterministic disposable repositories; no live agent ran against user code and native Codex sandbox enforcement was not reverified. The existing production bundle-size advisory remains. No runtime dependencies, cloud services, automatic acceptance or execution permissions were added.
+
+The dated records below describe milestone-time checks and previous releases. This quality-of-life record supersedes their pending checks only where a completed result is explicitly recorded above.
+
+---
+
+## Previous major-pass release verification — 21 September 2026
 
 This pass implements all seven requested milestones: explicit Tidy previews and pins; database-backed proposal drafts; guided review; the project brief; separate Build tasks; deliberate one-step execution; and a Windows portable package with a read-only first-run Codex check. Work is isolated on `codex/next-major-pass` in `output/next-major-pass`. The original checkout remains clean. No user database, attached source folder, existing server, or real execution repository was used; nothing was pushed or published.
 
