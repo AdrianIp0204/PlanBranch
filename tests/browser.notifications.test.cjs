@@ -3,7 +3,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { setupBrowser, until } = require("./browser-harness.cjs");
+const { setupBrowser, until, settledCanvas } = require("./browser-harness.cjs");
 const { withBrowserZoom } = require("./ux-fixture.cjs");
 
 const notices = p => p.getByRole("complementary", { name: "Activity notifications", exact: true });
@@ -25,12 +25,22 @@ function operation(kind, state, extra = {}) {
   return { kind, id: crypto.randomUUID(), state, createdAt: new Date().toISOString(), ...extra };
 }
 async function assertNoticeClearOfControls(p) {
-  await until(async () => await notices(p).getAttribute("data-placement") === "chat");
+  await until(async () => await notices(p).getAttribute("data-placement") === "rail");
   const geometry = await p.evaluate(() => {
     const notification = document.querySelector(".activity-notices").getBoundingClientRect();
-    const controls = [...document.querySelectorAll('.topbar, .planning-heading, .planning-tabs, #planning-compose, [aria-label="Resize message composer"]')]
+    const controls = [...document.querySelectorAll('.topbar, .planning-heading, .planning-tabs, .planning-body, .planning-composer, #planning-compose, [aria-label="Resize message composer"], .proposal-review-bar, .proposal-tools')]
       .filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== "hidden")
-      .map(el => ({ label: el.getAttribute("aria-label") || el.className, rect: el.getBoundingClientRect().toJSON() }));
+      .map(el => {
+        // A constrained tab intentionally scrolls; only its visible portion can
+        // be obstructed. Retain overlap checks against all clipping ancestors.
+        const rect = el.getBoundingClientRect().toJSON();
+        for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+          const style = getComputedStyle(parent), bounds = parent.getBoundingClientRect();
+          if (/auto|scroll|hidden|clip/.test(style.overflowX)) { rect.left = Math.max(rect.left, bounds.left); rect.right = Math.min(rect.right, bounds.right); }
+          if (/auto|scroll|hidden|clip/.test(style.overflowY)) { rect.top = Math.max(rect.top, bounds.top); rect.bottom = Math.min(rect.bottom, bounds.bottom); }
+        }
+        return { label: el.getAttribute("aria-label") || el.className, rect };
+      });
     return { notification: notification.toJSON(), controls, width: innerWidth, height: innerHeight };
   });
   const n = geometry.notification;
@@ -39,17 +49,29 @@ async function assertNoticeClearOfControls(p) {
     const overlap = Math.min(n.right, rect.right) - Math.max(n.left, rect.left) > 1 && Math.min(n.bottom, rect.bottom) - Math.max(n.top, rect.top) > 1;
     assert.equal(overlap, false, `Notification must not cover ${label}`);
   }
-  const dismiss = notices(p).getByRole("button", { name: /^Dismiss / }).first();
-  await dismiss.focus();
   const clickable = button => button.evaluate(el => {
     const r = el.getBoundingClientRect();
     return el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
   });
-  assert.equal(await clickable(dismiss), true, "Dismiss remains reachable in the bounded scroll area");
-  await p.keyboard.press("Tab");
-  const open = notices(p).getByRole("button", { name: /^Open / }).first();
-  assert.equal(await open.evaluate(el => el === document.activeElement), true, "Keyboard reaches Open from Dismiss");
-  assert.equal(await clickable(open), true, "Open remains reachable in the bounded scroll area");
+  const dismissButtons = notices(p).getByRole("button", { name: /^Dismiss / });
+  const count = await dismissButtons.count();
+  for (let index = 0; index < count; index++) {
+    const dismiss = dismissButtons.nth(index);
+    await dismiss.focus();
+    assert.equal(await clickable(dismiss), true, "Every Dismiss remains reachable in the bounded scroll area");
+    await p.keyboard.press("Tab");
+    const open = notices(p).getByRole("button", { name: /^Open / }).nth(index);
+    assert.equal(await open.evaluate(el => el === document.activeElement), true, "Keyboard reaches each Open from its Dismiss");
+    assert.equal(await clickable(open), true, "Every Open remains reachable in the bounded scroll area");
+  }
+  if (await notices(p).locator(".activity-results").evaluate(el => el.scrollWidth > el.clientWidth + 1)) {
+    const endPosition = await notices(p).locator(".activity-results").evaluate(el => el.scrollLeft);
+    await notices(p).getByRole("button", { name: "Scroll to earlier activity", exact: true }).click();
+    await until(() => notices(p).locator(".activity-results").evaluate((el, before) => el.scrollLeft < before, endPosition));
+    const earlierPosition = await notices(p).locator(".activity-results").evaluate(el => el.scrollLeft);
+    await notices(p).getByRole("button", { name: "Scroll to later activity", exact: true }).click();
+    await until(() => notices(p).locator(".activity-results").evaluate((el, before) => el.scrollLeft > before, earlierPosition));
+  }
 }
 async function request(h, text) {
   const envelope = await h.api(`/projects/${h.initial.id}`);
@@ -205,7 +227,7 @@ test("notification placement leaves chat controls accessible at wide, narrow and
   const p = h.page, feed = await feedFixture(h);
   await until(() => feed.polls() >= 1);
   await openChat(p);
-  feed.set([operation("planning", "succeeded"), operation("scan", "failed")]);
+  feed.set([operation("planning", "succeeded"), operation("scan", "failed"), operation("execution", "cancelled")]);
   await notices(p).getByRole("button", { name: "Open Codex replied", exact: true }).waitFor();
   for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }, { width: 720, height: 700 }]) {
     await p.setViewportSize(viewport);
@@ -218,14 +240,148 @@ test("notification placement leaves chat controls accessible at wide, narrow and
   }
   await withBrowserZoom(h, async (zoomed, setZoom) => {
     const zoomFeed = await feedFixture(zoomed);
+    const canvas = await settledCanvas(zoomed.page.getByTestId("diagram-canvas"));
+    await canvas.locator(".react-flow__node").first().click();
     assert.equal(await setZoom(2), 2);
     await until(() => zoomFeed.polls() >= 1);
     await openChat(zoomed.page);
-    zoomFeed.set([operation("planning", "succeeded"), operation("scan", "failed")]);
+    zoomFeed.set([operation("planning", "succeeded"), operation("scan", "failed"), operation("execution", "cancelled")]);
     await notices(zoomed.page).getByRole("button", { name: "Open Codex replied", exact: true }).waitFor();
     const resizer = zoomed.page.getByRole("separator", { name: "Resize message composer", exact: true });
-    await resizer.focus(); await resizer.press("End");
-    await assertNoticeClearOfControls(zoomed.page);
+    const composer = zoomed.page.getByLabel("Message Codex", { exact: true });
+    await composer.fill("Keep this next question while reviewing.");
+    for (const key of ["Home", "End"]) {
+      await resizer.focus(); await resizer.press(key);
+      await assertNoticeClearOfControls(zoomed.page);
+      await composer.focus();
+      const textArea = await composer.evaluate(el => {
+        const style = getComputedStyle(el);
+        return { height: el.getBoundingClientRect().height, contentHeight: el.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom), lineHeight: parseFloat(style.lineHeight) };
+      });
+      assert.ok(textArea.height >= 44, `${key} keeps a useful writing surface at 200%: ${JSON.stringify(textArea)}`);
+      assert.ok(textArea.contentHeight >= textArea.lineHeight, `${key} leaves at least one complete, unclipped text line`);
+      assert.equal(await composer.inputValue(), "Keep this next question while reviewing.");
+      const send = zoomed.page.getByRole("button", { name: "Send", exact: true });
+      await send.focus();
+      assert.equal(await send.evaluate(el => { const r = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); }), true, "Scrolling reaches Send at 200%");
+    }
+    const history = zoomed.page.locator("#planning-view-conversation .planning-scroll");
+    await history.focus();
+    assert.ok(await history.evaluate(el => el.clientHeight >= 56), "Constrained chat keeps a readable history area");
+    await composer.focus();
     await zoomed.page.screenshot({ path: path.join(h.output, "placement-200-percent.png") });
+    await planning(zoomed.page).getByRole("tab", { name: /^Comments/ }).click();
+    const comment = zoomed.page.getByLabel(/^Comment on:/);
+    await comment.fill("Keep this comment readable at 200 percent.");
+    await assertNoticeClearOfControls(zoomed.page);
+    await comment.focus();
+    const commentText = await comment.evaluate(el => {
+      const style = getComputedStyle(el), rect = el.getBoundingClientRect();
+      return { contentHeight: el.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom), lineHeight: parseFloat(style.lineHeight), reachable: el.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)) };
+    });
+    assert.ok(commentText.contentHeight >= commentText.lineHeight, `The Comments input keeps a complete text line at 200%: ${JSON.stringify(commentText)}`);
+    assert.equal(commentText.reachable, true, "Comments remain editable above the rail");
+    await comment.focus(); await zoomed.page.keyboard.press("Tab");
+    const addComment = zoomed.page.getByRole("button", { name: "Add comment", exact: true });
+    assert.equal(await addComment.evaluate(el => document.activeElement === el), true);
+    assert.equal(await addComment.evaluate(el => { const r = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); }), true, "Comment submission stays reachable");
+    const commentHistory = zoomed.page.getByLabel("Comment history", { exact: true });
+    await commentHistory.focus();
+    assert.ok(await commentHistory.evaluate(el => el.clientHeight >= 56), "Constrained Comments keeps a readable list area");
+    await comment.focus();
+    await zoomed.page.screenshot({ path: path.join(h.output, "placement-comments-200-percent.png") });
+
+    // Stress the measured minimum with real revision UI, a selected node,
+    // a long title and larger text. Only fixture response wording is varied.
+    await zoomed.page.route("**/planning/proposals/*", async route => {
+      if (route.request().method() !== "GET") return route.continue();
+      const response = await route.fetch(), value = await response.json();
+      if (value.proposal) value.proposal.title = "Review the deliberately long implementation requirements and keep each existing constraint explicit for the next coding step";
+      await route.fulfill({ response, json: value });
+    });
+    const revisionResponse = await request(h, "Add a review step");
+    // This request was admitted through the fixture API. Reopen the already-idle
+    // panel to load that new backend state, as a normal user visit would.
+    await planning(zoomed.page).getByRole("button", { name: "Close planning conversation", exact: true }).click();
+    await zoomed.page.getByRole("button", { name: "Toggle planning chat", exact: true }).click();
+    const proposal = zoomed.page.locator(`#proposal-${revisionResponse.proposals.at(-1).id}`);
+    await proposal.waitFor({ state: "attached" });
+    // The incoming preview now loads and focuses Canvas. Await that completed
+    // transition before starting revision, instead of racing its temporary dock.
+    const proposalWorkspace = zoomed.page.getByRole("region", { name: "Proposed changes workspace", exact: true });
+    await proposalWorkspace.getByRole("button", { name: "Ask Codex", exact: true }).click();
+    await planning(zoomed.page).getByText("Revising:", { exact: false }).waitFor();
+    assert.match(await planning(zoomed.page).locator(".planning-revision-context").innerText(), /deliberately long/);
+    await planning(zoomed.page).getByRole("button", { name: /^Show selected node:/ }).waitFor();
+    await zoomed.page.getByRole("button", { name: "Settings", exact: true }).click();
+    const settings = zoomed.page.getByRole("dialog", { name: "Settings", exact: true });
+    await settings.getByLabel("Text size", { exact: true }).selectOption("large");
+    await zoomed.page.keyboard.press("Escape");
+    await composer.fill("Clarify this requirement without changing my other constraints.");
+    await composer.focus();
+    const stressed = await composer.evaluate(el => { const r = el.getBoundingClientRect(), s = getComputedStyle(el); return { height: r.height, contentHeight: el.clientHeight - parseFloat(s.paddingTop) - parseFloat(s.paddingBottom), lineHeight: parseFloat(s.lineHeight), reachable: el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)) }; });
+    assert.ok(stressed.height >= 44 && stressed.contentHeight >= stressed.lineHeight, `Long revision and larger text retain readable writing: ${JSON.stringify(stressed)}`);
+    assert.equal(stressed.reachable, true);
+    await history.focus();
+    assert.ok(await history.evaluate(el => el.clientHeight >= 56));
+    assert.equal(await history.evaluate(el => { const r = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); }), true, "Keyboard reaches history despite the tall composer");
+    const send = zoomed.page.getByRole("button", { name: "Send", exact: true });
+    await send.focus();
+    assert.equal(await send.evaluate(el => { const r = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); }), true, "Keyboard reaches Send despite the tall composer");
+    await assertNoticeClearOfControls(zoomed.page);
+    await composer.focus();
+    await zoomed.page.screenshot({ path: path.join(h.output, "placement-revision-large-200-percent.png") });
+    const cancelRevision = planning(zoomed.page).getByRole("button", { name: "Cancel proposal revision", exact: true });
+    await cancelRevision.focus();
+    assert.equal(await cancelRevision.evaluate(el => { const r = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); }), true, "Keyboard reaches revision context controls");
+    await send.focus();
+    await zoomed.page.screenshot({ path: path.join(h.output, "placement-revision-large-actions-200-percent.png") });
   });
+});
+
+
+test("three activity notices preserve canvas state and leave proposal review directly usable", { timeout: 120000 }, async t => {
+  const h = await setupBrowser(t, { name: "qol-notification-review", planningFixture: true, viewport: { width: 1440, height: 900 } });
+  const p = h.page, feed = await feedFixture(h);
+  await until(() => feed.polls() >= 1);
+  const response = await request(h, "Add a review step");
+  const proposalId = response.proposals.at(-1).id;
+  await openChat(p);
+  await planning(p).getByRole("tab", { name: /^Changes/ }).click();
+  const reviewButton = p.locator(`#proposal-${proposalId}`).getByRole("button", { name: "Review on canvas", exact: true });
+  await reviewButton.waitFor();
+  // A fresh agent proposal opens its preview automatically; return to the saved
+  // canvas before measuring whether activity changes its viewport or history.
+  await p.getByRole("region", { name: "Proposed changes workspace", exact: true }).waitFor();
+  await p.getByRole("button", { name: "Back to plan", exact: true }).click();
+  await settledCanvas(p.getByTestId("diagram-canvas"));
+  await h.saved();
+  const before = await h.api(`/projects/${h.initial.id}`);
+  const viewport = () => p.getByTestId("diagram-canvas").locator(".react-flow__viewport").evaluate(el => el.style.transform);
+  const originalViewport = await viewport();
+  const cases = [operation("planning", "failed"), operation("planning", "succeeded", { needsReview: true }), operation("scan", "failed")];
+  feed.set(cases);
+  await until(async () => await notices(p).locator("article").count() === 3);
+  await assertNoticeClearOfControls(p);
+  assert.equal(await viewport(), originalViewport, "A reserved activity row does not refit or pan the diagram");
+  const withNotices = await h.api(`/projects/${h.initial.id}`);
+  assert.deepEqual(withNotices.content, before.content);
+  assert.deepEqual(withNotices.history, before.history);
+  assert.equal(withNotices.cursor, before.cursor);
+  // The former floating stack intercepted this exact control in both platform suites.
+  await reviewButton.click();
+  await p.getByRole("region", { name: "Proposed changes workspace", exact: true }).waitFor();
+  assert.equal(await notices(p).locator("article").count(), 3);
+  await p.screenshot({ path: path.join(h.output, "three-notices-proposal-review.png") });
+  // Return without applying a proposal; appearance and dismissal remain non-project work.
+  await p.getByRole("button", { name: "Back to plan", exact: true }).click();
+  await settledCanvas(p.getByTestId("diagram-canvas"));
+  const beforeDismissViewport = await viewport();
+  while (await notices(p).locator("article").count()) await notices(p).getByRole("button", { name: /^Dismiss / }).first().click();
+  await until(async () => await notices(p).count() === 0);
+  assert.equal(await viewport(), beforeDismissViewport, "Dismissing the rail does not refit or pan the diagram");
+  const after = await h.api(`/projects/${h.initial.id}`);
+  assert.deepEqual(after.content, before.content);
+  assert.deepEqual(after.history, before.history);
+  assert.equal(after.cursor, before.cursor);
 });
