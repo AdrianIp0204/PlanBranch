@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { setupBrowser, until } = require("./browser-harness.cjs");
+const { withBrowserZoom } = require("./ux-fixture.cjs");
 
 const notices = p => p.getByRole("complementary", { name: "Activity notifications", exact: true });
 const planning = p => p.getByRole("complementary", { name: "Planning conversation", exact: true });
@@ -22,6 +23,33 @@ async function feedFixture(h) {
 }
 function operation(kind, state, extra = {}) {
   return { kind, id: crypto.randomUUID(), state, createdAt: new Date().toISOString(), ...extra };
+}
+async function assertNoticeClearOfControls(p) {
+  await until(async () => await notices(p).getAttribute("data-placement") === "chat");
+  const geometry = await p.evaluate(() => {
+    const notification = document.querySelector(".activity-notices").getBoundingClientRect();
+    const controls = [...document.querySelectorAll('.topbar, .planning-heading, .planning-tabs, #planning-compose, [aria-label="Resize message composer"]')]
+      .filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== "hidden")
+      .map(el => ({ label: el.getAttribute("aria-label") || el.className, rect: el.getBoundingClientRect().toJSON() }));
+    return { notification: notification.toJSON(), controls, width: innerWidth, height: innerHeight };
+  });
+  const n = geometry.notification;
+  assert.ok(n.left >= 0 && n.top >= 0 && n.right <= geometry.width + 1 && n.bottom <= geometry.height + 1, "Notices stay within the visible window");
+  for (const { label, rect } of geometry.controls) {
+    const overlap = Math.min(n.right, rect.right) - Math.max(n.left, rect.left) > 1 && Math.min(n.bottom, rect.bottom) - Math.max(n.top, rect.top) > 1;
+    assert.equal(overlap, false, `Notification must not cover ${label}`);
+  }
+  const dismiss = notices(p).getByRole("button", { name: /^Dismiss / }).first();
+  await dismiss.focus();
+  const clickable = button => button.evaluate(el => {
+    const r = el.getBoundingClientRect();
+    return el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+  });
+  assert.equal(await clickable(dismiss), true, "Dismiss remains reachable in the bounded scroll area");
+  await p.keyboard.press("Tab");
+  const open = notices(p).getByRole("button", { name: /^Open / }).first();
+  assert.equal(await open.evaluate(el => el === document.activeElement), true, "Keyboard reaches Open from Dismiss");
+  assert.equal(await clickable(open), true, "Open remains reachable in the bounded scroll area");
 }
 async function request(h, text) {
   const envelope = await h.api(`/projects/${h.initial.id}`);
@@ -170,4 +198,34 @@ test("execution notification opens its exact historical run and exposes recorded
   assert.match(await dialog.getByRole("region", { name: "Observed commands", exact: true }).innerText(), /Exit 1/);
   assert.equal(await dialog.getByText("Newer fixture result", { exact: true }).count(), 0);
   assert.deepEqual(executionWrites, [], "Opening a result never runs, accepts, completes, or applies work");
+});
+
+test("notification placement leaves chat controls accessible at wide, narrow and actual 200 percent zoom", { timeout: 150000 }, async t => {
+  const h = await setupBrowser(t, { name: "qol-notification-placement", planningFixture: true, viewport: { width: 1440, height: 900 } });
+  const p = h.page, feed = await feedFixture(h);
+  await until(() => feed.polls() >= 1);
+  await openChat(p);
+  feed.set([operation("planning", "succeeded"), operation("scan", "failed")]);
+  await notices(p).getByRole("button", { name: "Open Codex replied", exact: true }).waitFor();
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }, { width: 720, height: 700 }]) {
+    await p.setViewportSize(viewport);
+    await openChat(p);
+    await assertNoticeClearOfControls(p);
+    const resizer = p.getByRole("separator", { name: "Resize message composer", exact: true });
+    await resizer.focus(); await resizer.press("End");
+    await assertNoticeClearOfControls(p);
+    await p.screenshot({ path: path.join(h.output, `placement-${viewport.width}x${viewport.height}.png`) });
+  }
+  await withBrowserZoom(h, async (zoomed, setZoom) => {
+    const zoomFeed = await feedFixture(zoomed);
+    assert.equal(await setZoom(2), 2);
+    await until(() => zoomFeed.polls() >= 1);
+    await openChat(zoomed.page);
+    zoomFeed.set([operation("planning", "succeeded"), operation("scan", "failed")]);
+    await notices(zoomed.page).getByRole("button", { name: "Open Codex replied", exact: true }).waitFor();
+    const resizer = zoomed.page.getByRole("separator", { name: "Resize message composer", exact: true });
+    await resizer.focus(); await resizer.press("End");
+    await assertNoticeClearOfControls(zoomed.page);
+    await zoomed.page.screenshot({ path: path.join(h.output, "placement-200-percent.png") });
+  });
 });
