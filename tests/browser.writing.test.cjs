@@ -144,7 +144,7 @@ test('late writing acknowledgements preserve newer text and failed draft saves b
   const failedNavigationSave = p.waitForResponse(r => r.request().method() === 'PUT' && r.url().endsWith('/planning/writing') && r.status() === 503);
   await p.getByRole('navigation', { name: 'Projects' }).getByRole('button').filter({ hasText: other.content.name }).click();
   await failedNavigationSave;
-  await p.getByText('Your writing has not saved. Open Chat to retry or recover the draft before leaving.', { exact: true }).waitFor();
+  await p.getByRole('alert').filter({ hasText: 'Your writing has not saved. Open Chat to retry or recover the draft before leaving.' }).waitFor();
   assert.equal(await message(p).inputValue(), 'Keep me in this project until this writing is safely saved.');
   const dialog = await recovery(p);
   await dialog.getByRole('button', { name: 'Retry writing save', exact: true }).waitFor();
@@ -221,4 +221,59 @@ test('a committed message with a lost response never retires newer unsent writin
   const writing = await h.api(writingPath(h));
   assert.equal(writing.draft.payload.failedPrompt, null);
   assert.equal(writing.draft.payload.message.startsWith('This newer thought'), true);
+});
+
+
+test('project navigation drains writing typed while an earlier project save is awaiting acknowledgement', { timeout: 120000 }, async t => {
+  const h = await setupBrowser(t, { name: 'writing-navigation-race', planningFixture: true, viewport: { width: 1440, height: 900 } });
+  const p = h.page;
+  const other = await h.api('/projects', 'POST', { name: 'Navigation race destination' });
+  await p.reload();
+  await openChat(p);
+  await h.saved();
+  await message(p).fill('Original saved writing');
+  await stored(h, s => s.draft.payload.message === 'Original saved writing');
+  await writingSettled(p);
+  const before = await h.api(`/projects/${h.initial.id}`);
+  let releasePlan, releaseWriting, planHeld = false, writingHeld = false;
+  const planGate = new Promise(resolve => { releasePlan = resolve; });
+  const writingGate = new Promise(resolve => { releaseWriting = resolve; });
+  t.after(() => { releasePlan(); releaseWriting(); });
+  await p.route(`**/api/projects/${h.initial.id}`, async route => {
+    if (route.request().method() !== 'PUT' || planHeld) return route.continue();
+    const response = await route.fetch();
+    planHeld = true;
+    await planGate;
+    await route.fulfill({ response });
+  });
+  const newest = 'New writing entered after navigation began; it must be durable before leaving.';
+  await p.route('**/planning/writing', async route => {
+    if (route.request().method() !== 'PUT' || route.request().postDataJSON().payload.message !== newest) return route.continue();
+    writingHeld = true;
+    await writingGate;
+    await route.continue();
+  });
+  await p.getByRole('button', { name: 'Add Process', exact: true }).click();
+  await until(() => planHeld);
+  await p.getByRole('navigation', { name: 'Projects' }).getByRole('button').filter({ hasText: other.content.name }).click();
+  // The UI remains editable while the original plan save is pending.
+  await message(p).fill(newest);
+  releasePlan();
+  await until(() => writingHeld);
+  assert.equal(await p.getByRole('button', { name: `Project details: ${h.initial.content.name}`, exact: true }).isVisible(), true);
+  assert.equal(await message(p).inputValue(), newest);
+  assert.equal((await h.api(writingPath(h))).draft.payload.message, 'Original saved writing');
+  releaseWriting();
+  await p.getByRole('button', { name: `Project details: ${other.content.name}`, exact: true }).waitFor();
+  assert.equal((await h.api(writingPath(h))).draft.payload.message, newest);
+  await p.unrouteAll({ behavior: 'wait' });
+  await p.close();
+  const reopened = await freshPage(h);
+  await reopened.getByRole('navigation', { name: 'Projects' }).getByRole('button').filter({ hasText: h.initial.content.name }).click();
+  await reopened.getByRole('button', { name: `Project details: ${h.initial.content.name}`, exact: true }).waitFor();
+  await openChat(reopened);
+  assert.equal(await message(reopened).inputValue(), newest);
+  const after = await h.api(`/projects/${h.initial.id}`);
+  assert.equal(after.content.diagrams[0].nodes.length, before.content.diagrams[0].nodes.length + 1);
+  assert.equal((await h.api(`/projects/${h.initial.id}/planning`)).messages.length, 0);
 });

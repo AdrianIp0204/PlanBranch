@@ -285,3 +285,10 @@ SQLite schema 9 stores unsent chat, node comments and partially answered questio
 Verified on disposable Windows data: 56 focused frontend tests and 21 backend writing/migration tests passed. Five production-browser recovery scenarios passed across initial and corrected targeted runs: browser/server restart, orphan recovery, delayed/failed saves with guarded navigation, conflicting tabs/copy retirement, and lost submission acknowledgement with newer text retained. Browser reports recorded zero external requests and zero page errors. Evidence: `output/qol-writing-navigation-rerun.log` and writing fixture folders under `output/playwright/`.
 
 The first full backend run found three outdated historical-schema fixture expectations (480 passed, 9 skipped, 3 failed). Fixtures now construct the correct old schema and target migration 8 explicitly; all affected tests passed on rerun. Final full-suite results are recorded below when complete.
+
+
+## Quality-of-life milestone 3 — quick jump (2026-09-22)
+
+Nine focused palette/shortcut tests passed. Production browser checks passed for grouped node/task/planned/evidence navigation, distinguishing duplicate file/scope observations, keyboard focus and failed-save guards, narrow width, actual 200% browser zoom, reduced motion and open-dialog shortcut protection. The initial search fixture selected both current and stale observations; it now selects the intended current record without hiding either result.
+
+A separate timing regression passed: hold a plan-save acknowledgement, navigate, enter newer writing, hold that writing save, and verify navigation waits until both queues are current. A fresh tab recovers the exact latest text and no agent request is created. Cancellation remains independent of draft recovery. Logs: `output/qol-navigation-browser.log`, `output/qol-navigation-browser-rerun.log`; writing race evidence is under `output/playwright/writing-navigation-race-*`.

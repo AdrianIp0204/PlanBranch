@@ -8,6 +8,9 @@ import {
 import { readPreferences } from "./preferences";
 import { readWorkspaceMemory, rememberedPlace, rememberWorkspace } from "./workspaceMemory";
 import type { DraftGuard } from "./writingDrafts";
+import CommandPalette from "./CommandPalette";
+import type { CommandResult } from "./commandSearch";
+import { useQuickJumpShortcut } from "./useQuickJumpShortcut";
 import SettingsDialog from "./SettingsDialog";
 import type { ReactFlowInstance } from "@xyflow/react";
 import { api, ApiError, bootstrap, download, post } from "./api";
@@ -73,10 +76,14 @@ function preserveDisclosureKeys(event: ReactKeyboardEvent<HTMLDivElement>) {
 
 export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [welcomeSearch, setWelcomeSearch] = useState(false);
+  const afterWelcomeSearch = useRef<(() => void) | null>(null);
+  const pendingProjectFocus = useRef(false);
   const [transition, setTransition] = useState(false);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [envelope, setEnvelope] = useState<Envelope | null>(null);
   const [loading, setLoading] = useState(true);
+  useQuickJumpShortcut(() => setWelcomeSearch(true), !envelope && !loading);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
@@ -110,12 +117,23 @@ export default function App() {
       alive = false;
     };
   }, []);
-  const open = async (id: string) => {
+  useEffect(() => {
+    if (!envelope || transition || !pendingProjectFocus.current) return;
+    pendingProjectFocus.current = false;
+    const frame = requestAnimationFrame(() => focusAfterLayout(
+      rememberedPlace(envelope.id, envelope.content).view === "build" ? "build-title" : "canvas-title",
+    ));
+    return () => cancelAnimationFrame(frame);
+  }, [envelope, transition]);
+  const open = async (id: string, command = false) => {
     setTransition(true);
     try {
-      setEnvelope(await api<Envelope>(`/projects/${id}`));
+      const next = await api<Envelope>(`/projects/${id}`);
       await refresh();
+      pendingProjectFocus.current = command;
+      setEnvelope(next);
     } catch (e) {
+      if (command) throw e;
       setError((e as Error).message);
     } finally {
       setTransition(false);
@@ -232,6 +250,7 @@ export default function App() {
               PlanBranch
             </div>
             <span className="local-label">LOCAL WORKSPACE</span>
+            <button className="quiet" aria-label="Quick jump" title="Quick jump (Ctrl/Cmd+K)" onClick={() => setWelcomeSearch(true)}>Search</button>
             <button className="quiet" onClick={() => setSettingsOpen(true)}>Settings</button>
           </header>
           <main>
@@ -283,6 +302,12 @@ export default function App() {
           Opening project…
         </div>
       )}
+      {welcomeSearch && <CommandPalette projects={projects} content={null} actions={[{ id: "settings", title: "Open settings" }, { id: "new-project", title: "New project" }]} onChoose={async (result) => {
+        if (result.type === "project") {
+          if (!projects.some(p => p.id === result.id)) throw Error("That project is no longer available.");
+          await open(result.id, true);
+        } else if (result.type === "action") afterWelcomeSearch.current = () => result.id === "settings" ? setSettingsOpen(true) : setCreating(true);
+      }} onClose={() => { setWelcomeSearch(false); const action = afterWelcomeSearch.current; afterWelcomeSearch.current = null; if (action) requestAnimationFrame(action); }} />}
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
       {newDialog}
       {error && (
@@ -330,7 +355,7 @@ function Workbench({
 }: {
   onSettings: () => void;
   projects: ProjectSummary[];
-  onOpen: (id: string) => Promise<void>;
+  onOpen: (id: string, command?: boolean) => Promise<void>;
   onNew: () => void;
   onExample: () => Promise<void>;
   onImport: () => void;
@@ -345,12 +370,17 @@ function Workbench({
     redo,
     flush,
     synchronize,
+    getSnapshot,
     saveStatus,
     saveError,
   } = useProject();
   const content = session.content;
   const [active, setActive] = useState(() => rememberedPlace(session.id, content).diagramId);
   const [briefOpen, setBriefOpen] = useState(false);
+  const [quickJump, setQuickJump] = useState(false);
+  const afterQuickJump = useRef<(() => void) | null>(null);
+  const performing = useRef(false);
+  useQuickJumpShortcut(() => setQuickJump(true));
   const [connectionOpen, setConnectionOpen] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<"diagram" | "build">(
     () => rememberedPlace(session.id, content).view,
@@ -792,17 +822,28 @@ function Workbench({
       clearTimeout(timer);
     };
   }, [scan, scanRunning, session.id, refreshEvidence]);
+  async function flushForNavigation(savePlan = true) {
+    // Either editor can change while the other queue is saving. Drain both
+    // again before leaving, instead of trusting an earlier acknowledgement.
+    while (true) {
+      if (savePlan && !(await flush())) throw Error("The plan has not saved. Retry its save or resolve the conflict before navigating.");
+      if (writingLeaveGuard.current && !(await writingLeaveGuard.current.flush()))
+        throw Error("Your writing has not saved. Open Chat to retry or recover the draft before leaving.");
+      const latest = getSnapshot();
+      if ((!savePlan || latest.generation === latest.savedGeneration) && !writingLeaveGuard.current?.pending()) return;
+    }
+  }
   const perform = async (action: () => void | Promise<void>, save = true) => {
+    if (performing.current) return;
+    performing.current = true;
     setError("");
     try {
-      if (save && writingLeaveGuard.current && !(await writingLeaveGuard.current.flush())) {
-        setError("Your writing has not saved. Open Chat to retry or recover the draft before leaving.");
-        return;
-      }
-      if (save && !(await flush())) return;
+      if (save) await flushForNavigation();
       await action();
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      performing.current = false;
     }
   };
   const historyIndex = session.history.findIndex(
@@ -907,6 +948,55 @@ function Workbench({
           }),
         100,
       );
+    }
+  };
+  const chooseCommand = async (result: CommandResult) => {
+    if (performing.current) throw Error("A workspace action is finishing. Try again when it completes.");
+    if (result.type === "action" && result.id === "settings") {
+      afterQuickJump.current = onSettings;
+      return;
+    }
+    if (proposalPreviewRef.current && proposalLeaveGuard.current && !(await proposalLeaveGuard.current()))
+      throw Error("The proposal draft has not saved. Resolve its save before navigating.");
+    await flushForNavigation();
+    if (result.type === "project") {
+      if (!projects.some(p => p.id === result.id)) throw Error("That project is no longer available.");
+      if (result.id !== session.id) await onOpen(result.id, true);
+      else afterQuickJump.current = () => focusAfterLayout(workspaceView === "build" ? "build-title" : "canvas-title");
+      return;
+    }
+    if (result.type === "action") {
+      if (result.id === "save") return;
+      if (result.id === "new-project") { afterQuickJump.current = onNew; return; }
+      if (proposalPreviewRef.current) closeProposal();
+      if (result.id === "brief") afterQuickJump.current = () => setBriefOpen(true);
+      if (result.id === "tidy") {
+        if (!diagram?.nodes.length) throw Error("Add nodes before arranging this diagram.");
+        afterQuickJump.current = () => setTidy({ diagram: copy(diagram), selectedIds: instance.current?.getNodes().filter(n => n.selected).map(n => n.id) ?? [] });
+      }
+      return;
+    }
+    if (result.type === "node" || result.type === "diagram") {
+      const target = content.diagrams.find(d => d.id === result.diagramId);
+      if (!target || (result.type === "node" && !target.nodes.some(n => n.id === result.id)))
+        throw Error("That diagram item is no longer available. Search again.");
+      if (proposalPreviewRef.current) closeProposal();
+      setFilter("all");
+      setWorkspaceView("diagram"); setActive(target.id); setFocusPane("canvas"); setNarrowNavigationOpen(false);
+      if (result.type === "node") reveal(result.id);
+      else setSelected(null);
+      afterQuickJump.current = () => focusAfterLayout("canvas-title");
+    } else if (result.type === "task") {
+      if (!content.buildTasks?.some(t => t.id === result.id)) throw Error("That Build task is no longer available.");
+      if (proposalPreviewRef.current) closeProposal();
+      setWorkspaceView("build"); setSelectedBuildTask(result.id); setFocusPane("canvas"); setNarrowNavigationOpen(false);
+      afterQuickJump.current = () => focusAfterLayout("build-title");
+    } else if (result.type === "variable") {
+      const exists = result.detected ? symbols.some(v => v.id === result.id) : content.variables.some(v => v.id === result.id);
+      if (!exists) throw Error("That variable is no longer available. Search again.");
+      if (proposalPreviewRef.current) closeProposal();
+      setWorkspaceView("diagram"); setVariableFocus(result.id); setVariables(true); setFocusPane("canvas"); setNarrowNavigationOpen(false);
+      afterQuickJump.current = () => focusAfterLayout("variable-catalogue");
     }
   };
   const taskNodes = diagram?.nodes.filter((n) => n.type !== "note") ?? [];
@@ -1184,6 +1274,7 @@ function Workbench({
             Chat
           </button>
         </div>
+        <button className="quiet" aria-label="Quick jump" title="Quick jump (Ctrl/Cmd+K)" onClick={() => setQuickJump(true)}>Search</button>
         <button className="quiet" onClick={onSettings}>Settings</button>
         <details
           className="layout-menu popup-menu"
@@ -1411,14 +1502,10 @@ function Workbench({
               </button>
               <button
                 className="quiet"
-                onClick={() =>
-                  void perform(async () => {
-                    if (scan)
-                      await post(
-                        `/projects/${session.id}/scans/${scan.id}/cancel`,
-                      );
-                  }, false)
-                }
+                onClick={() => {
+                  if (scan) void post(`/projects/${session.id}/scans/${scan.id}/cancel`)
+                    .catch((reason) => setScanError((reason as Error).message));
+                }}
               >
                 Cancel scan
               </button>
@@ -1432,7 +1519,7 @@ function Workbench({
                   <>
                     <button
                       onClick={() =>
-                        void perform(() => onCopy(copy(content)), false)
+                        void perform(async () => { await flushForNavigation(false); await onCopy(copy(getSnapshot().content)); }, false)
                       }
                     >
                       Keep draft as new project
@@ -1444,7 +1531,7 @@ function Workbench({
                             "Discard this local draft and reload the saved version?",
                           )
                         )
-                          void onOpen(session.id);
+                          void perform(async () => { await flushForNavigation(false); await onOpen(session.id); }, false);
                       }}
                     >
                       Discard and reload
@@ -1936,6 +2023,11 @@ function Workbench({
         />
       )}
       {briefOpen && <ProjectBriefDialog onClose={() => setBriefOpen(false)} />}
+      {quickJump && <CommandPalette projects={projects} content={content} symbols={symbols} actions={[
+        { id: "settings", title: "Open settings" }, { id: "new-project", title: "New project" },
+        { id: "save", title: "Save workspace" }, { id: "brief", title: "Project brief" },
+        ...(diagram?.nodes.length ? [{ id: "tidy", title: "Tidy diagram" }] : []),
+      ]} onChoose={chooseCommand} onClose={() => { setQuickJump(false); const action = afterQuickJump.current; afterQuickJump.current = null; if (action) requestAnimationFrame(action); }} />}
       {connectionOpen && (
         <CodexConnectionDialog onClose={() => setConnectionOpen(false)} />
       )}

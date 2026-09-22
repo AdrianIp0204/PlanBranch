@@ -85,6 +85,8 @@ By default, PlanBranch reopens your last project, diagram and Diagram/Build view
 
 Unsent chat, node comments and question answers save separately from the plan and recover after restart. Conflicting edits retain recoverable copies; recovered writing is never sent automatically.
 
+Use **Search** or **Ctrl/Cmd+K** to jump to projects, diagram nodes, Build tasks and variables without bypassing save recovery.
+
 ## Your data and your decisions
 
 - **Saved locally.** The default data folder remains `%LOCALAPPDATA%\FlowDesk` on Windows, or `$XDG_DATA_HOME/flowdesk` / `~/.local/share/flowdesk` on Linux. Use `--data-dir` and `--port` to override defaults. The server binds to loopback only.
