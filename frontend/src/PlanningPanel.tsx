@@ -183,15 +183,19 @@ export default function PlanningPanel({
   });
   const [showJump, setShowJump] = useState(false);
   const [availableHeight, setAvailableHeight] = useState(550);
+  const [composerContentMinimum, setComposerContentMinimum] = useState(116);
   const [localComposerHeight, setLocalComposerHeight] =
     useState(composerHeight);
   const conversationView = useRef<HTMLElement>(null);
   const usableHeight = Math.max(0, availableHeight - 9);
-  const composerMax = Math.max(
-    0,
+  // Keep a readable writing area plus its controls when a short window leaves
+  // less room for history. Reserving a fixed history fraction can crush text.
+  const constrainedConversation = usableHeight < composerContentMinimum + 56;
+  const composerMax = constrainedConversation ? composerContentMinimum : Math.max(
+    composerContentMinimum,
     Math.floor(usableHeight - Math.min(160, usableHeight * 0.45)),
   );
-  const composerMin = Math.min(132, composerMax);
+  const composerMin = Math.min(Math.max(132, composerContentMinimum), composerMax);
   const currentComposerHeight = clamp(
     onComposerResize ? composerHeight : localComposerHeight,
     composerMin,
@@ -395,14 +399,31 @@ export default function PlanningPanel({
   useLayoutEffect(() => {
     const element = conversationView.current;
     if (!element || !active || tab !== "conversation") return;
+    const form = element.querySelector<HTMLFormElement>(".message-composer");
     const measure = () => {
       if (element.clientHeight) setAvailableHeight(element.clientHeight);
+      if (!form) return;
+      const pixels = (value: string) => Number.parseFloat(value) || 0;
+      const style = getComputedStyle(form);
+      const children = [...form.children].filter(child => getComputedStyle(child).position !== "absolute" && child.getBoundingClientRect().height > 0);
+      const controls = children.filter(child => child !== composer.current).reduce((height, child) => {
+        const childStyle = getComputedStyle(child);
+        return height + child.getBoundingClientRect().height + pixels(childStyle.marginTop) + pixels(childStyle.marginBottom);
+      }, 0);
+      const chrome = controls + pixels(style.paddingTop) + pixels(style.paddingBottom) + pixels(style.borderTopWidth) + pixels(style.borderBottomWidth) + Math.max(0, children.length - 1) * pixels(style.rowGap);
+      setComposerContentMinimum(Math.max(116, Math.ceil(chrome + 44)));
     };
     measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(element);
+    const observeControls = () => {
+      if (form) { observer?.observe(form); for (const child of form.children) observer?.observe(child); }
+      measure();
+    };
+    observeControls();
+    const mutations = form && typeof MutationObserver !== "undefined" ? new MutationObserver(observeControls) : null;
+    mutations?.observe(form!, { childList: true, subtree: true });
+    return () => { observer?.disconnect(); mutations?.disconnect(); };
   }, [active, tab]);
 
   async function work(label: string, action: () => Promise<void>) {
@@ -881,7 +902,7 @@ export default function PlanningPanel({
         id="planning-view-conversation"
         role="tabpanel"
         aria-labelledby="planning-tab-conversation"
-        className="planning-tab-content"
+        className={`planning-tab-content${constrainedConversation ? " is-constrained" : ""}`}
         style={
           { "--composer-height": `${currentComposerHeight}px` } as CSSProperties
         }
@@ -889,7 +910,7 @@ export default function PlanningPanel({
       >
         <div
           className="planning-scroll"
-          tabIndex={-1}
+          tabIndex={constrainedConversation ? 0 : -1}
           aria-label="Chat history"
           ref={conversationScroll}
           onScroll={(event) => {
@@ -1367,7 +1388,7 @@ export default function PlanningPanel({
             Include resolved
           </label>
         </div>
-        <div className="planning-scroll">
+        <div className="planning-scroll" tabIndex={0} aria-label="Comment history">
           <ol className="planning-comments" aria-label="Node comments">
             {shownComments.map((comment) => {
               const located = session.content.diagrams

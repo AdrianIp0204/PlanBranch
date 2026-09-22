@@ -300,7 +300,7 @@ Choose **Layout → Planning layout**, **Review layout** or **Build layout** to 
 
 ## Completion notices
 
-For the open project, quiet in-app notices distinguish replies, questions needing an answer, proposed changes needing review, scan issues, failed work and cancellation. Arrival does not move keyboard focus. **Open result** navigates to the relevant reply, scan or coding run; **Dismiss** leaves your work in place. Previously completed operations do not replay as new notices after reload. The compact list retains up to three recent notices; complete history remains in the existing review and execution views.
+For the open project, quiet in-app notices distinguish replies, questions needing an answer, proposed changes needing review, scan issues, failed work and cancellation. Arrival does not move keyboard focus. **Open result** navigates to the relevant reply, scan or coding run; **Dismiss** leaves your work in place. Previously completed operations do not replay as new notices after reload. A temporary Activity row below the workspace retains up to three recent notices without covering editing controls. On smaller screens, use its arrow buttons or Tab through each result. Complete history remains in the existing review and execution views.
 
 Sound and desktop delivery are off by default. Enable them explicitly in **Settings → Agent**. Desktop permission is requested only when you press Enable or Retry. A blocked or unavailable browser still receives in-app notices; browser or operating-system settings may suppress optional sound or desktop delivery. These preferences do not authorize execution, accept a diff or complete a task. Results for projects that are not open are not monitored by this browser window.
 

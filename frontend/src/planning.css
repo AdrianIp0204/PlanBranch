@@ -503,7 +503,7 @@
 }
 .planning-panel .planning-composer:not(.message-composer) textarea {
   min-height: 0;
-  height: 36px;
+  height: max(44px, calc(1.5em + 18px));
   flex: none;
 }
 .planning-panel .planning-composer:not(.message-composer) > label {
@@ -714,4 +714,29 @@
   max-height: 3em;
   overflow: auto;
   overflow-wrap: anywhere;
+}
+
+/* Browser zoom can leave a short dock even on a large monitor. Give writing
+   and its controls room before allocating the remaining height to history. */
+@media (max-height: 500px) {
+  .planning-heading { padding: 4px 8px; }
+  .planning-panel .writing-state { min-height: 24px; padding: 2px 10px; }
+  .planning-tabs button { padding-block: 4px; }
+  .planning-comment-filters { padding: 4px 8px; }
+  .planning-comment-filters select { padding-block: 4px; }
+  .planning-panel .planning-composer:not(.message-composer) { padding: 6px 8px; gap: 3px; }
+  .planning-panel .planning-composer:not(.message-composer) .planning-compose-actions > button { padding-block: 4px; }
+}
+
+.planning-tab-content.is-constrained,
+#planning-view-comments { overflow-y: auto; }
+.planning-tab-content.is-constrained > .planning-scroll { flex: 0 0 56px; min-height: 56px; }
+#planning-view-comments > .planning-scroll { flex: 1 0 56px; min-height: 56px; }
+.planning-tab-content.is-constrained > .planning-jump,
+.planning-tab-content.is-constrained > .planning-question-indicator {
+  position: static;
+  transform: none;
+  align-self: center;
+  flex: none;
+  margin: 3px;
 }

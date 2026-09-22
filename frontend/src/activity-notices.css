@@ -1,45 +1,64 @@
+/* Activity has its own transient grid row, so it never covers planner controls. */
+.workspace:has(> .activity-notices),
+.workspace.compact-workspace:has(> .activity-notices),
+.workspace.compact-workspace.navigation-closed:has(> .activity-notices) {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
 .activity-notices {
-  position: fixed;
-  left: var(--activity-left, 16px);
-  top: var(--activity-top, 76px);
-  z-index: 40;
-  width: var(--activity-width, 360px);
-  max-height: var(--activity-height, 280px);
+  grid-column: 1 / -1;
+  grid-row: 3;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  padding: 4px 8px;
+  max-height: min(112px, 24dvh);
+  border-top: 1px solid var(--line-strong);
+  background: var(--paper);
+  color: var(--ink);
+  overflow: hidden;
+}
+.activity-rail-heading { flex: none; display: flex; align-items: center; gap: 6px; font-size: var(--font-small); }
+.activity-rail-heading strong { font-weight: 600; }
+.activity-rail-heading strong span { color: var(--muted); }
+.activity-scroll-controls { display: flex; }
+.activity-scroll-controls .icon-button { width: 26px; min-width: 26px; height: 30px; padding: 2px; }
+.activity-results {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  gap: 6px;
   overflow: auto;
   overscroll-behavior: contain;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 3px;
-  box-sizing: border-box;
-  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 .activity-notice {
   flex: none;
-  background: var(--paper);
-  color: var(--ink);
+  width: min(380px, calc(100vw - 170px));
+  min-width: 200px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+  align-items: center;
   border: 1px solid var(--line-strong);
   border-left: 3px solid var(--accent);
-  border-radius: 5px;
-  box-shadow: 0 3px 14px var(--shadow);
-  padding: 10px 12px;
-  line-height: 1.45;
+  border-radius: 4px;
+  background: var(--paper);
+  padding: 4px 6px;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 .activity-notice.warning { border-left-color: var(--warning-line); }
 .activity-notice.error { border-left-color: var(--danger-line); }
-.activity-notice-heading { display: flex; align-items: start; justify-content: space-between; gap: 8px; }
-.activity-notice-heading strong { font-size: var(--font-base); font-weight: 600; }
-.activity-notice-heading .icon-button { width: 28px; height: 28px; min-height: 28px; min-width: 28px; margin: -5px -7px 0 0; }
-.activity-notice p { color: var(--muted); margin: 4px 0 8px; font-size: var(--font-small); }
-.activity-notice p[role="alert"] { color: var(--danger-text); }
-.activity-notice > button { padding: 4px 8px; min-height: 30px; }
-.activity-notices.is-compact { gap: 4px; }
-.activity-notices.is-compact .activity-notice { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; align-items: center; padding: 5px 7px; }
-.activity-notices.is-compact .activity-notice-heading { display: contents; }
-.activity-notices.is-compact [role="status"] { grid-column: 1; grid-row: 1; }
-.activity-notices.is-compact .activity-notice-heading strong { font-size: var(--font-small); }
-.activity-notices.is-compact .activity-notice-heading .icon-button { grid-column: 3; grid-row: 1; margin: 0; }
-.activity-notices.is-compact .activity-notice > button { grid-column: 2; grid-row: 1; }
-.activity-notices.is-compact .activity-notice > p:not([role="alert"]) { display: none; }
-.activity-notices.is-compact .activity-notice > p[role="alert"] { grid-column: 1 / -1; margin: 0; }
+.activity-notice-heading { display: contents; }
+.activity-notice-heading [role="status"] { grid-column: 1; grid-row: 1; }
+.activity-notice-heading strong { font-size: var(--font-small); font-weight: 600; }
+.activity-notice-heading .icon-button { grid-column: 3; grid-row: 1; width: 28px; height: 28px; min-height: 28px; min-width: 28px; padding: 0; }
+.activity-notice > button { grid-column: 2; grid-row: 1; padding: 4px 8px; min-height: 30px; font-size: var(--font-small); }
+.activity-notice p[role="alert"] { grid-column: 1 / -1; color: var(--danger-text); margin: 0; max-height: 45px; overflow: auto; font-size: var(--font-small); }
+@media (max-width: 700px) {
+  .activity-notices { gap: 5px; padding-inline: 5px; }
+  .activity-notice { width: min(350px, calc(100vw - 88px)); }
+}
