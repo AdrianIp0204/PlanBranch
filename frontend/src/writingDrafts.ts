@@ -79,6 +79,35 @@ export const hasWriting = (value: WritingPayload) =>
     value.revision,
   );
 export const sameWriting = samePlan;
+export function pruneWritingVersions(value: WritingPayload): WritingPayload {
+  value.comments = Object.fromEntries(
+    Object.entries(value.comments).filter(([, text]) => text !== ""),
+  );
+  value.questionDrafts = Object.fromEntries(
+    Object.entries(value.questionDrafts).filter(
+      ([, answers]) => Object.keys(answers).length > 0,
+    ),
+  );
+  for (const [field, group, pending] of [
+    ["comments", "comments", value.failedComment?.nodeId],
+    ["questionDrafts", "questions", value.failedAnswer?.setId],
+  ] as const) {
+    value.versions[group] = Object.fromEntries(
+      Object.entries(value.versions[group]).filter(([key]) => {
+        const writing = Object.hasOwn(value[field], key)
+          ? value[field][key]
+          : null;
+        return (
+          key === pending ||
+          (typeof writing === "string"
+            ? !!writing
+            : !!writing && Object.keys(writing).length > 0)
+        );
+      }),
+    );
+  }
+  return value;
+}
 export function stampWriting(
   previous: WritingPayload,
   next: WritingPayload,
@@ -107,7 +136,7 @@ export function stampWriting(
         )
       )
         next.versions[group] = { ...next.versions[group], [key]: uid() };
-  return next;
+  return pruneWritingVersions(next);
 }
 export function retireWriting(
   value: WritingPayload,
@@ -148,7 +177,7 @@ export function retireWriting(
     next.failedAnswer = null;
     delete next.submitted.answer;
   }
-  return next;
+  return pruneWritingVersions(next);
 }
 export function reconcileWriting(
   current: WritingPayload,
@@ -183,11 +212,11 @@ export class WritingQueue {
     private request: (body: WritingSave) => Promise<WritingState>,
     private notify: () => void,
   ) {
-    this.value = copy(value);
+    this.value = pruneWritingVersions(copy(value));
   }
   initialize(state: WritingState) {
     this.revision = state.draft.revision;
-    this.value = copy(state.draft.payload);
+    this.value = pruneWritingVersions(copy(state.draft.payload));
     this.copies = state.copies;
     this.ready = true;
     this.status = "saved";
@@ -301,7 +330,7 @@ export class WritingQueue {
   selectCopy(copy: WritingRecord, state: WritingState) {
     this.revision = state.draft.revision;
     this.conflict = null;
-    this.value = structuredClone(copy.payload);
+    this.value = pruneWritingVersions(structuredClone(copy.payload));
     this.generation++;
     this.batch = {
       generation: this.generation,

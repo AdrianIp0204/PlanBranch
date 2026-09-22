@@ -150,6 +150,7 @@ export default function WritingRecovery({
                   Copy message
                 </button>
                 <button
+                  disabled={!writing.ready}
                   onClick={() => {
                     if (
                       window.confirm(
@@ -177,6 +178,7 @@ export default function WritingRecovery({
                   Copy comment
                 </button>
                 <button
+                  disabled={!writing.ready}
                   onClick={() => {
                     if (window.confirm("Discard this unsent comment?"))
                       writing.set("comments", (current) => {
@@ -222,6 +224,7 @@ export default function WritingRecovery({
                     Copy answers
                   </button>
                   <button
+                    disabled={!writing.ready}
                     onClick={() => {
                       if (window.confirm("Discard these unsent answers?"))
                         writing.set("questionDrafts", (current) => {
@@ -276,6 +279,7 @@ export default function WritingRecovery({
                   Copy saved writing
                 </button>
                 <button
+                  disabled={!writing.ready}
                   onClick={() => {
                     if (window.confirm("Discard this saved writing copy?"))
                       void writing.discard(saved);

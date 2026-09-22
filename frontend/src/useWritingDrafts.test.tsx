@@ -202,3 +202,122 @@ it("a generated Ask again request does not consume unrelated composer writing", 
   act(() => result.current.retire("message", "ask"));
   expect(result.current.value.message).toBe("My unsent note");
 });
+
+it.each([false, true])(
+  "a lost migration acknowledgement does not resurrect a discarded copy (reload: %s)",
+  async (reload) => {
+    server.draft = {
+      ...server.draft,
+      revision: 1,
+      payload: { ...emptyWriting(), message: "Canonical" },
+    };
+    sessionStorage.setItem(
+      PLANNING_DRAFT_PREFIX + "p",
+      JSON.stringify({ message: "Legacy writing", comments: {} }),
+    );
+    let receipt: WritingState | null = null;
+    let original: WritingSave | null = null;
+    vi.mocked(saveWriting).mockImplementation(async (_id, body) => {
+      if (receipt) {
+        expect(body).toEqual(original);
+        return structuredClone(receipt);
+      }
+      original = structuredClone(body);
+      server.copies.push({
+        id: "migration-copy",
+        revision: 1,
+        updatedAt: null,
+        payload: structuredClone(body.payload),
+      });
+      receipt = structuredClone(server);
+      throw new Error("Migration acknowledgement lost");
+    });
+    let view = renderHook(() => useWritingDrafts("p"));
+    await waitFor(() => expect(view.result.current.status).toBe("failed"));
+    expect(server.copies).toHaveLength(1);
+    // Another tab explicitly discards the committed migration copy.
+    server.copies = [];
+    if (reload) {
+      view.unmount();
+      view = renderHook(() => useWritingDrafts("p"));
+      await waitFor(() => expect(view.result.current.status).toBe("saved"));
+    } else {
+      await act(async () => {
+        await view.result.current.retry();
+      });
+    }
+    expect(saveWriting).toHaveBeenCalledTimes(2);
+    expect(server.copies).toEqual([]);
+    expect(view.result.current.copies).toEqual([]);
+    expect(view.result.current.value.message).toBe("Canonical");
+    expect(sessionStorage.getItem(PLANNING_DRAFT_PREFIX + "p")).toBeNull();
+  },
+);
+
+it.each([false, true])(
+  "Load other writing reuses its lost copy receipt without resurrecting a discarded copy (reload: %s)",
+  async (reload) => {
+    server.draft = {
+      ...server.draft,
+      revision: 1,
+      payload: { ...emptyWriting(), message: "Original" },
+    };
+    let view = renderHook(() => useWritingDrafts("p"));
+    await waitFor(() => expect(view.result.current.status).toBe("saved"));
+    act(() => view.result.current.set("message", "My newer writing"));
+    server.draft = {
+      ...server.draft,
+      revision: 2,
+      payload: { ...emptyWriting(), message: "Other tab" },
+    };
+    vi.mocked(saveWriting).mockRejectedValueOnce({
+      status: 409,
+      data: structuredClone(server),
+    });
+    await act(async () => {
+      expect(await view.result.current.flush()).toBe(false);
+    });
+    expect(view.result.current.status).toBe("conflict");
+    let receipt: WritingState | null = null;
+    let original: WritingSave | null = null;
+    vi.mocked(saveWriting).mockImplementation(async (_id, body) => {
+      if (receipt) {
+        expect(body).toEqual(original);
+        return structuredClone(receipt);
+      }
+      expect(body.copyOnly).toBe(true);
+      original = structuredClone(body);
+      server.copies = [
+        {
+          id: "saved-mine",
+          revision: 1,
+          updatedAt: null,
+          payload: structuredClone(body.payload),
+        },
+      ];
+      receipt = structuredClone(server);
+      throw new Error("Copy acknowledgement lost");
+    });
+    await act(async () => {
+      await view.result.current.loadOther();
+    });
+    expect(view.result.current.status).toBe("failed");
+    expect(view.result.current.ready).toBe(false);
+    expect(server.copies).toHaveLength(1);
+    server.copies = [];
+    if (reload) {
+      view.unmount();
+      view = renderHook(() => useWritingDrafts("p"));
+      await waitFor(() => expect(view.result.current.status).toBe("saved"));
+    } else {
+      await act(async () => {
+        await view.result.current.retry();
+      });
+    }
+    expect(view.result.current.copies).toEqual([]);
+    expect(view.result.current.value.message).toBe("Other tab");
+    expect(view.result.current.conflict).toBeNull();
+    expect(view.result.current.ready).toBe(true);
+    expect(server.copies).toEqual([]);
+  },
+);

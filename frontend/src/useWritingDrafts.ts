@@ -17,6 +17,7 @@ import {
   retireWriting,
   type WritingPayload,
   type WritingBatch,
+  type WritingSave,
   type WritingRecord,
   type WritingContext,
   type CommentSubmission,
@@ -29,6 +30,7 @@ type Cache = {
   revision: number;
   generation: number;
   savedGeneration: number;
+  migration?: WritingSave | null;
 };
 function cached(projectId: string): Cache | null {
   try {
@@ -57,6 +59,9 @@ export default function useWritingDrafts(
     cache: cached(projectId),
     legacy: readPlanningDrafts(projectId),
   };
+  const migration = useRef<WritingSave | null>(
+    initial.current.cache?.migration ?? null,
+  );
   const queueRef = useRef<WritingQueue | null>(null);
   const persist = () => {
     const queue = queueRef.current;
@@ -70,6 +75,7 @@ export default function useWritingDrafts(
           revision: queue.revision,
           generation: queue.generation,
           savedGeneration: queue.savedGeneration,
+          migration: migration.current,
         }),
       );
     } catch {
@@ -84,6 +90,22 @@ export default function useWritingDrafts(
     persist,
   );
   const queue = queueRef.current;
+  async function preserveCopy(body?: WritingSave) {
+    if (body) migration.current = copy(body);
+    if (!migration.current) return;
+    queue.status = "loading";
+    persist();
+    await saveWriting(projectId, migration.current);
+    // An immutable receipt may mention copies discarded after that save.
+    // Always recover current writing and copies from a fresh server read.
+    const latest = await loadWriting(projectId);
+    migration.current = null;
+    queue.batch = null;
+    queue.conflict = null;
+    queue.generation++;
+    queue.savedGeneration = queue.generation;
+    queue.initialize(latest);
+  }
   async function initialize() {
     if (initializing.current) return initializing.current;
     initializing.current = (async () => {
@@ -97,7 +119,9 @@ export default function useWritingDrafts(
           );
         const recovered = initial.current!;
         const local = recovered.cache?.payload ?? queue.value;
-        if (recovered.cache?.batch) {
+        if (migration.current) {
+          await preserveCopy();
+        } else if (recovered.cache?.batch) {
           queue.initialize(state);
           queue.value = copy(local);
           queue.revision = recovered.cache.revision;
@@ -115,13 +139,12 @@ export default function useWritingDrafts(
             queue.update(() => copy(local), false);
             await queue.flush();
           } else {
-            const imported = await saveWriting(projectId, {
+            await preserveCopy({
               baseRevision: state.draft.revision,
               mutationId: uid(),
-              payload: local,
+              payload: copy(local),
               copyOnly: true,
             });
-            queue.initialize(imported);
           }
         } else queue.initialize(state);
         initial.current = {
@@ -314,7 +337,8 @@ export default function useWritingDrafts(
     captureVersion,
     retire,
     flush: () => queue.flush(true),
-    retry: () => (!queue.isReady() ? initialize() : queue.flush(true)),
+    retry: () =>
+      !queue.isReady() || migration.current ? initialize() : queue.flush(true),
     useMine: async () => {
       queue.continueMine();
       return queue.flush(true);
@@ -322,19 +346,14 @@ export default function useWritingDrafts(
     loadOther: async () => {
       if (!queue.conflict) return;
       try {
-        queue.status = "loading";
-        persist();
-        const state = await saveWriting(projectId, {
-          baseRevision: queue.revision,
-          mutationId: uid(),
-          payload: copy(queue.value),
-          copyOnly: true,
-        });
-        queue.batch = null;
-        queue.conflict = null;
-        queue.generation++;
-        queue.savedGeneration = queue.generation;
-        queue.initialize(state);
+        await preserveCopy(
+          migration.current ?? {
+            baseRevision: queue.revision,
+            mutationId: uid(),
+            payload: copy(queue.value),
+            copyOnly: true,
+          },
+        );
       } catch (reason) {
         queue.fail(reason);
       }
@@ -342,6 +361,6 @@ export default function useWritingDrafts(
     select,
     discard,
     setContext: (context: WritingContext | null) => set("context", context),
-    ready: queue.isReady() && queue.status !== "loading",
+    ready: queue.isReady() && queue.status !== "loading" && !migration.current,
   };
 }

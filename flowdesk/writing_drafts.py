@@ -88,6 +88,23 @@ def _candidate(value):
         validate_content(content)
 
 
+def _prune_versions(value):
+    # A retired target needs no version token unless an uncertain submission
+    # still refers to it. Keep that token until receipt reconciliation finishes.
+    value["comments"] = {key: text for key, text in value["comments"].items() if text}
+    value["questionDrafts"] = {key: answers for key, answers in value["questionDrafts"].items() if answers}
+    for field, group, request, key in (
+        ("comments", "comments", "failedComment", "nodeId"),
+        ("questionDrafts", "questions", "failedAnswer", "setId"),
+    ):
+        pending = value[request].get(key) if value[request] else None
+        value["versions"][group] = {
+            identifier_: token for identifier_, token in value["versions"][group].items()
+            if value[field].get(identifier_) or identifier_ == pending
+        }
+    return value
+
+
 def validate_writing(raw):
     result = empty_writing()
     obj(raw, result, "unsent writing")
@@ -99,9 +116,9 @@ def validate_writing(raw):
     except (ValueError, OverflowError):
         raise ValidationError("Unsent writing must contain finite JSON values.") from None
     string(result["message"], "Unsent message", 12000)
-    for text in _mapping(result["comments"], "Comment drafts", 500).values():
+    for text in _mapping(result["comments"], "Comment drafts", 10000).values():
         string(text, "Unsent comment", 12000)
-    for questions in _mapping(result["questionDrafts"], "Question drafts", 100).values():
+    for questions in _mapping(result["questionDrafts"], "Question drafts", 10000).values():
         for answer in _mapping(questions, "Questions", 3).values():
             obj(answer, {"choice", "custom", "text"}, "unsent answer")
             if answer.get("choice") is not None:
@@ -112,7 +129,7 @@ def validate_writing(raw):
     versions = obj(result["versions"], {"message", "comments", "questions"}, "writing versions")
     string(versions.get("message"), "Message version", 128)
     for kind in ("comments", "questions"):
-        for value in _mapping(versions.get(kind), kind + " versions", 500).values():
+        for value in _mapping(versions.get(kind), kind + " versions", 10000).values():
             identifier(value, "Writing version")
     submitted = obj(result["submitted"], {"message", "comment", "answer"}, "submitted writing versions")
     for value in submitted.values():
@@ -169,6 +186,11 @@ def validate_writing(raw):
             raise ValidationError("Proposal revision requires its diagram context.")
         _diagram(value["diagram"])
         _candidate(value)
+    # Accept bounded legacy bookkeeping so older rows can shed retired IDs.
+    # Retained keys are bounded by the live drafts plus one uncertain request.
+    _prune_versions(result)
+    _mapping(result["comments"], "Comment drafts", 500)
+    _mapping(result["questionDrafts"], "Question drafts", 100)
     return result
 
 
@@ -217,7 +239,7 @@ class WritingDrafts:
                     value["comments" if kind == "comment" else "questionDrafts"].pop(request[key], None)
                 value[field] = None
                 value["submitted"].pop(kind, None)
-        return value
+        return _prune_versions(value)
 
     def _draft(self, db, project_id, row):
         if row is None:

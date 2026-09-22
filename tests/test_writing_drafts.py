@@ -159,3 +159,61 @@ def test_lost_legacy_import_ack_does_not_duplicate_identical_recovery_copy(setup
     assert first['recoveryId']==second['recoveryId']
     assert len(second['copies'])==1
     assert second['draft']['payload']['message']=='Canonical'
+
+
+def test_exact_migration_retry_keeps_receipt_without_recreating_discarded_copy(setup):
+    _, project, service = setup
+    save(service, project, 'Canonical')
+    data = empty_writing(); data['message'] = 'Legacy import'
+    request = {'baseRevision': 1, 'mutationId': 'migration', 'copyOnly': True, 'payload': data}
+    receipt = service.save(project['id'], request)
+    saved_copy = receipt['copies'][0]
+    service.discard_copy(project['id'], saved_copy['id'], {'baseRevision': saved_copy['revision']})
+    assert service.save(project['id'], request) == receipt
+    assert service.get(project['id'])['copies'] == []
+    assert service.get(project['id'])['draft']['payload']['message'] == 'Canonical'
+
+
+def test_obsolete_versions_do_not_block_new_writing_after_500_targets(setup):
+    _, project, service = setup
+    data = empty_writing()
+    data['versions']['comments'] = {f'old-{index}': f'v-{index}' for index in range(505)}
+    data['versions']['questions'] = {f'old-{index}': f'v-{index}' for index in range(505)}
+    data['comments'] = {'live': 'New unsent writing'}
+    data['versions']['comments'].update(live='live-version', pending='pending-version')
+    data['failedComment'] = {'mutationId': 'uncertain', 'nodeId': 'pending', 'diagramId': 'd', 'text': 'Submitted'}
+    data['submitted']['comment'] = 'pending-version'
+    state = service.save(project['id'], {'baseRevision': 0, 'mutationId': 'save', 'payload': data})
+    assert state['draft']['payload']['versions']['comments'] == {'live': 'live-version', 'pending': 'pending-version'}
+    assert state['draft']['payload']['versions']['questions'] == {}
+    assert state['draft']['payload']['comments'] == {'live': 'New unsent writing'}
+    # The immutable receipt still accepts the exact original, unpruned request.
+    assert service.save(project['id'], {'baseRevision': 0, 'mutationId': 'save', 'payload': data}) == state
+
+
+def test_recovery_prunes_old_stored_versions_but_preserves_pending_request(setup):
+    store, project, service = setup
+    data = empty_writing()
+    data['versions']['questions'] = {'obsolete': 'old', 'pending': 'pending-version'}
+    data['failedAnswer'] = {'mutationId': 'uncertain', 'setId': 'pending', 'baseRevision': 1, 'answers': [], 'selection': {'mode': 'default'}}
+    data['submitted']['answer'] = 'pending-version'
+    with closing(store.connect()) as db, db:
+        db.execute("INSERT INTO writing_drafts VALUES(?,'current',1,?,?,?)", (project['id'], encode(data), now(), now()))
+    recovered = service.get(project['id'])['draft']['payload']
+    assert recovered['versions']['questions'] == {'pending': 'pending-version'}
+    assert recovered['failedAnswer'] == data['failedAnswer']
+
+
+def test_empty_cleared_targets_do_not_exhaust_live_draft_limits(setup):
+    _, project, service = setup
+    data = empty_writing()
+    data['comments'] = {f'old-{index}': '' for index in range(505)}
+    data['questionDrafts'] = {f'old-{index}': {} for index in range(505)}
+    data['versions']['comments'] = {f'old-{index}': f'v-{index}' for index in range(505)}
+    data['versions']['questions'] = {f'old-{index}': f'v-{index}' for index in range(505)}
+    data['comments']['live'] = 'Keep this'
+    state = service.save(project['id'], {'baseRevision': 0, 'mutationId': 'save', 'payload': data})
+    assert state['draft']['payload']['comments'] == {'live': 'Keep this'}
+    assert state['draft']['payload']['questionDrafts'] == {}
+    assert state['draft']['payload']['versions']['comments'] == {}
+    assert state['draft']['payload']['versions']['questions'] == {}

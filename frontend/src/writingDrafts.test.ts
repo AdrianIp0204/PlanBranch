@@ -4,6 +4,7 @@ import {
   emptyWriting,
   retireWriting,
   stampWriting,
+  pruneWritingVersions,
   sameWriting,
   type WritingPayload,
   type WritingSave,
@@ -153,4 +154,90 @@ describe("durable unsent writing queue", () => {
       retireWriting(value, "answer", "answer").questionDrafts.q.answer.text,
     ).toBe("Unsent");
   });
+});
+
+it("retired writing stays bounded after more than 500 distinct targets", () => {
+  let value = emptyWriting();
+  for (let index = 0; index < 505; index++) {
+    const nodeId = `node-${index}`;
+    value = stampWriting(value, {
+      ...value,
+      comments: { [nodeId]: "A comment" },
+    });
+    value.failedComment = {
+      mutationId: `comment-${index}`,
+      nodeId,
+      diagramId: "d",
+      text: "A comment",
+    };
+    value.submitted.comment = value.versions.comments[nodeId];
+    value = retireWriting(value, "comment", `comment-${index}`);
+    const setId = `set-${index}`;
+    value = stampWriting(value, {
+      ...value,
+      questionDrafts: {
+        [setId]: { q: { choice: null, custom: true, text: "An answer" } },
+      },
+    });
+    value.failedAnswer = {
+      mutationId: `answer-${index}`,
+      setId,
+      baseRevision: 1,
+      answers: [],
+      selection: { mode: "default" },
+    };
+    value.submitted.answer = value.versions.questions[setId];
+    value = retireWriting(value, "answer", `answer-${index}`);
+  }
+  expect(value.comments).toEqual({});
+  expect(value.questionDrafts).toEqual({});
+  expect(value.versions.comments).toEqual({});
+  expect(value.versions.questions).toEqual({});
+});
+it("cleanup keeps live and uncertain versions while dropping obsolete recovered keys", () => {
+  const value = emptyWriting();
+  value.comments = { live: "Keep", cleared: "" };
+  value.failedComment = {
+    mutationId: "uncertain",
+    nodeId: "pending",
+    diagramId: "d",
+    text: "Submitted",
+  };
+  value.versions.comments = {
+    live: "live-version",
+    pending: "pending-version",
+    old: "obsolete",
+    cleared: "empty",
+  };
+  value.submitted.comment = "pending-version";
+  expect(pruneWritingVersions(value).versions.comments).toEqual({
+    live: "live-version",
+    pending: "pending-version",
+  });
+  const next = retireWriting(value, "comment", "uncertain");
+  expect(next.versions.comments).toEqual({ live: "live-version" });
+  expect(next.comments.live).toBe("Keep");
+});
+
+it("typing then clearing more than 500 targets does not retain empty drafts or tokens", () => {
+  let value = emptyWriting();
+  for (let index = 0; index < 505; index++) {
+    const id = `node-${index}`;
+    value = stampWriting(value, {
+      ...value,
+      comments: { ...value.comments, [id]: "Draft" },
+    });
+    value = stampWriting(value, {
+      ...value,
+      comments: { ...value.comments, [id]: "" },
+    });
+    value = stampWriting(value, {
+      ...value,
+      questionDrafts: { ...value.questionDrafts, [id]: {} },
+    });
+  }
+  expect(value.comments).toEqual({});
+  expect(value.questionDrafts).toEqual({});
+  expect(value.versions.comments).toEqual({});
+  expect(value.versions.questions).toEqual({});
 });
