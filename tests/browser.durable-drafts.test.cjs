@@ -1,7 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { setupBrowser, until } = require("./browser-harness.cjs");
+const { setupBrowser, until, settledCanvas } = require("./browser-harness.cjs");
 
 const workspace = (p) =>
   p.getByRole("region", { name: "Proposed changes workspace" });
@@ -66,7 +66,8 @@ async function editTitle(p, title) {
       exact: true,
     });
     if (await toggle.isVisible()) await toggle.click();
-    await workspace(p).locator(".react-flow__node").first().dblclick();
+    const canvas = await settledCanvas(workspace(p).locator(".proposal-canvas > .graph"));
+    await canvas.locator(".react-flow__node").first().dblclick();
   }
   await input.fill(title);
   await input.press("Tab");

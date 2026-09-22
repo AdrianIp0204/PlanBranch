@@ -135,7 +135,10 @@ test("Settings preferences persist without editing the plan or approval and resp
   dialog = await settings(p);
   await dialog.getByRole("button", { name: "Agent", exact: true }).click();
   await until(async () => await dialog.getByRole("combobox", { name: "Model", exact: true }).inputValue() === "fixture-deep");
-  assert.equal(await dialog.getByRole("combobox", { name: "Reasoning effort", exact: true }).inputValue(), "high");
+  const reopenedEffort = dialog.getByRole("combobox", { name: "Reasoning effort", exact: true });
+  // The saved model value is visible before this newly mounted catalogue loads.
+  await until(async () => await reopenedEffort.isEnabled() && await reopenedEffort.locator('option[value="high"]').count() === 1);
+  assert.equal(await reopenedEffort.inputValue(), "high");
   await p.keyboard.press("Escape");
   const unchanged = await h.api(`/projects/${h.initial.id}`);
   assert.deepEqual(unchanged.content, original.content);

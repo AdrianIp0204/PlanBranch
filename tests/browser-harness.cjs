@@ -141,4 +141,31 @@ async function setupBrowser(t, {name = 'acceptance', seed = {sample:true}, viewp
   return {root,output,dataDir,sourceDir,dbDir,base,python,page,context,api,initial,start,stop,restart,saved,saveContent,errors,externalRequests};
 }
 
-module.exports = {setupBrowser,until,wait};
+// Manual proposal editing mounts a separate React Flow instance. Wait for its
+// nodes to be measured and its scheduled initial fit to settle before clicking.
+async function settledCanvas(canvas) {
+  await canvas.waitFor();
+  await until(() => canvas.evaluate(root => new Promise(resolve => {
+    let previous = '', stable = 0, frames = 0;
+    const sample = () => {
+      const viewport = root.querySelector('.react-flow__viewport');
+      const nodes = [...root.querySelectorAll('.react-flow__node')];
+      if (!root.isConnected || !viewport || !nodes.length || nodes.some(node =>
+        node.offsetWidth === 0 || node.offsetHeight === 0 || getComputedStyle(node).visibility === 'hidden')) return resolve(false);
+      const bounds = root.getBoundingClientRect();
+      const signature = [viewport.style.transform, bounds.width, bounds.height, ...nodes.flatMap(node => {
+        const box = node.getBoundingClientRect();
+        return [node.dataset.id, box.x, box.y, box.width, box.height];
+      })].join('|');
+      stable = signature === previous ? stable + 1 : 0;
+      previous = signature;
+      if (stable >= 3) return resolve(true);
+      if (++frames >= 30) return resolve(false);
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  })));
+  return canvas;
+}
+
+module.exports = {setupBrowser,until,wait,settledCanvas};

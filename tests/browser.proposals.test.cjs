@@ -1,7 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { setupBrowser, until } = require("./browser-harness.cjs");
+const { setupBrowser, until, settledCanvas } = require("./browser-harness.cjs");
 const { withBrowserZoom } = require("./ux-fixture.cjs");
 const workspace = (p) =>
   p.getByRole("region", { name: "Proposed changes workspace" });
@@ -54,7 +54,8 @@ async function manualTitle(p, title) {
   await workspace(p)
     .getByRole("button", { name: "Edit manually", exact: true })
     .click();
-  await workspace(p).locator(".react-flow__node").first().dblclick();
+  const canvas = await settledCanvas(workspace(p).locator(".proposal-canvas > .graph"));
+  await canvas.locator(".react-flow__node").first().dblclick();
   await workspace(p).getByLabel("Title", { exact: true }).fill(title);
   await workspace(p).getByLabel("Title", { exact: true }).press("Tab");
 }

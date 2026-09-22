@@ -108,7 +108,7 @@ test('Quick jump works by keyboard, restores input focus, and keeps failed writi
   await until(async () => /Recover writing/.test(await p.getByTestId('writing-save-state').innerText()));
   dialog = await jump(p, other.content.name);
   await dialog.getByRole('combobox').press('Enter');
-  await dialog.getByRole('alert').filter({ hasText: 'Writing has not saved. Open Chat to retry or recover it before navigating.' }).waitFor();
+  await dialog.getByRole('alert').filter({ hasText: 'Your writing has not saved. Open Chat to retry or recover the draft before leaving.' }).waitFor();
   assert.equal(await dialog.isVisible(), true);
   await p.screenshot({ path: path.join(h.output, 'quick-jump-recovery-1280x800.png') });
   await dialog.getByRole('combobox').press('Escape');
