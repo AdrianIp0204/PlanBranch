@@ -57,10 +57,12 @@ class ExecutionOwnership:
 
 
 class ExecutionService:
-    def __init__(self, store, planning, executor=None, git=None):
+    def __init__(self, store, planning, executor=None, git=None, registry=None, command_runner=None):
         self.store, self.planning = store, planning
         self.data_dir = store.db_path.parent
         self._executor, self._git = executor, git
+        self._injected_executor = executor is not None
+        self._registry, self._command_runner, self._model_executor = registry, command_runner, None
         self._mutex = threading.RLock()
         self._threads, self._cancels = {}, {}
         self.ownership = ExecutionOwnership(self.data_dir)
@@ -78,6 +80,21 @@ class ExecutionService:
             from .codex_executor import CodexExecutor
             self._executor = CodexExecutor()
         return self._executor
+
+    def _for_provider(self, provider="codex"):
+        # Deterministic/legacy injected executors retain their existing contract.
+        if self._injected_executor or provider == "codex":
+            return self.executor
+        if provider not in {"ollama", "openai", "anthropic", "gemini"}:
+            raise ValidationError("Choose a supported execution provider.")
+        if self._model_executor is None:
+            from .model_executor import ModelExecutor
+            self._model_executor = ModelExecutor(self.data_dir, self._registry, self._command_runner)
+        return self._model_executor
+
+    def _journal(self, run_id):
+        from .model_executor import ToolJournal
+        return ToolJournal(self.data_dir, run_id)
 
     @property
     def git(self):
@@ -133,12 +150,14 @@ class ExecutionService:
                 "summary": row["summary"], "error": row["error"], "progress": row["progress"], "acceptedDigest": row["accepted_digest"],
                 "completedCursor": row["completed_cursor"], "applied": bool(row["applied"])}
 
-    def state(self, project_id):
+    def state(self, project_id, provider="codex"):
         with closing(self.store.connect()) as db:
             self.store._row(db, project_id)
             repository = self._repository(db, project_id)
             runs = [self._summary(row) for row in db.execute("SELECT * FROM execution_runs WHERE project_id=? ORDER BY created_at DESC,id DESC", (project_id,))]
-        return {"repository": repository, "runs": runs, "agent": self.executor.status(), "ownership": {
+        executor = self._for_provider(provider)
+        status = executor.status() if executor is self._executor else executor.status(provider)
+        return {"repository": repository, "runs": runs, "agent": status, "ownership": {
             "available": self.ownership.available, **({} if self.ownership.available else {"reason": "Another PlanBranch server owns execution. Manual planning remains available."})}}
 
     def repository(self, project_id, payload):
@@ -162,7 +181,10 @@ class ExecutionService:
     def preview(self, project_id, payload):
         obj(payload, {"taskId", "selection"}, "execution preview")
         identifier(payload.get("taskId"), "Build task ID")
-        selection = self.planning._selection(payload.get("selection", {"mode": "default"}))
+        raw_selection = payload.get("selection", {"mode": "default"})
+        provider = raw_selection.get("provider", "codex") if isinstance(raw_selection, dict) else "codex"
+        selection = self.planning._selection(raw_selection) if provider == "codex" else deepcopy(raw_selection)
+        executor = self._for_provider(provider)
         with closing(self.store.connect()) as db:
             db.execute("BEGIN")
             project = self.planning._current(db, project_id)
@@ -191,10 +213,10 @@ class ExecutionService:
             try: source = self.git.inspect_repository(repository["path"])
             except (OSError, RuntimeError, ValueError) as exc: issues.append(str(exc))
         generation = None
-        status = self.executor.status()
+        status = executor.status() if executor is self._executor else executor.status(provider)
         if not status.get("available"): issues.append(status.get("reason", "Codex execution is unavailable."))
         else:
-            try: generation = self.executor.configure(selection)
+            try: generation = executor.configure(selection)
             except (RuntimeError, ValueError) as exc: issues.append(str(exc))
         linked = {link["nodeId"] for link in task["nodeLinks"]}
         snapshot = {"baseRevision": project["revision"], "repositoryId": repository["id"] if repository else None, "repository": source,
@@ -296,6 +318,8 @@ class ExecutionService:
                       artifact=self.git.artifact(run_id, row["artifact_digest"]) if row["artifact_digest"] else None,
                       sourceStale=not grant_current or not self._source_current(snapshot),
                       applyState=self.git.inspect_apply(workspace, row["accepted_digest"]) if workspace and row["accepted_digest"] else None)
+        if snapshot.get("generation", {}).get("providerGeneration"):
+            result["question"] = self._journal(run_id).public_question()
         return {"run": result}
 
     def _event(self, project_id, run_id, event):
@@ -315,6 +339,13 @@ class ExecutionService:
                 if old is not None: commands[old] = item
                 elif len(commands) < 250: commands.append(item)
                 progress = "Command activity recorded"
+            elif event.get("type") == "usage" and isinstance(event.get("usage"), dict):
+                import math
+                usage = {str(key)[:100]: value for key, value in list(event["usage"].items())[:30]
+                         if type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 1e15}
+                events.append({"type": "usage", "provider": str(event.get("provider", ""))[:40],
+                               "turn": int(event.get("turn", 0)), "usage": usage, "at": now()})
+                events = events[-100:]
             elif event.get("type") in {"message", "progress"}:
                 field = "text" if event["type"] == "message" else "message"
                 value = str(event.get(field, ""))[:16000]
@@ -323,7 +354,7 @@ class ExecutionService:
             else: return
             db.execute("UPDATE execution_runs SET commands=?,events=?,progress=?,updated_at=? WHERE id=?", (encode(commands), encode(events), progress, now(), run_id))
 
-    def _worker(self, project_id, run_id, cancel):
+    def _worker(self, project_id, run_id, cancel, resume=False):
         workspace, artifact = None, None
         result = {"status": "cancelled", "summary": "Cancelled before execution.", "commands": []}
         try:
@@ -332,10 +363,14 @@ class ExecutionService:
                 snapshot = json.loads(row["snapshot"])
                 db.execute("UPDATE execution_runs SET state=?,updated_at=? WHERE id=?", ("cancelling" if cancel.is_set() else "running", now(), run_id))
             if not cancel.is_set():
-                workspace = self.git.create(snapshot["repository"], snapshot["sourceCommit"], run_id)
+                workspace = self.git.load(run_id) if resume else self.git.create(snapshot["repository"], snapshot["sourceCommit"], run_id)
+                if workspace is None: raise RuntimeError("The interrupted worktree is unavailable.")
+                if resume and self.git.capture(workspace)["digest"] != self._journal(run_id).load()["answerRequest"]["digest"]:
+                    raise RuntimeError("The worktree changed before continuation. Refresh and review its retained changes.")
                 with closing(self.store.connect()) as db, db:
-                    db.execute("UPDATE execution_runs SET workspace=?,progress=?,updated_at=? WHERE id=?", (encode(workspace), "Codex is working in the isolated worktree", now(), run_id))
+                    db.execute("UPDATE execution_runs SET workspace=?,progress=?,updated_at=? WHERE id=?", (encode(workspace), "The selected agent is working in the isolated worktree", now(), run_id))
                 context = {key: deepcopy(snapshot[key]) for key in ("task", "brief", "linkedNodes", "sourceCommit", "generation")}
+                context["runId"] = run_id
                 if not cancel.is_set():
                     # Creating a worktree may take time. Recheck immediately
                     # before launching; a previous preview never grants later edits.
@@ -344,7 +379,8 @@ class ExecutionService:
                             raise RuntimeError("The approved plan or repository changed while preparing the worktree. The agent was not started.")
                     if not self._source_current(snapshot):
                         raise RuntimeError("The source revision changed while preparing the worktree. The agent was not started.")
-                    result = self.executor.run(context, workspace["path"], cancel, lambda event: self._event(project_id, run_id, event))
+                    executor = self._for_provider(snapshot["generation"].get("provider", "codex"))
+                    result = executor.run(context, workspace["path"], cancel, lambda event: self._event(project_id, run_id, event))
                     for command in result.get("commands", []): self._event(project_id, run_id, {"type": "command", "command": command})
         except Exception as exc:
             result = {"status": "cancelled" if cancel.is_set() else "failed", "summary": "Execution did not finish.", "error": str(exc)[:4000]}
@@ -373,7 +409,50 @@ class ExecutionService:
                 if row["state"] in ACTIVE:
                     db.execute("UPDATE execution_runs SET state='cancelling',progress='Cancellation requested',updated_at=? WHERE id=?", (now(), run_id))
                     if run_id in self._cancels: self._cancels[run_id].set()
+                elif json.loads(row["snapshot"]).get("generation", {}).get("providerGeneration") and self._journal(run_id).public_question():
+                    self._journal(run_id).cancel_question()
+                    db.execute("UPDATE execution_runs SET state='cancelled',updated_at=? WHERE id=?", (now(), run_id))
                 self._done(db, project_id, payload, {"runId": run_id})
+        return self.detail(project_id, run_id)
+
+    def answer(self, project_id, run_id, payload):
+        obj(payload, {"mutationId", "questionId", "answers", "digest", "confirmed"}, "execution answer")
+        self._confirmed(payload); self._own()
+        identifier(payload.get("questionId"), "Question ID")
+        string(payload.get("digest"), "Change digest", 128, True)
+        with self._mutex, closing(self.store.connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            row = self._row(db, project_id, run_id)
+            previous = self._receipt(db, project_id, "answer:" + run_id, payload)
+            saved_journal = self._journal(run_id).load() if json.loads(row["snapshot"]).get("generation", {}).get("providerGeneration") else None
+            # A committed answer can outlive a server that stopped before the
+            # harness consumed it. Only this explicit same-request retry may
+            # continue; a running/pending tool journal is never replayed.
+            unconsumed_answer = (row["state"] == "interrupted" and saved_journal and
+                saved_journal.get("state") == "answered" and saved_journal.get("answerRequest") == payload and
+                not any(call.get("state") == "pending" for call in saved_journal.get("calls", [])))
+            if previous is None or unconsumed_answer:
+                snapshot = json.loads(row["snapshot"])
+                if row["state"] in ACTIVE or db.execute("SELECT 1 FROM execution_runs WHERE state IN ('queued','running','cancelling')").fetchone():
+                    raise RuntimeError("Wait for the active execution to finish before answering.")
+                if db.execute("SELECT 1 FROM execution_receipts WHERE action LIKE 'apply:%' AND state='pending'").fetchone():
+                    raise RuntimeError("Recover the unfinished Apply before continuing execution.")
+                if row["accepted_digest"] or row["applied"] or row["completed_cursor"]:
+                    raise RuntimeError("Accepted work cannot be continued. Preview a new step.")
+                if not snapshot.get("generation", {}).get("providerGeneration"):
+                    raise ValidationError("This execution does not support structured questions.")
+                if not self._plan_current(db, project_id, snapshot) or not self._grant_matches(db, project_id, snapshot) or not self._source_current(snapshot):
+                    raise RuntimeError("The approved task or repository baseline changed. Review a new Run step.")
+                self._current_artifact(row, payload["digest"])
+                self._journal(run_id).answer(payload)
+                db.execute("UPDATE execution_runs SET state='queued',error=NULL,progress=?,updated_at=? WHERE id=?",
+                    ("Continuing after your answer", now(), run_id))
+                self._done(db, project_id, payload, {"runId": run_id})
+                db.commit()
+                cancel = threading.Event()
+                thread = threading.Thread(target=self._worker, args=(project_id, run_id, cancel, True), daemon=True, name="planbranch-execution")
+                self._cancels[run_id], self._threads[run_id] = cancel, thread
+                thread.start()
         return self.detail(project_id, run_id)
 
     def _current_artifact(self, row, digest=None):
@@ -383,6 +462,10 @@ class ExecutionService:
         artifact = self.git.capture(workspace)
         if digest is not None and artifact["digest"] != digest: raise RuntimeError("The worktree changed. Refresh its changes and review the new diff.")
         return workspace, artifact
+
+    def _answered(self, row):
+        if json.loads(row["snapshot"]).get("generation", {}).get("providerGeneration") and self._journal(row["id"]).public_question():
+            raise RuntimeError("Answer or cancel the pending execution question before accepting these changes.")
 
     def refresh(self, project_id, run_id, payload):
         obj(payload, {"mutationId"}, "refresh execution diff")
@@ -403,6 +486,7 @@ class ExecutionService:
             db.execute("BEGIN IMMEDIATE")
             row = self._row(db, project_id, run_id)
             if self._receipt(db, project_id, "accept:" + run_id, payload) is None:
+                self._answered(row)
                 snapshot = json.loads(row["snapshot"])
                 if row["completed_cursor"] or row["applied"]: raise RuntimeError("This run already completed or applied its task. Start newly reviewed work for further changes.")
                 if not self._plan_current(db, project_id, snapshot): raise RuntimeError("The approved plan changed. Restore and approve the reviewed plan before accepting this run.")
@@ -421,6 +505,7 @@ class ExecutionService:
             db.execute("BEGIN IMMEDIATE")
             row = self._row(db, project_id, run_id)
             if self._receipt(db, project_id, "complete:" + run_id, payload) is None:
+                self._answered(row)
                 project = self.store._envelope(db, project_id)
                 if project["revision"] != payload["baseRevision"]: raise ConflictError(project["revision"])
                 snapshot = json.loads(row["snapshot"])
@@ -458,6 +543,7 @@ class ExecutionService:
                 receipt = self._receipt(db, project_id, "apply:" + run_id, payload)
                 if receipt is not None and receipt["state"] == "done": return self.detail(project_id, run_id)
                 try:
+                    self._answered(row)
                     snapshot = json.loads(row["snapshot"])
                     if row["accepted_digest"] != payload["digest"]: raise RuntimeError("Accept this exact diff before applying it to the checkout.")
                     if not self._grant_matches(db, project_id, snapshot): raise RuntimeError("Select this run's execution repository before applying its changes.")

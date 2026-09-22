@@ -5,7 +5,14 @@ import { useProject } from "./store";
 import ModelControls, { useModelSelection } from "./ModelControls";
 import { briefLabels } from "./BriefFields";
 import { copy, uid, type BuildTask, type ProjectBrief } from "./types";
-import { samePlan } from "./planning";
+import {
+  samePlan,
+  selectionProvider,
+  providerLabel,
+  type GenerationDetails,
+  type QuestionAnswer,
+} from "./planning";
+import ExecutionQuestions from "./ExecutionQuestions";
 import {
   executionActive,
   executionSelectionLabel,
@@ -59,7 +66,9 @@ export default function ExecutionDialog({
   const alive = useRef(true),
     stateTicket = useRef(0),
     runTicket = useRef(0);
-  const models = useModelSelection();
+  const models = useModelSelection(true, "coding");
+  const selectedAgent =
+    models.provider === "codex" ? state?.agent : models.agent;
   const task = session.content.buildTasks?.find((item) => item.id === taskId);
   const setReceipt = (next: ExecutionReceipt | null) => {
     receiptRef.current = next;
@@ -96,7 +105,13 @@ export default function ExecutionDialog({
         next.applyState?.digest === pending.body.digest
       )
         setReceipt(null);
-      if (pending.kind === "cancel" && !executionActive(next)) setReceipt(null);
+      if (pending.kind === "cancel" && !executionActive(next) && !next.question)
+        setReceipt(null);
+      if (
+        pending.kind === "answer" &&
+        next.question?.id !== pending.body.questionId
+      )
+        setReceipt(null);
       if (
         pending.kind === "complete" &&
         next.completedCursor &&
@@ -300,7 +315,7 @@ export default function ExecutionDialog({
     });
   const mutateRun = (
     action: ExecutionAction,
-    retry?: Extract<ExecutionReceipt, { runId: string }>,
+    retry?: Extract<ExecutionReceipt, { kind: ExecutionAction }>,
   ) =>
     void work(actionLabel(action), async () => {
       const target = retry?.runId ?? run?.id;
@@ -322,7 +337,7 @@ export default function ExecutionDialog({
       )
         return;
       const dispatch = async (baseRevision?: number) => {
-        const captured: Extract<ExecutionReceipt, { runId: string }> =
+        const captured: Extract<ExecutionReceipt, { kind: ExecutionAction }> =
           original ?? {
             kind: action,
             runId: target,
@@ -368,10 +383,46 @@ export default function ExecutionDialog({
         throw reason;
       }
     });
+  const answerRun = (
+    answers: QuestionAnswer[],
+    retry?: Extract<ExecutionReceipt, { kind: "answer" }>,
+  ) =>
+    void work("Continuing run", async () => {
+      if (!run?.question && !retry) return;
+      const target = retry?.runId ?? run!.id;
+      const body =
+        retry?.body ??
+        run?.question?.answerRequest ??
+        (run?.artifact && run.question
+          ? {
+              mutationId: uid(),
+              questionId: run.question.id,
+              answers,
+              digest: run.artifact.digest,
+              confirmed: true as const,
+            }
+          : null);
+      if (!body) throw new Error("Refresh results before answering.");
+      setReceipt({ kind: "answer", runId: target, body });
+      try {
+        const response = await post<ExecutionReply>(
+          `${base}/runs/${target}/answer`,
+          body,
+        );
+        installRun(response.run);
+        setReceipt(null);
+        setAnnouncement("Answers submitted. The run is continuing.");
+      } catch (reason) {
+        await loadRun(target).catch(() => {});
+        if (receiptRef.current?.kind === "answer") throw reason;
+      }
+    });
   const retryReceipt = () => {
     const pending = receiptRef.current;
     if (!pending) return;
     if (pending.kind === "start") startRun(pending.body);
+    else if (pending.kind === "answer")
+      answerRun(pending.body.answers, pending);
     else mutateRun(pending.kind, pending);
   };
   const accepted =
@@ -489,7 +540,8 @@ export default function ExecutionDialog({
               )}
               <p className="muted">
                 Choose a Git repository separately from source scanning. The run
-                uses an isolated worktree from its saved commit.
+                uses a separate worktree from its saved commit. A worktree alone
+                does not isolate commands from this machine.
               </p>
             </section>
             {task ? (
@@ -510,6 +562,7 @@ export default function ExecutionDialog({
                   selection={models.selection}
                   capabilities={models.capabilities}
                   onChange={models.setSelection}
+                  onProviderChange={models.setProvider}
                   problemId="execution-model-problem"
                 />
               </fieldset>
@@ -526,9 +579,9 @@ export default function ExecutionDialog({
                 {models.refreshing ? "Refreshing models…" : "Refresh models"}
               </button>
             </section>
-            {!state.agent.available && (
+            {selectedAgent && !selectedAgent.available && (
               <p className="execution-error">
-                {state.agent.reason || "The execution agent is unavailable."}
+                {selectedAgent.reason || "The execution agent is unavailable."}
               </p>
             )}
             {!state.ownership.available && (
@@ -557,6 +610,7 @@ export default function ExecutionDialog({
                       undefined,
                   )}
                 </p>
+                <CommandPolicyDetails generation={frozen?.generation} />
                 {preview.issues.length > 0 && (
                   <ul className="execution-issues">
                     {preview.issues.map((issue, index) => (
@@ -630,7 +684,7 @@ export default function ExecutionDialog({
               )}
               {run.error && <p className="execution-error">{run.error}</p>}
               <div className="execution-actions">
-                {active && (
+                {(active || !!run.question) && (
                   <button
                     disabled={!!busy || !!receipt || run.state === "cancelling"}
                     onClick={() => mutateRun("cancel")}
@@ -648,6 +702,33 @@ export default function ExecutionDialog({
                 )}
               </div>
             </section>
+            {run.question && (
+              <>
+                {run.question.answerRequest ? (
+                  <div className="execution-notice">
+                    <p>
+                      Continuation is awaiting confirmation. Retrying keeps the
+                      original answers and settings.
+                    </p>
+                    <button
+                      disabled={!!busy || !!receipt}
+                      onClick={() =>
+                        answerRun(run.question!.answerRequest!.answers)
+                      }
+                    >
+                      Retry continuation
+                    </button>
+                  </div>
+                ) : (
+                  <ExecutionQuestions
+                    key={`${run.id}:${run.question.id}`}
+                    run={run}
+                    busy={!!busy || !!receipt}
+                    onSubmit={answerRun}
+                  />
+                )}
+              </>
+            )}
             <details className="execution-section">
               <summary>Run context</summary>
               <p>
@@ -665,6 +746,7 @@ export default function ExecutionDialog({
                 <strong>Model</strong>{" "}
                 {executionSelectionLabel(run.context.generation?.selection)}
               </p>
+              <CommandPolicyDetails generation={run.context.generation} />
               <TaskContext task={run.context.task} brief={run.context.brief} />
             </details>
             {run.summary && (
@@ -673,6 +755,52 @@ export default function ExecutionDialog({
                 <p className="execution-prose">{run.summary}</p>
                 <p className="muted">
                   Reported by the agent. Check the observed results below.
+                </p>
+              </section>
+            )}
+            {selectionProvider(run.context.generation?.selection) !==
+              "codex" && (
+              <section
+                className="execution-section"
+                aria-label="Reported model usage"
+              >
+                <h3>Reported model usage</h3>
+                {run.events.some(
+                  (event) => event.type === "usage" && event.usage,
+                ) ? (
+                  <ul>
+                    {run.events
+                      .filter((event) => event.type === "usage" && event.usage)
+                      .map((event, index) => (
+                        <li key={index}>
+                          {event.provider
+                            ? providerLabel(event.provider)
+                            : "Provider"}
+                          {event.turn !== undefined
+                            ? ` · turn ${event.turn}`
+                            : ""}
+                          <dl>
+                            {Object.entries(event.usage!)
+                              .filter(
+                                ([, value]) =>
+                                  typeof value === "number" &&
+                                  Number.isFinite(value),
+                              )
+                              .map(([metric, value]) => (
+                                <div key={metric}>
+                                  <dt>{metric.replaceAll("_", " ")}</dt>
+                                  <dd>{value.toLocaleString()}</dd>
+                                </div>
+                              ))}
+                          </dl>
+                        </li>
+                      ))}
+                  </ul>
+                ) : (
+                  <p className="muted">No usage reported by the provider.</p>
+                )}
+                <p className="muted">
+                  Provider-reported counts only. No cost is inferred.
                 </p>
               </section>
             )}
@@ -801,6 +929,7 @@ export default function ExecutionDialog({
                 <button
                   disabled={
                     active ||
+                    !!run.question ||
                     !!busy ||
                     !!receipt ||
                     !run.artifact ||
@@ -818,6 +947,7 @@ export default function ExecutionDialog({
                 <button
                   disabled={
                     active ||
+                    !!run.question ||
                     !!busy ||
                     !!receipt ||
                     !accepted ||
@@ -837,6 +967,7 @@ export default function ExecutionDialog({
                 <button
                   disabled={
                     active ||
+                    !!run.question ||
                     !!busy ||
                     !!receipt ||
                     !accepted ||
@@ -933,8 +1064,9 @@ function message(reason: unknown) {
     ? reason.message
     : "The execution request could not be completed. Check run status.";
 }
-function actionLabel(action: ExecutionAction) {
+function actionLabel(action: ExecutionAction | "answer") {
   return {
+    answer: "Continue run",
     cancel: "Cancel run",
     refresh: "Refresh results",
     accept: "Accept changes",
@@ -955,4 +1087,75 @@ function fileMode(mode: string | null) {
 
 function runStateLabel(state: ExecutionRun["state"]) {
   return state === "succeeded" ? "Finished" : state;
+}
+
+function CommandPolicyDetails({
+  generation,
+}: {
+  generation?: GenerationDetails | null;
+}) {
+  if (!generation || selectionProvider(generation.selection) === "codex")
+    return null;
+  const policy = generation.commandPolicy;
+  return (
+    <div className="execution-command-policy" aria-label="Command environment">
+      <h4>Command environment</h4>
+      {policy?.available ? (
+        <>
+          <p>
+            Commands run in the captured container with network access disabled.
+            Only this run’s copied worktree is available.
+          </p>
+          <dl>
+            <div>
+              <dt>Image</dt>
+              <dd>{policy.imageLabel || "Captured image"}</dd>
+            </div>
+            {policy.maxSeconds !== undefined && (
+              <div>
+                <dt>Time per command</dt>
+                <dd>{policy.maxSeconds} seconds</dd>
+              </div>
+            )}
+            {policy.memoryBytes !== undefined && (
+              <div>
+                <dt>Memory limit</dt>
+                <dd>{Math.round(policy.memoryBytes / 1024 / 1024)} MiB</dd>
+              </div>
+            )}
+            {policy.workspaceBytes !== undefined && (
+              <div>
+                <dt>Workspace limit</dt>
+                <dd>{Math.round(policy.workspaceBytes / 1024 / 1024)} MiB</dd>
+              </div>
+            )}
+            {policy.pids !== undefined && (
+              <div>
+                <dt>Process limit</dt>
+                <dd>{policy.pids}</dd>
+              </div>
+            )}
+          </dl>
+          {policy.imageId && (
+            <details>
+              <summary>Captured image identity</summary>
+              <code>{policy.imageId}</code>
+            </details>
+          )}
+        </>
+      ) : (
+        <>
+          <p className="execution-notice">Command checks unavailable.</p>
+          <p>
+            {policy?.reason ||
+              "No verified command environment was captured for this run."}
+          </p>
+          <p>
+            File changes can still be reviewed. Run checks manually before
+            accepting them.
+          </p>
+        </>
+      )}
+    </div>
+  );
 }

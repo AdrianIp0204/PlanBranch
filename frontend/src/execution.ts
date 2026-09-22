@@ -1,5 +1,10 @@
 import {
   validModelSelection,
+  selectionProvider,
+  selectionLabel,
+  type PlanningQuestion,
+  type QuestionAnswer,
+  type ProviderId,
   type GenerationDetails,
   type ModelSelection,
 } from "./planning";
@@ -56,6 +61,12 @@ export type ExecutionContext = {
   generation: GenerationDetails | null;
 };
 export type ExecutionRun = ExecutionRunSummary & {
+  question?: {
+    id: string;
+    questions: PlanningQuestion[];
+    createdAt: string;
+    answerRequest?: ExecutionAnswerBody;
+  } | null;
   repository: ExecutionRepository;
   context: ExecutionContext;
   worktreePath: string | null;
@@ -66,7 +77,15 @@ export type ExecutionRun = ExecutionRunSummary & {
     exitCode: number | null;
     output: string;
   }[];
-  events: { type: string; message?: string; text?: string }[];
+  events: {
+    type: string;
+    message?: string;
+    text?: string;
+    provider?: ProviderId;
+    turn?: number;
+    usage?: Record<string, number>;
+    at?: string;
+  }[];
   artifact: ExecutionArtifact | null;
   planStale: boolean;
   sourceStale: boolean;
@@ -99,6 +118,13 @@ export type ExecutionPreviewResult = {
   ready: boolean;
   issues: string[];
 };
+export type ExecutionAnswerBody = {
+  mutationId: string;
+  questionId: string;
+  answers: QuestionAnswer[];
+  digest: string;
+  confirmed: true;
+};
 export type ExecutionAction =
   "cancel" | "refresh" | "accept" | "complete" | "apply";
 export type ExecutionActionBody = {
@@ -115,6 +141,7 @@ export type RunStart = {
 };
 export type ExecutionReceipt =
   | { kind: "start"; body: RunStart }
+  | { kind: "answer"; runId: string; body: ExecutionAnswerBody }
   | { kind: ExecutionAction; runId: string; body: ExecutionActionBody };
 export const executionActive = (
   run?: Pick<ExecutionRunSummary, "state"> | null,
@@ -122,7 +149,7 @@ export const executionActive = (
 export function executionSelectionLabel(selection?: ModelSelection) {
   return !selection || selection.mode === "default"
     ? "CLI default"
-    : `${selection.model}${selection.reasoningEffort ? ` · ${selection.reasoningEffort}` : ""}`;
+    : selectionLabel(selection);
 }
 export const executionReceiptKey = (projectId: string) =>
   `flowdesk.execution-receipt.v1.${projectId}`;
@@ -153,6 +180,39 @@ export function readExecutionReceipt(
             },
           }
         : null;
+    if (item.kind === "answer") {
+      if (
+        typeof item.runId !== "string" ||
+        typeof item.body.questionId !== "string" ||
+        typeof item.body.digest !== "string" ||
+        item.body.confirmed !== true ||
+        !Array.isArray(item.body.answers) ||
+        item.body.answers.length < 1 ||
+        item.body.answers.length > 3 ||
+        !item.body.answers.every((answer: unknown) => {
+          if (!answer || typeof answer !== "object") return false;
+          const a = answer as Record<string, unknown>;
+          return (
+            typeof a.questionId === "string" &&
+            (a.optionId === null || typeof a.optionId === "string") &&
+            (a.text === null ||
+              (typeof a.text === "string" && a.text.length <= 2000))
+          );
+        })
+      )
+        return null;
+      return {
+        kind: "answer",
+        runId: item.runId,
+        body: {
+          mutationId: item.body.mutationId,
+          questionId: item.body.questionId,
+          answers: item.body.answers,
+          digest: item.body.digest,
+          confirmed: true,
+        },
+      };
+    }
     if (
       !["cancel", "refresh", "accept", "complete", "apply"].includes(
         item.kind,
@@ -204,6 +264,7 @@ export function writeExecutionReceipt(
 export function sameExecutionSelection(left: ModelSelection, right: unknown) {
   return (
     validModelSelection(right) &&
+    selectionProvider(left) === selectionProvider(right) &&
     (left.mode === "default"
       ? right.mode === "default"
       : right.mode === "explicit" &&

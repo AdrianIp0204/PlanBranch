@@ -31,7 +31,9 @@ def create_app(data_dir=None, *, testing=False, planner=None, executor=None, exe
     store = Store(data_dir / "flowdesk.sqlite3")
     scans = ScanService(store)
     planning = PlanningService(store, planner)
-    execution = ExecutionService(store, planning, executor, execution_git)
+    from .providers import ProviderRegistry
+    registry = planning.planner if isinstance(planning.planner, ProviderRegistry) else ProviderRegistry(data_dir)
+    execution = ExecutionService(store, planning, executor, execution_git, registry=registry)
     writing = WritingDrafts(store)
     app.extensions.update(flowdesk_store=store, flowdesk_scans=scans, flowdesk_planning=planning, flowdesk_execution=execution)
 
@@ -311,7 +313,7 @@ def create_app(data_dir=None, *, testing=False, planner=None, executor=None, exe
 
     @app.get("/api/projects/<project_id>/execution")
     def get_execution(project_id):
-        return jsonify(execution.state(project_id))
+        return jsonify(execution.state(project_id, request.args.get("provider", "codex")))
 
     @app.post("/api/projects/<project_id>/execution/repository")
     def select_execution_repository(project_id):
@@ -332,7 +334,7 @@ def create_app(data_dir=None, *, testing=False, planner=None, executor=None, exe
     @app.post("/api/projects/<project_id>/execution/runs/<run_id>/<action>")
     def execution_action(project_id, run_id, action):
         actions = {"cancel": execution.cancel, "refresh": execution.refresh, "accept": execution.accept,
-                   "complete": execution.complete, "apply": execution.apply}
+                   "complete": execution.complete, "apply": execution.apply, "answer": execution.answer}
         if action not in actions:
             raise NotFoundError("Unknown execution action.")
         return jsonify(actions[action](project_id, run_id, planning_body()))

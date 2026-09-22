@@ -8,6 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import ExecutionDialog from "./ExecutionDialog";
+import { updateAgentPreference } from "./preferences";
 import BuildView from "./BuildView";
 import { api, post, ApiError } from "./api";
 import { useProject, type Store } from "./store";
@@ -756,4 +757,259 @@ describe("Build execution entry points", () => {
     await screen.findByRole("region", { name: "Observed commands" });
     expect(post).not.toHaveBeenCalled();
   });
+});
+
+it("uses coding provider defaults independently and invalidates a preview when provider changes", async () => {
+  updateAgentPreference("planning", "openai", {
+    provider: "openai",
+    mode: "explicit",
+    model: "planning-only",
+    reasoningEffort: null,
+  });
+  updateAgentPreference("coding", "ollama", {
+    provider: "ollama",
+    mode: "explicit",
+    model: "local-coder",
+    reasoningEffort: null,
+  });
+  state.agent.available = false;
+  const originalRead = read;
+  read = async (path) =>
+    path.startsWith("/agent/status")
+      ? { agent: { available: true, label: "Ollama" } }
+      : path.includes("provider=ollama")
+        ? {
+            status: "ready",
+            provider: "ollama",
+            source: "ollama",
+            cliVersion: null,
+            fetchedAt: null,
+            models: [
+              {
+                id: "local-coder",
+                label: "Local coder",
+                description: "",
+                defaultReasoningEffort: null,
+                reasoningEfforts: [],
+                isDefault: true,
+                capabilities: { tools: true },
+              },
+            ],
+          }
+        : originalRead(path);
+  await open();
+  await screen.findByRole("option", { name: "Local coder" });
+  expect((screen.getByLabelText("Provider") as HTMLSelectElement).value).toBe(
+    "ollama",
+  );
+  await previewRun();
+  expect(post).toHaveBeenCalledWith(`${base}/preview`, {
+    taskId: "task",
+    selection: {
+      provider: "ollama",
+      mode: "explicit",
+      model: "local-coder",
+      reasoningEffort: null,
+    },
+  });
+  fireEvent.change(screen.getByLabelText("Provider"), {
+    target: { value: "codex" },
+  });
+  expect(screen.queryByRole("region", { name: "Run preview" })).toBeNull();
+  expect(
+    (screen.getByRole("button", { name: "Run step" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+});
+
+it("answers a paused run explicitly and retries the same frozen continuation after a lost acknowledgement", async () => {
+  run.state = "interrupted";
+  run.question = {
+    id: "question-set",
+    createdAt: timestamp,
+    questions: [
+      {
+        id: "storage",
+        kind: "choice",
+        prompt: "Which storage?",
+        options: [
+          { id: "sqlite", label: "SQLite", description: "Local database" },
+          { id: "json", label: "JSON", description: "Local file" },
+        ],
+        recommendedOptionId: "sqlite",
+      },
+    ],
+  };
+  run.context.generation = {
+    selection: {
+      provider: "ollama",
+      mode: "explicit",
+      model: "original-coder",
+      reasoningEffort: null,
+    },
+    cliVersion: null,
+    instructionVersion: "test",
+    instructionHash: "hash",
+    protocolVersion: 1,
+  };
+  state.runs = [run];
+  let attempts = 0;
+  write = async (path, body) => {
+    if (path === `${base}/runs/run/answer`) {
+      if (++attempts === 1)
+        throw new Error("Continuation acknowledgement lost");
+      run.question = null;
+      run.state = "running";
+      return { run: copy(run) };
+    }
+    throw new Error(`Unexpected write ${path}`);
+  };
+  const view = await open(true);
+  expect(post).not.toHaveBeenCalled();
+  for (const label of ["Accept changes", "Complete task", "Apply to checkout"])
+    expect(
+      (screen.getByRole("button", { name: label }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  fireEvent.click(screen.getByRole("radio", { name: /SQLite/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  await screen.findByText("Continuation acknowledgement lost");
+  const captured = vi.mocked(post).mock.calls[0][1];
+  expect(captured).toMatchObject({
+    questionId: "question-set",
+    digest: "result-digest",
+    confirmed: true,
+    answers: [{ questionId: "storage", optionId: "sqlite", text: null }],
+  });
+  expect(captured).not.toHaveProperty("selection");
+  view.unmount();
+  updateAgentPreference("coding", "openai", {
+    provider: "openai",
+    mode: "explicit",
+    model: "different-coder",
+    reasoningEffort: null,
+  });
+  await open(true);
+  expect(attempts).toBe(1);
+  fireEvent.click(screen.getByRole("button", { name: "Retry answer" }));
+  await waitFor(() => expect(attempts).toBe(2));
+  expect(vi.mocked(post).mock.calls[1][1]).toEqual(captured);
+  expect(
+    screen.queryByRole("region", { name: "Execution questions" }),
+  ).toBeNull();
+});
+
+it("discovers a durable question continuation after restart without sending it automatically", async () => {
+  run.state = "interrupted";
+  const body = {
+    mutationId: "frozen-answer",
+    questionId: "pending",
+    answers: [{ questionId: "q", optionId: null, text: "Keep local files" }],
+    digest: "result-digest",
+    confirmed: true as const,
+  };
+  run.question = {
+    id: "pending",
+    createdAt: timestamp,
+    questions: [
+      {
+        id: "q",
+        kind: "text",
+        prompt: "Which files?",
+        options: [],
+        recommendedOptionId: null,
+      },
+    ],
+    answerRequest: body,
+  };
+  state.runs = [run];
+  write = async (path, value) => {
+    expect(path).toBe(`${base}/runs/run/answer`);
+    expect(value).toEqual(body);
+    run.question = null;
+    run.state = "running";
+    return { run: copy(run) };
+  };
+  await open(true);
+  expect(post).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Retry continuation" }));
+  await waitFor(() =>
+    expect(post).toHaveBeenCalledExactlyOnceWith(
+      `${base}/runs/run/answer`,
+      body,
+    ),
+  );
+});
+
+it("shows the frozen command restrictions and reported usage independently of agent claims", async () => {
+  run.context.generation = {
+    provider: "ollama",
+    selection: {
+      provider: "ollama",
+      mode: "explicit",
+      model: "local-coder",
+      reasoningEffort: null,
+    },
+    cliVersion: null,
+    instructionVersion: "coding-v1",
+    instructionHash: "hash",
+    protocolVersion: 4,
+    commandPolicy: {
+      version: "docker-tmpfs-v1",
+      available: true,
+      imageLabel: "reviewed-image:1",
+      imageId: "sha256:fixed",
+      network: "none",
+      maxSeconds: 120,
+      memoryBytes: 536870912,
+      workspaceBytes: 167772160,
+      pids: 64,
+    },
+  };
+  run.events = [
+    {
+      type: "usage",
+      provider: "ollama",
+      turn: 2,
+      usage: { prompt_eval_count: 200, eval_count: 40 },
+      at: timestamp,
+    },
+  ];
+  state.runs = [run];
+  await open(true);
+  expect(screen.getByText("reviewed-image:1")).toBeTruthy();
+  expect(screen.getByText(/network access disabled/)).toBeTruthy();
+  expect(screen.getByText("512 MiB")).toBeTruthy();
+  const usage = screen.getByRole("region", { name: "Reported model usage" });
+  expect(within(usage).getByText("200")).toBeTruthy();
+  expect(within(usage).getByText("prompt eval count")).toBeTruthy();
+  expect(within(usage).getByText(/No cost is inferred/)).toBeTruthy();
+  expect(screen.getByText(/^1 command failed\./)).toBeTruthy();
+});
+it("does not imply command checks ran when the frozen sandbox is unavailable", async () => {
+  run.context.generation = {
+    selection: {
+      provider: "openai",
+      mode: "explicit",
+      model: "cloud-coder",
+      reasoningEffort: null,
+    },
+    cliVersion: null,
+    instructionVersion: "coding-v1",
+    instructionHash: "hash",
+    protocolVersion: 4,
+    commandPolicy: {
+      version: "docker-tmpfs-v1",
+      available: false,
+      reason: "A verified image is required.",
+    },
+  };
+  run.commands = [];
+  state.runs = [run];
+  await open(true);
+  expect(screen.getByText("Command checks unavailable.")).toBeTruthy();
+  expect(screen.getByText("A verified image is required.")).toBeTruthy();
+  expect(screen.getByText("No command results recorded.")).toBeTruthy();
+  expect(screen.getByText("No usage reported by the provider.")).toBeTruthy();
+  expect(post).not.toHaveBeenCalled();
 });
