@@ -235,7 +235,7 @@ test(
       latest.content,
     );
     await item.getByRole("button", { name: "Review on canvas" }).click();
-    await p.getByRole("button", { name: "Ask Codex", exact: true }).click();
+    await p.getByRole("button", { name: "Ask agent", exact: true }).click();
     await p.getByRole("button", { name: "Back to plan", exact: true }).click();
     await p
       .getByLabel("Message Codex", { exact: true })

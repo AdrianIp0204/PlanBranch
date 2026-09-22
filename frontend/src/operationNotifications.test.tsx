@@ -44,7 +44,7 @@ describe("operation notification ledger", () => {
     expect(tracker.observe([operation("done", "succeeded")])).toEqual([]);
   });
   it("reports questions, review, partial evidence, cancellation, and failure without claiming test success", () => {
-    expect(describeOperation(operation("p", "succeeded", { needsInput: true })).title).toBe("Codex needs your answer");
+    expect(describeOperation(operation("p", "succeeded", { needsInput: true })).title).toBe("Agent needs your answer");
     expect(describeOperation(operation("p", "succeeded", { messageId: "exact-reply" })).target).toEqual({ kind: "planning", id: "p", messageId: "exact-reply" });
     expect(describeOperation(operation("p", "succeeded", { needsReview: true })).title).toBe("Plan changes ready for review");
     expect(describeOperation(operation("s", "partial", { kind: "scan" })).severity).toBe("warning");
@@ -94,9 +94,9 @@ describe("quiet activity UI and polling", () => {
     rerender(<><input aria-label="Draft" /><ActivityNotices notices={[notice]} open={open} dismiss={dismiss} /></>);
     expect(document.activeElement).toBe(input);
     expect(open).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Open Codex replied" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Agent replied" }));
     expect(open).toHaveBeenCalledExactlyOnceWith(notice);
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss Codex replied" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss Agent replied" }));
     expect(dismiss).toHaveBeenCalledExactlyOnceWith(notice.id);
     expect(document.activeElement).toBe(input);
   });

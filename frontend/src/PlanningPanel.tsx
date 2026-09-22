@@ -19,6 +19,8 @@ import { uid } from "./types";
 import {
   samePlan,
   selectionLabel,
+  providerLabel,
+  selectionProvider,
   reviewFieldLabel,
   reviewNames,
   reviewValueText,
@@ -137,6 +139,18 @@ export default function PlanningPanel({
   const modelSettings = useModelSelection(active);
   const writing = useWritingDrafts(session.id, onDraftGuard);
   const [state, setState] = useState<PlanningState | null>(null);
+  const selectedAgent =
+    modelSettings.provider === "codex" ? state?.agent : modelSettings.agent;
+  const agentAvailable = !!selectedAgent?.available;
+  const agentName =
+    modelSettings.provider === "codex"
+      ? "Codex"
+      : providerLabel(modelSettings.provider);
+  const requestProvider = selectionProvider(
+    state?.request?.generation?.selection ?? state?.request?.selection,
+  );
+  const requestAgentName =
+    requestProvider === "codex" ? "Codex" : providerLabel(requestProvider);
   const [tab, setTab] = useState<Tab>("conversation");
   const draft = writing.value.message;
   const setDraft = (value: string | ((current: string) => string)) =>
@@ -171,6 +185,7 @@ export default function PlanningPanel({
   const setFailedAnswer = (value: AnswerSubmission | null) =>
     writing.set("failedAnswer", value);
   const [announcement, setAnnouncement] = useState("");
+  const cancelReceipts = useRef(new Map<string, string>());
   const [help, setHelp] = useState<
     "sharing" | "approval" | "node" | "settings" | null
   >(null);
@@ -191,11 +206,16 @@ export default function PlanningPanel({
   // Keep a readable writing area plus its controls when a short window leaves
   // less room for history. Reserving a fixed history fraction can crush text.
   const constrainedConversation = usableHeight < composerContentMinimum + 56;
-  const composerMax = constrainedConversation ? composerContentMinimum : Math.max(
-    composerContentMinimum,
-    Math.floor(usableHeight - Math.min(160, usableHeight * 0.45)),
+  const composerMax = constrainedConversation
+    ? composerContentMinimum
+    : Math.max(
+        composerContentMinimum,
+        Math.floor(usableHeight - Math.min(160, usableHeight * 0.45)),
+      );
+  const composerMin = Math.min(
+    Math.max(132, composerContentMinimum),
+    composerMax,
   );
-  const composerMin = Math.min(Math.max(132, composerContentMinimum), composerMax);
   const currentComposerHeight = clamp(
     onComposerResize ? composerHeight : localComposerHeight,
     composerMin,
@@ -405,25 +425,54 @@ export default function PlanningPanel({
       if (!form) return;
       const pixels = (value: string) => Number.parseFloat(value) || 0;
       const style = getComputedStyle(form);
-      const children = [...form.children].filter(child => getComputedStyle(child).position !== "absolute" && child.getBoundingClientRect().height > 0);
-      const controls = children.filter(child => child !== composer.current).reduce((height, child) => {
-        const childStyle = getComputedStyle(child);
-        return height + child.getBoundingClientRect().height + pixels(childStyle.marginTop) + pixels(childStyle.marginBottom);
-      }, 0);
-      const chrome = controls + pixels(style.paddingTop) + pixels(style.paddingBottom) + pixels(style.borderTopWidth) + pixels(style.borderBottomWidth) + Math.max(0, children.length - 1) * pixels(style.rowGap);
+      const children = [...form.children].filter(
+        (child) =>
+          getComputedStyle(child).position !== "absolute" &&
+          child.getBoundingClientRect().height > 0,
+      );
+      const controls = children
+        .filter((child) => child !== composer.current)
+        .reduce((height, child) => {
+          const childStyle = getComputedStyle(child);
+          return (
+            height +
+            child.getBoundingClientRect().height +
+            pixels(childStyle.marginTop) +
+            pixels(childStyle.marginBottom)
+          );
+        }, 0);
+      const chrome =
+        controls +
+        pixels(style.paddingTop) +
+        pixels(style.paddingBottom) +
+        pixels(style.borderTopWidth) +
+        pixels(style.borderBottomWidth) +
+        Math.max(0, children.length - 1) * pixels(style.rowGap);
       setComposerContentMinimum(Math.max(116, Math.ceil(chrome + 44)));
     };
     measure();
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(measure);
     observer?.observe(element);
     const observeControls = () => {
-      if (form) { observer?.observe(form); for (const child of form.children) observer?.observe(child); }
+      if (form) {
+        observer?.observe(form);
+        for (const child of form.children) observer?.observe(child);
+      }
       measure();
     };
     observeControls();
-    const mutations = form && typeof MutationObserver !== "undefined" ? new MutationObserver(observeControls) : null;
+    const mutations =
+      form && typeof MutationObserver !== "undefined"
+        ? new MutationObserver(observeControls)
+        : null;
     mutations?.observe(form!, { childList: true, subtree: true });
-    return () => { observer?.disconnect(); mutations?.disconnect(); };
+    return () => {
+      observer?.disconnect();
+      mutations?.disconnect();
+    };
   }, [active, tab]);
 
   async function work(label: string, action: () => Promise<void>) {
@@ -473,7 +522,7 @@ export default function PlanningPanel({
     }
   }
   async function send(prompt?: PlanningPrompt, forceNew = false) {
-    if (modelSettings.serverIncompatible || !writing.ready) return;
+    if (!writing.ready) return;
     const captured: PlanningPrompt = prompt ?? {
       mutationId: uid(),
       text: draft.trim(),
@@ -529,8 +578,23 @@ export default function PlanningPanel({
       )
         ? failedPrompt
         : captured;
-    if (body === captured && !prompt && modelSettings.problem) {
+    if (
+      selectionProvider(body.selection) === "codex" &&
+      modelSettings.serverIncompatible
+    ) {
       setError(modelSettings.problem);
+      return;
+    }
+    if (
+      body === captured &&
+      !prompt &&
+      (modelSettings.problem || !agentAvailable)
+    ) {
+      setError(
+        modelSettings.problem ||
+          selectedAgent?.reason ||
+          "The selected provider is unavailable.",
+      );
       return;
     }
     const interaction = focusInteraction.current;
@@ -650,7 +714,13 @@ export default function PlanningPanel({
     answers: QuestionAnswer[],
     replay?: AnswerSubmission,
   ) {
-    if (modelSettings.serverIncompatible || !writing.ready) return;
+    if (
+      !writing.ready ||
+      (replay &&
+        selectionProvider(replay.selection) === "codex" &&
+        modelSettings.serverIncompatible)
+    )
+      return;
     if (!replay && (questionOutdated(set) || modelSettings.problem)) {
       setError(
         questionOutdated(set)
@@ -694,7 +764,7 @@ export default function PlanningPanel({
         throw error;
       }
       writing.retire("answer", submission.mutationId);
-      setAnnouncement("Answers submitted. Codex is continuing the plan.");
+      setAnnouncement("Answers submitted. The agent is continuing the plan.");
       restoreComposerFocus(interaction);
     });
   }
@@ -788,7 +858,7 @@ export default function PlanningPanel({
   return (
     <aside className="planning-panel" aria-label="Planning conversation">
       <header className="planning-heading">
-        <h2>Codex</h2>
+        <h2>Planning chat</h2>
         <button
           id="planning-approval-status"
           className={`planning-status ${approvalCurrent ? "is-approved" : ""}`}
@@ -925,8 +995,9 @@ export default function PlanningPanel({
               <button
                 disabled={Boolean(
                   busy ||
-                  !state?.agent.available ||
-                  modelSettings.serverIncompatible,
+                  !writing.ready ||
+                  (selectionProvider(failedAnswer.selection) === "codex" &&
+                    modelSettings.serverIncompatible),
                 )}
                 onClick={() => {
                   const set = questionSets.find(
@@ -975,19 +1046,30 @@ export default function PlanningPanel({
               </button>
             </div>
           )}
-          {failedPrompt && !busy && !modelSettings.serverIncompatible && (
+          {failedPrompt && !busy && (
             <div className="planning-feedback" role="status">
               <p>
                 Retry keeps the original settings:{" "}
                 {selectionLabel(failedPrompt.selection)}.
               </p>
               <button
+                disabled={
+                  !writing.ready ||
+                  running ||
+                  (selectionProvider(failedPrompt.selection) === "codex" &&
+                    modelSettings.serverIncompatible)
+                }
+                onClick={() => void send(failedPrompt)}
+              >
+                Retry message
+              </button>
+              <button
                 disabled={Boolean(
                   busy ||
                   running ||
                   modelSettings.problem ||
                   !draft.trim() ||
-                  !state?.agent.available,
+                  !agentAvailable,
                 )}
                 onClick={() => void send(undefined, true)}
               >
@@ -998,8 +1080,8 @@ export default function PlanningPanel({
           {showSharing && (
             <div className="planning-first-use">
               <p>
-                Messages share your plan and discussion with Codex. Attached
-                source files stay local.
+                Messages share your plan and discussion with the selected
+                provider. Attached source files stay local.
               </p>
               <button className="quiet" onClick={dismissSharing}>
                 Got it
@@ -1009,24 +1091,28 @@ export default function PlanningPanel({
               </button>
             </div>
           )}
-          {state && !state.agent.available && (
+          {state && selectedAgent && !agentAvailable && (
             <div className="planning-feedback">
-              <strong>Codex is unavailable</strong>
+              <strong>{agentName} is unavailable</strong>
               <p>
-                {state.agent.reason ||
-                  "Install Codex CLI and sign in with your existing account using codex login."}
+                {selectedAgent.reason ||
+                  "Check this provider’s connection in Settings → Agent."}
               </p>
-              <button disabled={Boolean(busy)} onClick={() => void refresh()}>
-                Recheck Codex
+              <button
+                disabled={Boolean(busy)}
+                onClick={() => {
+                  void refresh();
+                  void modelSettings.refresh();
+                }}
+              >
+                Recheck {agentName}
               </button>
             </div>
           )}
           {state && state.messages.length === 0 && (
             <div className="planning-empty">
               <h3>What should this plan accomplish?</h3>
-              <p>
-                Describe a goal or ask for a change.
-              </p>
+              <p>Describe a goal or ask for a change.</p>
             </div>
           )}
           <ol className="planning-messages" aria-label="Conversation messages">
@@ -1046,7 +1132,9 @@ export default function PlanningPanel({
                     {message.role === "user"
                       ? "You"
                       : message.role === "assistant"
-                        ? "Codex"
+                        ? message.provider && message.provider !== "codex"
+                          ? providerLabel(message.provider)
+                          : "Codex"
                         : "PlanBranch"}
                   </strong>
                   <time dateTime={message.createdAt}>
@@ -1102,12 +1190,30 @@ export default function PlanningPanel({
             .map(renderQuestions)}
           {running && (
             <p className="planning-run-status" role="status">
-              Codex is thinking…
+              {requestAgentName} is thinking…
+              <button
+                className="quiet"
+                disabled={!!busy}
+                onClick={() => {
+                  const requestId = state?.request?.id;
+                  if (!requestId) return;
+                  const mutationId =
+                    cancelReceipts.current.get(requestId) ?? uid();
+                  cancelReceipts.current.set(requestId, mutationId);
+                  void work("Cancelling reply", async () => {
+                    await mutate(`/requests/${requestId}/cancel`, {
+                      mutationId,
+                    });
+                  });
+                }}
+              >
+                Cancel reply
+              </button>
             </p>
           )}
           {state?.request?.status === "failed" && (
             <div className="planning-feedback" role="alert">
-              <strong>Codex could not finish</strong>
+              <strong>{requestAgentName} could not finish</strong>
               <p>
                 {state.request.error ||
                   "The request failed. Your message is retained."}
@@ -1119,8 +1225,9 @@ export default function PlanningPanel({
                 <button
                   disabled={Boolean(
                     busy ||
-                    !state.agent.available ||
-                    modelSettings.serverIncompatible,
+                    !writing.ready ||
+                    (selectionProvider(failedRequest.selection) === "codex" &&
+                      modelSettings.serverIncompatible),
                   )}
                   onClick={() => void send(failedRequest)}
                 >
@@ -1235,7 +1342,7 @@ export default function PlanningPanel({
             </div>
           )}
           <label className="sr-only" htmlFor="planning-message">
-            Message Codex
+            Message {agentName}
           </label>
           <textarea
             ref={composer}
@@ -1268,7 +1375,7 @@ export default function PlanningPanel({
                 if (
                   !busy &&
                   !running &&
-                  state?.agent.available &&
+                  agentAvailable &&
                   !modelSettings.serverIncompatible &&
                   (!modelSettings.problem || retriesDraft)
                 )
@@ -1314,7 +1421,7 @@ export default function PlanningPanel({
             </div>
           )}
           <span id="planning-sharing-summary" className="sr-only">
-            Shares the manual plan and discussion using your Codex CLI sign-in.
+            Shares the manual plan and discussion with the selected provider.
             Attached source files are excluded. Control or Command plus Enter
             sends.
           </span>
@@ -1323,6 +1430,7 @@ export default function PlanningPanel({
               selection={modelSettings.selection}
               capabilities={modelSettings.capabilities}
               onChange={modelSettings.setSelection}
+              onProviderChange={modelSettings.setProvider}
             />
             <button
               type="submit"
@@ -1330,7 +1438,7 @@ export default function PlanningPanel({
               disabled={
                 !writing.ready ||
                 !draft.trim() ||
-                !state?.agent.available ||
+                !agentAvailable ||
                 modelSettings.serverIncompatible ||
                 Boolean(modelSettings.problem && !retriesDraft) ||
                 Boolean(busy || running)
@@ -1375,7 +1483,11 @@ export default function PlanningPanel({
             Include resolved
           </label>
         </div>
-        <div className="planning-scroll" tabIndex={0} aria-label="Comment history">
+        <div
+          className="planning-scroll"
+          tabIndex={0}
+          aria-label="Comment history"
+        >
           <ol className="planning-comments" aria-label="Node comments">
             {shownComments.map((comment) => {
               const located = session.content.diagrams
@@ -1477,7 +1589,7 @@ export default function PlanningPanel({
                 await mutate("/comments", target);
                 writing.retire("comment", target.mutationId);
                 setAnnouncement(
-                  "Node comment added. Send a message when you want Codex to address it.",
+                  "Node comment added. Send a message when you want the agent to address it.",
                 );
               });
             }}
@@ -1534,7 +1646,7 @@ export default function PlanningPanel({
             <div className="planning-empty">
               <h3>No proposed changes yet</h3>
               <p>
-                Ask Codex to create or improve the diagram. Proposed edits
+                Ask the agent to create or improve the diagram. Proposed edits
                 appear here before anything changes.
               </p>
               <button
@@ -1584,8 +1696,8 @@ export default function PlanningPanel({
                 </p>
                 {proposal.state === "stale" && (
                   <p className="planning-feedback">
-                    This proposal was made for an earlier plan. Ask Codex for an
-                    updated proposal to preserve your latest edits.
+                    This proposal was made for an earlier plan. Ask the agent
+                    for an updated proposal to preserve your latest edits.
                   </p>
                 )}
                 {onPreview &&
@@ -1745,11 +1857,14 @@ export default function PlanningPanel({
               <p>{selectionLabel(modelSettings.selection)}</p>
               <p>
                 {modelSettings.capabilities?.status === "ready"
-                  ? "Choices come from your installed Codex CLI. A listed model may still be unavailable to your account."
+                  ? modelSettings.provider === "codex"
+                    ? "Choices come from your installed Codex CLI. A listed model may still be unavailable to your account."
+                    : "Choose an advertised model, or enter a cloud model ID. An entered ID is checked by the provider when requested."
                   : modelSettings.capabilities?.reason ||
                     "Loading the model list…"}
               </p>
-              {modelSettings.capabilities?.status !== "ready" &&
+              {modelSettings.provider === "codex" &&
+                modelSettings.capabilities?.status !== "ready" &&
                 !modelSettings.serverIncompatible && (
                   <p>
                     CLI default still works. Refresh the list, or update Codex
@@ -1786,7 +1901,9 @@ export default function PlanningPanel({
                         <dd>{state.request.generation.reportedModel}</dd>
                       </>
                     )}
-                    <dt>Codex CLI</dt>
+                    <dt>Provider</dt>
+                    <dd>{providerLabel(requestProvider)}</dd>
+                    <dt>CLI version</dt>
                     <dd>
                       {state.request.generation?.cliVersion || "Not recorded"}
                     </dd>
@@ -1811,7 +1928,7 @@ export default function PlanningPanel({
               <h3>Sharing and shortcuts</h3>
               <p>
                 Send shares the manual plan, conversation, and node comments
-                using your Codex CLI sign-in. Attached source files, detected
+                with the selected provider. Attached source files, detected
                 evidence, and source permissions stay local.
               </p>
               <p>
@@ -1836,8 +1953,8 @@ export default function PlanningPanel({
             <>
               <p>
                 Send shares the manual plan, conversation, and node comments
-                with Codex using your CLI sign-in. Attached source files,
-                detected evidence, and source permissions are not included.
+                with the selected provider. Attached source files, detected
+                evidence, and source permissions are not included.
               </p>
               <p>
                 Proposed edits need your review. Approval records the saved

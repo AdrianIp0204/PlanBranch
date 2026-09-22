@@ -189,11 +189,39 @@ def create_app(data_dir=None, *, testing=False, planner=None, executor=None, exe
 
     @app.get("/api/planning/capabilities")
     def planning_capabilities():
-        return jsonify(planning.capabilities())
+        return jsonify(planning.capabilities(provider=request.args.get("provider", "codex")))
 
     @app.post("/api/planning/capabilities/refresh")
     def refresh_planning_capabilities():
-        return jsonify(planning.capabilities(refresh=True))
+        data = body() if request.get_data(cache=True) else {}
+        if set(data) - {"provider"}:
+            raise ValidationError("Unexpected model discovery settings.")
+        return jsonify(planning.capabilities(refresh=True, provider=data.get("provider", "codex")))
+
+    def provider_registry():
+        from .providers import ProviderRegistry
+        if isinstance(planning.planner, ProviderRegistry):
+            return planning.planner
+        if "flowdesk_providers" not in app.extensions:
+            app.extensions["flowdesk_providers"] = ProviderRegistry(data_dir)
+        return app.extensions["flowdesk_providers"]
+
+    @app.get("/api/agent/connections")
+    def agent_connections():
+        return jsonify(connections=provider_registry().connections())
+
+    @app.get("/api/agent/status")
+    def agent_status():
+        provider = request.args.get("provider", "codex")
+        status = planning.planner.status() if provider == "codex" else provider_registry().status(provider)
+        return jsonify(agent=status)
+
+    @app.post("/api/agent/check")
+    def check_agent_connection():
+        data = body()
+        if set(data) != {"provider"}:
+            raise ValidationError("Choose one provider to check.")
+        return jsonify(agent=provider_registry().check_connection(data["provider"]))
 
     @app.get("/api/projects/<project_id>/operations")
     def get_operations(project_id):
@@ -220,6 +248,10 @@ def create_app(data_dir=None, *, testing=False, planner=None, executor=None, exe
     @app.post("/api/projects/<project_id>/planning/messages")
     def planning_message(project_id):
         return jsonify(planning.send_message(project_id, planning_body(diagram_field=("proposalDiagram", "proposalBrief", "proposalBuildTasks")))), 202
+
+    @app.post("/api/projects/<project_id>/planning/requests/<request_id>/cancel")
+    def cancel_planning_request(project_id, request_id):
+        return jsonify(planning.cancel(project_id, request_id, planning_body()))
 
     @app.post("/api/projects/<project_id>/planning/questions/<set_id>/answers")
     def planning_answers(project_id, set_id):

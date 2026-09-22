@@ -174,7 +174,7 @@ test(
     const initial = await makeProposal(h);
     await manualTitle(p, "Keep this manual title");
     await workspace(p)
-      .getByRole("button", { name: "Ask Codex", exact: true })
+      .getByRole("button", { name: "Ask agent", exact: true })
       .click();
     await p.getByText("Revising:", { exact: false }).waitFor();
     const result = await send(
@@ -253,7 +253,7 @@ test(
     );
     assert.equal(
       await workspace(p)
-        .getByRole("button", { name: "Ask Codex", exact: true })
+        .getByRole("button", { name: "Ask agent", exact: true })
         .isEnabled(),
       true,
     );
@@ -296,7 +296,7 @@ test(
       .getByRole("button", { name: "Apply changes", exact: true })
       .waitFor();
     await workspace(p)
-      .getByRole("button", { name: "Ask Codex", exact: true })
+      .getByRole("button", { name: "Ask agent", exact: true })
       .click();
     await p.getByLabel("Message Codex", { exact: true }).waitFor();
     await p.getByRole("button", { name: "Canvas", exact: true }).click();
@@ -333,7 +333,7 @@ test(
       await zp.getByRole("button", { name: "Canvas", exact: true }).click();
       for (const name of [
         "Apply changes",
-        "Ask Codex",
+        "Ask agent",
         "Discard",
         "Back to plan",
       ]) {

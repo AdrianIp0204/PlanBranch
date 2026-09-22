@@ -9,13 +9,48 @@ import {
   type NodeKind,
   type Status,
 } from "./types";
-
+export const providerIds = [
+  "codex",
+  "ollama",
+  "openai",
+  "anthropic",
+  "gemini",
+] as const;
+export type ProviderId = (typeof providerIds)[number];
+export type ModelPurpose = "planning" | "coding";
 export type ModelSelection =
-  | { mode: "default" }
-  | { mode: "explicit"; model: string; reasoningEffort: string | null };
+  | { mode: "default"; provider?: never }
+  | {
+      mode: "explicit";
+      model: string;
+      reasoningEffort: string | null;
+      provider?: never;
+    }
+  | {
+      provider: Exclude<ProviderId, "codex">;
+      mode: "explicit";
+      model: string;
+      reasoningEffort: string | null;
+    };
+export const providerLabel = (provider: ProviderId) =>
+  ({
+    codex: "Codex CLI",
+    ollama: "Ollama",
+    openai: "OpenAI",
+    anthropic: "Anthropic",
+    gemini: "Gemini",
+  })[provider];
+export const selectionProvider = (selection?: ModelSelection): ProviderId =>
+  selection?.provider ?? "codex";
+export type AgentStatus = {
+  available: boolean;
+  label: string;
+  reason?: string;
+};
 export type ModelCapabilities = {
   status: "ready" | "unavailable";
-  source: "cli_catalogue";
+  source: string;
+  provider?: ProviderId;
   cliVersion: string | null;
   fetchedAt: string | null;
   reason?: string;
@@ -26,10 +61,31 @@ export type ModelCapabilities = {
     defaultReasoningEffort: string | null;
     reasoningEfforts: Array<{ id: string; description: string }>;
     isDefault: boolean;
+    tools?: boolean;
+    capabilities?: {
+      generation?: boolean;
+      structured?: boolean;
+      tools?: boolean;
+    };
   }>;
 };
+export type CommandPolicy = {
+  version: string;
+  available: boolean;
+  reason?: string;
+  imageId?: string;
+  imageLabel?: string;
+  network?: string;
+  user?: string;
+  maxSeconds?: number;
+  memoryBytes?: number;
+  workspaceBytes?: number;
+  pids?: number;
+};
 export type GenerationDetails = {
+  commandPolicy?: CommandPolicy;
   selection: ModelSelection;
+  provider?: ProviderId;
   cliVersion: string | null;
   instructionVersion: string;
   instructionHash: string;
@@ -39,11 +95,27 @@ export type GenerationDetails = {
 export function validModelSelection(value: unknown): value is ModelSelection {
   if (!value || typeof value !== "object") return false;
   const item = value as Record<string, unknown>;
+  const provider = item.provider;
+  const keys =
+    item.mode === "default"
+      ? ["mode"]
+      : [
+          "mode",
+          "model",
+          "reasoningEffort",
+          ...(provider === undefined ? [] : ["provider"]),
+        ];
+  if (Object.keys(item).some((key) => !keys.includes(key))) return false;
+  if (
+    provider !== undefined &&
+    !["ollama", "openai", "anthropic", "gemini"].includes(String(provider))
+  )
+    return false;
   return (
-    item.mode === "default" ||
+    (item.mode === "default" && provider === undefined) ||
     (item.mode === "explicit" &&
       typeof item.model === "string" &&
-      item.model.length > 0 &&
+      item.model.trim().length > 0 &&
       item.model.length <= 200 &&
       (item.reasoningEffort === null ||
         (typeof item.reasoningEffort === "string" &&
@@ -53,9 +125,8 @@ export function validModelSelection(value: unknown): value is ModelSelection {
 export function selectionLabel(value?: ModelSelection): string {
   return !value || value.mode === "default"
     ? "CLI default (resolved when run)"
-    : `${value.model}${value.reasoningEffort ? ` · ${value.reasoningEffort}` : ""}`;
+    : `${value.provider ? `${providerLabel(value.provider)} · ` : ""}${value.model}${value.reasoningEffort ? ` · ${value.reasoningEffort}` : ""}`;
 }
-
 export type PlanningQuestion = {
   id: string;
   kind: "choice" | "text";
@@ -97,6 +168,9 @@ export type AnswerSubmission = {
 };
 export type QuestionDrafts = Record<string, Record<string, QuestionDraft>>;
 export type PlanningMessage = {
+  provider?: ProviderId;
+  model?: string | null;
+  generation?: GenerationDetails;
   id: string;
   role: "user" | "assistant" | "system";
   text: string;
@@ -192,7 +266,6 @@ export type PlanningPrompt = {
   proposalBrief?: ProjectBrief;
   proposalBuildTasks?: BuildTask[];
 };
-
 export const reviewFieldLabel = (field: string) =>
   (
     ({
@@ -372,7 +445,6 @@ export function reviewValueText(
   }
   return fieldValue("", value);
 }
-
 export const PLANNING_DRAFT_PREFIX = "flowdesk.planningDrafts.v1.";
 export type PlanningDrafts = {
   message: string;
@@ -382,7 +454,6 @@ export type PlanningDrafts = {
   failedAnswer?: AnswerSubmission | null;
   revision?: ProposalRevision | null;
 };
-
 function storedDiagram(value: unknown): value is Diagram {
   if (
     !record(value) ||
@@ -477,7 +548,6 @@ function storedRevision(value: unknown): value is ProposalRevision {
     storedSections(value.editableSections)
   );
 }
-
 function sanitizeQuestionDrafts(value: unknown): QuestionDrafts {
   if (!record(value)) return {};
   return Object.fromEntries(
@@ -512,7 +582,6 @@ function sanitizeQuestionDrafts(value: unknown): QuestionDrafts {
       ]),
   );
 }
-
 export function readPlanningDrafts(projectId: string): PlanningDrafts {
   const empty: PlanningDrafts = {
     message: "",
@@ -660,7 +729,6 @@ export function writePlanningDrafts(projectId: string, drafts: PlanningDrafts) {
     /* Draft recovery is best effort; editing still works when storage is unavailable. */
   }
 }
-
 /** Compare manual content without treating object key order as an edit. */
 export function samePlan(left: unknown, right: unknown): boolean {
   if (left === right) return true;

@@ -276,7 +276,7 @@ test(
     );
     assert.deepEqual((await h.api(url)).content, original.content);
     await workspace(p)
-      .getByRole("button", { name: "Ask Codex", exact: true })
+      .getByRole("button", { name: "Ask agent", exact: true })
       .click();
     const revised = await send(h, "Revise the visible brief");
     const replacement = revised.proposals.find(
@@ -360,7 +360,7 @@ test(
     );
     assert.equal(
       await workspace(p)
-        .getByRole("button", { name: "Ask Codex", exact: true })
+        .getByRole("button", { name: "Ask agent", exact: true })
         .isEnabled(),
       true,
     );

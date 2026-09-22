@@ -542,7 +542,7 @@ function Workspace({
               );
             }}
           >
-            Ask Codex
+            Ask agent
           </button>
           <button
             aria-pressed={manual}

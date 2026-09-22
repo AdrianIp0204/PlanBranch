@@ -11,7 +11,7 @@ from typing import Callable
 from ..validation import ValidationError, validate_checkpoint
 
 
-DATABASE_VERSION = 9
+DATABASE_VERSION = 10
 
 
 @dataclass(frozen=True)
@@ -91,6 +91,10 @@ def writing_drafts(connection, store):
     apply_sql(connection, "009_writing_drafts.sql")
 
 
+def provider_messages(connection, store):
+    apply_sql(connection, "010_provider_messages.sql")
+
+
 MIGRATIONS = (
     Migration(1, "Initial project storage", False, initial_schema),
     Migration(2, "Managed scanner schema and canonical snapshots", True, managed_scanner_and_snapshots),
@@ -101,6 +105,7 @@ MIGRATIONS = (
     Migration(7, "Build tasks and retained node links", True, normalize_manual_history),
     Migration(8, "Explicit execution grants, frozen previews and recoverable runs", False, execution_workspace),
     Migration(9, "Durable unsent planning writing", False, writing_drafts),
+    Migration(10, "Planning provider attribution", False, provider_messages),
 )
 
 

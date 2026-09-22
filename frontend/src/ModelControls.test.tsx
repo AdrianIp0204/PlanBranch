@@ -216,3 +216,154 @@ it("does not erase a confirmed server mismatch when a later check cannot connect
   expect(result.current.serverIncompatible).toBe(true);
   expect(result.current.problem).toBe(PLANNING_SERVER_RESTART);
 });
+
+it("keeps planning and coding defaults independent and restores each provider choice", async () => {
+  vi.mocked(api).mockImplementation(async (path) =>
+    path.startsWith("/agent/status")
+      ? { agent: { available: true, label: "Ollama" } }
+      : ({
+          ...capabilities,
+          provider: path.includes("ollama") ? "ollama" : undefined,
+        } as any),
+  );
+  const planning = renderHook(() => useModelSelection());
+  const coding = renderHook(() => useModelSelection(true, "coding"));
+  await waitFor(() =>
+    expect(planning.result.current.capabilities).not.toBeNull(),
+  );
+  act(() =>
+    planning.result.current.setSelection({
+      mode: "explicit",
+      model: "a",
+      reasoningEffort: "low",
+    }),
+  );
+  act(() => coding.result.current.setProvider("ollama"));
+  await waitFor(() =>
+    expect(coding.result.current.capabilities?.provider).toBe("ollama"),
+  );
+  act(() =>
+    coding.result.current.setSelection({
+      provider: "ollama",
+      mode: "explicit",
+      model: "b",
+      reasoningEffort: "high",
+    }),
+  );
+  expect(planning.result.current.selection).toEqual({
+    mode: "explicit",
+    model: "a",
+    reasoningEffort: "low",
+  });
+  act(() => coding.result.current.setProvider("codex"));
+  expect(coding.result.current.selection).toEqual({ mode: "default" });
+  act(() => coding.result.current.setProvider("ollama"));
+  expect(coding.result.current.selection).toEqual({
+    provider: "ollama",
+    mode: "explicit",
+    model: "b",
+    reasoningEffort: "high",
+  });
+  coding.unmount();
+  const reopened = renderHook(() => useModelSelection(true, "coding"));
+  expect(reopened.result.current.selection).toEqual({
+    provider: "ollama",
+    mode: "explicit",
+    model: "b",
+    reasoningEffort: "high",
+  });
+});
+
+it("ignores a delayed old provider catalogue and refreshes the selected provider explicitly", async () => {
+  let release!: (value: ModelCapabilities) => void;
+  vi.mocked(api).mockImplementation((path, options) => {
+    if (path === "/planning/capabilities")
+      return new Promise((resolve) => {
+        release = resolve as typeof release;
+      });
+    if (path.startsWith("/agent/status"))
+      return Promise.resolve({
+        agent: { available: true, label: "Ollama" },
+      }) as any;
+    return Promise.resolve({ ...capabilities, provider: "ollama" }) as any;
+  });
+  const { result } = renderHook(() => useModelSelection());
+  act(() => result.current.setProvider("ollama"));
+  await waitFor(() =>
+    expect(result.current.capabilities?.provider).toBe("ollama"),
+  );
+  await act(async () => release(capabilities));
+  expect(result.current.capabilities?.provider).toBe("ollama");
+  await act(async () => result.current.refresh());
+  expect(api).toHaveBeenCalledWith("/planning/capabilities/refresh", {
+    method: "POST",
+    body: '{"provider":"ollama"}',
+  });
+});
+
+it("allows explicit cloud model IDs without inventing reasoning or tool support", () => {
+  const selection: ModelSelection = {
+    provider: "anthropic",
+    mode: "explicit",
+    model: "a-new-model",
+    reasoningEffort: null,
+  };
+  expect(selectionProblem(selection, null, "coding")).toBe("");
+  expect(
+    selectionProblem({ ...selection, reasoningEffort: "high" }, null),
+  ).toMatch(/supported reasoning/);
+  expect(
+    selectionProblem(
+      {
+        provider: "ollama",
+        mode: "explicit",
+        model: "missing",
+        reasoningEffort: null,
+      },
+      { ...capabilities, provider: "ollama" },
+    ),
+  ).toMatch(/not installed/);
+  const caps: ModelCapabilities = {
+    ...capabilities,
+    provider: "anthropic",
+    models: [{ ...capabilities.models[2], capabilities: { tools: false } }],
+  };
+  expect(
+    selectionProblem({ ...selection, model: "c" }, caps, "coding"),
+  ).toMatch(/coding tools/);
+  render(
+    <ModelControls
+      selection={selection}
+      capabilities={null}
+      onChange={vi.fn()}
+      onProviderChange={vi.fn()}
+    />,
+  );
+  expect((screen.getByLabelText("Model") as HTMLInputElement).value).toBe(
+    "a-new-model",
+  );
+  expect(screen.queryByLabelText("Reasoning effort")).toBeNull();
+});
+
+it("offers model default as null for provider reasoning, without inventing an effort", () => {
+  const caps: ModelCapabilities = { ...capabilities, provider: "ollama" };
+  const onChange = vi.fn();
+  const choice: ModelSelection = {
+    provider: "ollama",
+    mode: "explicit",
+    model: "a",
+    reasoningEffort: null,
+  };
+  expect(selectionProblem(choice, caps)).toBe("");
+  render(
+    <ModelControls
+      selection={{ ...choice, reasoningEffort: "low" }}
+      capabilities={caps}
+      onChange={onChange}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText("Reasoning effort"), {
+    target: { value: "" },
+  });
+  expect(onChange).toHaveBeenCalledWith(choice);
+});

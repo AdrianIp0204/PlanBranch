@@ -1,0 +1,31 @@
+.planning-model-controls {
+  flex-wrap: wrap;
+}
+.planning-model-controls > select,
+.planning-model-controls > input {
+  flex: 1 1 90px;
+  min-width: 0;
+  max-width: 100%;
+}
+.planning-model-controls > input {
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--surface);
+  font-size: var(--font-small);
+}
+.agent-connections {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.agent-connections ul {
+  padding-left: 20px;
+}
+.agent-connections li {
+  margin: 8px 0;
+}
+.agent-connections summary {
+  margin-top: 12px;
+  cursor: pointer;
+}

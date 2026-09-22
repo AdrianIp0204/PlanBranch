@@ -289,7 +289,7 @@ describe("proposal canvas review", async () => {
     expect(
       screen.getByRole("button", { name: "My manual title" }),
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Ask Codex" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask agent" }));
     expect(
       vi.mocked(recovered.props.onRevise).mock.calls[0][0].nodes[0].title,
     ).toBe("My manual title");
@@ -319,7 +319,7 @@ describe("proposal canvas review", async () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Ask Codex" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask agent" }));
     expect(props.onRevise).toHaveBeenCalledWith(
       props.detail.content.diagrams[0],
     );
@@ -883,7 +883,7 @@ describe("reviewable project brief proposals", () => {
     expect((screen.getByLabelText("Goal") as HTMLTextAreaElement).value).toBe(
       "My reviewed goal",
     );
-    fireEvent.click(screen.getByRole("button", { name: "Ask Codex" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask agent" }));
     expect(props.onRevise).toHaveBeenCalledWith(fixture.content.diagrams[0], {
       ...fixture.content.brief,
       goal: "My reviewed goal",
@@ -1003,7 +1003,7 @@ describe("reviewable build task proposals", () => {
       target: { value: "Check saved output after restart" },
     });
     fireEvent.blur(screen.getByLabelText("Acceptance check 1"));
-    fireEvent.click(screen.getByRole("button", { name: "Ask Codex" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask agent" }));
     expect(props.onRevise).toHaveBeenCalledWith(
       fixture.content.diagrams[0],
       undefined,

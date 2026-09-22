@@ -53,6 +53,10 @@ def _bounded_json(value, depth=0):
 
 
 def _selection(value):
+    if isinstance(value, dict) and "provider" in value:
+        from .providers import normalize_selection
+        normalize_selection(value)
+        return
     obj(value, {"mode", "model", "reasoningEffort"}, "model selection")
     if value.get("mode") == "default":
         if set(value) != {"mode"}:

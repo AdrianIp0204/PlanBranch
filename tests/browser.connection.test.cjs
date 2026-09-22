@@ -20,7 +20,7 @@ test('first-run connection retry is read-only and manual planning remains availa
  await p.reload();await check.getByRole('status').filter({hasText:'Codex unavailable'}).waitFor();
  await p.getByRole('button',{name:'New project',exact:true}).click();await p.getByLabel('Project name',{exact:true}).fill('Manual planning without Codex');await p.getByRole('button',{name:'Create project',exact:true}).click();await p.getByTestId('diagram-canvas').waitFor();
  assert.equal((await h.api('/projects')).projects.length,1);
- await p.getByText('Layout',{exact:true}).click();await p.getByRole('button',{name:'Codex connection',exact:true}).click();
+ await p.getByText('Layout',{exact:true}).click();await p.getByRole('button',{name:'Provider connection',exact:true}).click();
  const d=p.getByRole('dialog',{name:'Codex connection',exact:true});await d.getByRole('status').filter({hasText:'Codex unavailable'}).waitFor();
  const beforeRetry=unavailableCalls;
  await d.getByRole('button',{name:'Retry connection',exact:true}).focus();await p.keyboard.press('Enter');await until(()=>unavailableCalls===beforeRetry+1); // read-only retry stays in the dialog

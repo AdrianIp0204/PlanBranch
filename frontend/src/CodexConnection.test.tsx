@@ -11,6 +11,7 @@ import {
 } from "@testing-library/react";
 import CodexConnection, { CodexConnectionDialog } from "./CodexConnection";
 import App from "./App";
+import { updateAgentPreference } from "./preferences";
 import { api, bootstrap, post } from "./api";
 
 vi.mock("./api", async (original) => ({
@@ -209,4 +210,28 @@ describe("first-run manual planning", () => {
       );
     },
   );
+});
+
+it("checks Ollama without requiring a Codex connection or making any generation request", async () => {
+  updateAgentPreference("planning", "ollama");
+  vi.mocked(api).mockResolvedValue({
+    agent: { available: true, label: "Ollama" },
+  });
+  render(<CodexConnection />);
+  await screen.findByText("Ollama connected");
+  expect(api).toHaveBeenCalledExactlyOnceWith("/agent/status?provider=ollama");
+  expect(post).not.toHaveBeenCalled();
+  expect(screen.queryByText(/Install Codex CLI/)).toBeNull();
+});
+it("describes cloud credentials as configured rather than tested access", async () => {
+  updateAgentPreference("planning", "openai");
+  vi.mocked(api).mockResolvedValue({
+    agent: { available: true, label: "OpenAI", verified: false },
+  });
+  render(<CodexConnection />);
+  await screen.findByText("OpenAI configured");
+  expect(
+    screen.getByText(/Model access is checked when you send/),
+  ).toBeTruthy();
+  expect(post).not.toHaveBeenCalled();
 });

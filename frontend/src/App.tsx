@@ -1634,7 +1634,7 @@ function Workbench({
                 setConnectionOpen(true);
               }}
             >
-              Codex connection
+              Provider connection
             </button>
           </div>
         </details>

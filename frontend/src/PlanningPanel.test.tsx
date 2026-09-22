@@ -1746,3 +1746,140 @@ it("keeps one writing recovery action available across planning tabs without cha
     else Reflect.deleteProperty(prototype, "close");
   }
 });
+
+it("plans without Codex and retains an Ollama retry after switching provider and reopening", async () => {
+  state.agent = {
+    available: false,
+    label: "Codex CLI",
+    reason: "Not installed",
+  };
+  let submissions = 0;
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.startsWith("/agent/status"))
+      return { agent: { available: true, label: "Ollama" } } as any;
+    if (path.startsWith("/planning/capabilities"))
+      return {
+        status: "ready",
+        source: "ollama",
+        provider: path.includes("ollama") ? "ollama" : "codex",
+        cliVersion: null,
+        fetchedAt: null,
+        models: [
+          {
+            id: "local:latest",
+            label: "Local model",
+            description: "",
+            defaultReasoningEffort: null,
+            reasoningEfforts: [],
+            isDefault: true,
+          },
+        ],
+      } as any;
+    if (
+      path.endsWith("/messages") &&
+      options?.method === "POST" &&
+      ++submissions === 1
+    )
+      throw new Error("Acknowledgement lost");
+    return copy(state) as any;
+  });
+  const view = await mount();
+  fireEvent.change(screen.getByLabelText("Provider"), {
+    target: { value: "ollama" },
+  });
+  await screen.findByRole("option", { name: "Local model" });
+  fireEvent.change(screen.getByLabelText("Model"), {
+    target: { value: "local:latest" },
+  });
+  fireEvent.change(screen.getByLabelText("Message Ollama"), {
+    target: { value: "Plan locally" },
+  });
+  await waitFor(() =>
+    expect(
+      (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await screen.findByText("Acknowledgement lost");
+  const captured = JSON.parse(posts("/messages")[0][1]!.body as string);
+  expect(captured.selection).toEqual({
+    provider: "ollama",
+    mode: "explicit",
+    model: "local:latest",
+    reasoningEffort: null,
+  });
+  fireEvent.change(screen.getByLabelText("Provider"), {
+    target: { value: "codex" },
+  });
+  view.unmount();
+  await mount();
+  const retry = await screen.findByRole("button", { name: "Retry message" });
+  expect((retry as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(retry);
+  await waitFor(() => expect(posts("/messages")).toHaveLength(2));
+  expect(JSON.parse(posts("/messages")[1][1]!.body as string)).toEqual(
+    captured,
+  );
+});
+
+it("labels historical responses from their provider rather than the selected preference", async () => {
+  state.messages = [
+    {
+      id: "old-codex",
+      role: "assistant",
+      text: "Earlier CLI reply",
+      createdAt: "2026-09-20T00:00:00Z",
+    },
+    {
+      id: "local",
+      provider: "ollama",
+      role: "assistant",
+      text: "Local reply",
+      createdAt: "2026-09-20T00:00:01Z",
+    },
+  ];
+  withModels();
+  render(<PlanningPanel {...props()} />);
+  const old = (await screen.findByText("Earlier CLI reply")).closest("li")!;
+  const local = (await screen.findByText("Local reply")).closest("li")!;
+  expect(within(old).getByText("Codex")).toBeTruthy();
+  expect(within(local).getByText("Ollama")).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Provider"), {
+    target: { value: "openai" },
+  });
+  expect(within(old).getByText("Codex")).toBeTruthy();
+  expect(within(local).getByText("Ollama")).toBeTruthy();
+});
+
+it("cancels a running planning request explicitly without sending or retiring newer writing", async () => {
+  state.request = {
+    id: "running-request",
+    status: "running",
+    text: "Old request",
+    diagramId: "diagram",
+    selection: { mode: "default" },
+  };
+  withModels((path) => {
+    if (path.endsWith("/cancel"))
+      state.request = {
+        ...state.request!,
+        status: "failed",
+        error: "Cancelled",
+      };
+    return copy(state);
+  });
+  await mount();
+  fireEvent.change(screen.getByLabelText("Message Codex"), {
+    target: { value: "My next idea" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel reply" }));
+  await waitFor(() => expect(posts("/cancel")).toHaveLength(1));
+  expect(posts("/cancel")[0][0]).toBe(
+    "/projects/project/planning/requests/running-request/cancel",
+  );
+  expect(posts("/messages")).toHaveLength(0);
+  expect(
+    (screen.getByLabelText("Message Codex") as HTMLTextAreaElement).value,
+  ).toBe("My next idea");
+});

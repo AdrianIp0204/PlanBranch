@@ -431,7 +431,7 @@ test(
       title,
     );
     await workspace(p)
-      .getByRole("button", { name: "Ask Codex", exact: true })
+      .getByRole("button", { name: "Ask agent", exact: true })
       .click();
     const revision = await send(h, "Revise the visible build tasks");
     const next = revision.proposals.find(

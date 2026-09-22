@@ -49,7 +49,7 @@ export function describeOperation(operation: OperationStatus): OperationNotice {
   const target: OperationTarget = { kind: operation.kind, id: operation.id, ...(operation.taskId ? { taskId: operation.taskId } : {}), ...(operation.messageId ? { messageId: operation.messageId } : {}) };
   let title: string, detail: string, severity: OperationNotice["severity"] = "info";
   if (operation.kind === "planning") {
-    title = operation.needsInput ? "Codex needs your answer" : operation.needsReview ? "Plan changes ready for review" : "Codex replied";
+    title = operation.needsInput ? "Agent needs your answer" : operation.needsReview ? "Plan changes ready for review" : "Agent replied";
     detail = operation.needsInput ? "Open the planning questions to continue." : "Open planning chat to review the response.";
   } else if (operation.kind === "scan") {
     title = "Python scan finished";

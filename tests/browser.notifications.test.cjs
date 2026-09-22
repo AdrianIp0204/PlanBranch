@@ -147,16 +147,16 @@ test("a planning notification opens and focuses its earlier response even after 
   assert.equal(first.request.status, "succeeded");
   const message = first.messages.find(item => item.id === first.questionSets.at(-1).messageId);
   assert.ok(message);
-  await notices(p).getByRole("button", { name: "Open Codex needs your answer", exact: true }).waitFor();
+  await notices(p).getByRole("button", { name: "Open Agent needs your answer", exact: true }).waitFor();
   const newer = await request(h, "Discuss a later message");
-  await notices(p).getByRole("button", { name: "Open Codex replied", exact: true }).waitFor();
+  await notices(p).getByRole("button", { name: "Open Agent replied", exact: true }).waitFor();
   if (await planning(p).isVisible()) await planning(p).getByRole("button", { name: "Close planning conversation", exact: true }).click();
-  await notices(p).getByRole("button", { name: "Open Codex needs your answer", exact: true }).click();
+  await notices(p).getByRole("button", { name: "Open Agent needs your answer", exact: true }).click();
   const target = p.locator(`[data-message-id="${message.id}"]`);
   await target.waitFor();
   await until(() => target.evaluate(el => document.activeElement === el));
   assert.ok(await target.getByText("Choose the requirements for this plan.", { exact: true }).count());
-  assert.equal(await notices(p).getByRole("button", { name: "Open Codex needs your answer", exact: true }).count(), 0);
+  assert.equal(await notices(p).getByRole("button", { name: "Open Agent needs your answer", exact: true }).count(), 0);
   assert.equal((await h.api(`/projects/${h.initial.id}/planning`)).questionSets.at(-1).state, newer.questionSets.at(-1).state, "Opening a result never answers or changes earlier questions");
 });
 
@@ -228,7 +228,7 @@ test("notification placement leaves chat controls accessible at wide, narrow and
   await until(() => feed.polls() >= 1);
   await openChat(p);
   feed.set([operation("planning", "succeeded"), operation("scan", "failed"), operation("execution", "cancelled")]);
-  await notices(p).getByRole("button", { name: "Open Codex replied", exact: true }).waitFor();
+  await notices(p).getByRole("button", { name: "Open Agent replied", exact: true }).waitFor();
   for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }, { width: 720, height: 700 }]) {
     await p.setViewportSize(viewport);
     await openChat(p);
@@ -246,7 +246,7 @@ test("notification placement leaves chat controls accessible at wide, narrow and
     await until(() => zoomFeed.polls() >= 1);
     await openChat(zoomed.page);
     zoomFeed.set([operation("planning", "succeeded"), operation("scan", "failed"), operation("execution", "cancelled")]);
-    await notices(zoomed.page).getByRole("button", { name: "Open Codex replied", exact: true }).waitFor();
+    await notices(zoomed.page).getByRole("button", { name: "Open Agent replied", exact: true }).waitFor();
     const resizer = zoomed.page.getByRole("separator", { name: "Resize message composer", exact: true });
     const composer = zoomed.page.getByLabel("Message Codex", { exact: true });
     await composer.fill("Keep this next question while reviewing.");
@@ -309,7 +309,7 @@ test("notification placement leaves chat controls accessible at wide, narrow and
     // The incoming preview now loads and focuses Canvas. Await that completed
     // transition before starting revision, instead of racing its temporary dock.
     const proposalWorkspace = zoomed.page.getByRole("region", { name: "Proposed changes workspace", exact: true });
-    await proposalWorkspace.getByRole("button", { name: "Ask Codex", exact: true }).click();
+    await proposalWorkspace.getByRole("button", { name: "Ask agent", exact: true }).click();
     await planning(zoomed.page).getByText("Revising:", { exact: false }).waitFor();
     assert.match(await planning(zoomed.page).locator(".planning-revision-context").innerText(), /deliberately long/);
     await planning(zoomed.page).getByRole("button", { name: /^Show selected node:/ }).waitFor();

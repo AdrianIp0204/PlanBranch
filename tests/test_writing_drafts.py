@@ -105,7 +105,8 @@ def test_api_token_project_ownership_and_settings_info(tmp_path):
     assert client.get('/api/settings/info').status_code==403
     client.environ_base['HTTP_X_FLOWDESK_TOKEN']=client.get('/api/bootstrap').json['token']
     assert client.get('/api/settings/info').json['dataDirectory']==str(tmp_path.resolve())
-    assert client.get('/api/settings/info').json['schemaVersion']==9
+    from flowdesk.migrations import DATABASE_VERSION
+    assert client.get('/api/settings/info').json['schemaVersion']==DATABASE_VERSION
     project=client.post('/api/projects',json={'name':'API writing'}).json
     url=f"/api/projects/{project['id']}/planning/writing"
     assert client.get(url).json['draft']['revision']==0

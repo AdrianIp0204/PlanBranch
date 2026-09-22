@@ -1638,7 +1638,7 @@ test(
     await until(
       async () =>
         (await p
-          .getByText("Answers submitted. Codex is continuing the plan.", {
+          .getByText("Answers submitted. The agent is continuing the plan.", {
             exact: true,
           })
           .count()) > 0,

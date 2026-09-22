@@ -98,3 +98,44 @@ it("rejects malformed persisted Build candidates without stripping their intent"
   );
   expect(readPlanningDrafts("p").failedPrompt).toBeNull();
 });
+
+it("retains provider identity on prompt and answer recovery without upgrading legacy receipts", () => {
+  for (const selection of [
+    { mode: "default" as const },
+    {
+      mode: "explicit" as const,
+      model: "codex-model",
+      reasoningEffort: "high",
+    },
+    {
+      provider: "ollama" as const,
+      mode: "explicit" as const,
+      model: "local-model",
+      reasoningEffort: null,
+    },
+  ]) {
+    const failedPrompt = {
+      mutationId: "request",
+      text: "Keep this",
+      diagramId: "diagram",
+      nodeId: null,
+      selection,
+    };
+    const failedAnswer = {
+      setId: "questions",
+      mutationId: "answers",
+      baseRevision: 3,
+      answers: [{ questionId: "q", optionId: "yes", text: null }],
+      selection,
+    };
+    writePlanningDrafts("p", {
+      message: "Keep this",
+      comments: {},
+      failedPrompt,
+      failedAnswer,
+    });
+    const restored = readPlanningDrafts("p");
+    expect(restored.failedPrompt).toEqual(failedPrompt);
+    expect(restored.failedAnswer).toEqual(failedAnswer);
+  }
+});

@@ -178,13 +178,14 @@ def provider_context_for(context):
 class PlanningService:
     def __init__(self, store, planner=None):
         if planner is None:
-            from .codex_planner import CodexPlanner
-            planner = CodexPlanner()
+            from .providers import ProviderRegistry
+            planner = ProviderRegistry(store.db_path.parent)
         self.store = store
         self.planner = planner
         from .proposal_drafts import ProposalDrafts
         self.drafts = ProposalDrafts(self)
         self._threads = {}
+        self._cancels = {}
         self._thread_lock = threading.Lock()
         # A request interrupted by shutdown cannot be resumed blindly. It retains
         # its original context and can be explicitly retried with the same ID.
@@ -208,8 +209,10 @@ class PlanningService:
         project = self._current(db, project_id)
         content_hash = manual_fingerprint(project["content"])
         messages = []
-        for row in db.execute("SELECT * FROM planning_messages WHERE project_id=? ORDER BY created_at,id", (project_id,)):
+        for row in db.execute("SELECT m.*,s.provider,s.model FROM planning_messages m LEFT JOIN planning_message_sources s ON s.message_id=m.id WHERE m.project_id=? ORDER BY m.created_at,m.id", (project_id,)):
             message = {"id": row["id"], "role": row["role"], "text": row["text"], "createdAt": row["created_at"]}
+            if row["provider"] is not None:
+                message.update(provider=row["provider"], model=row["model"])
             for source, target in (("diagram_id", "diagramId"), ("node_id", "nodeId"), ("node_title", "nodeTitle"), ("proposal_id", "proposalId")):
                 if row[source] is not None:
                     message[target] = row[source]
@@ -240,6 +243,8 @@ class PlanningService:
             if generation is not None:
                 request["generation"] = {key: generation.get(key) for key in (
                     "selection", "cliVersion", "instructionVersion", "instructionHash", "protocolVersion")}
+                if "provider" in generation:
+                    request["generation"]["provider"] = generation["provider"]
             if payload.get("nodeId") is not None:
                 request["nodeId"] = payload["nodeId"]
             if row["error"]:
@@ -271,8 +276,7 @@ class PlanningService:
         with closing(self.store.connect()) as db:
             db.execute("BEGIN")
             state = self._state(db, project_id)
-        state["agent"] = self.planner.status()
-        return state
+        return self._with_agent(state)
 
     def _proposal(self, db, project_id, proposal_id):
         identifier(proposal_id, "Proposal ID")
@@ -360,7 +364,26 @@ class PlanningService:
         thread = threading.Thread(target=self._generate, args=(project_id, request_id, attempt_id), daemon=True, name="flowdesk-planning")
         with self._thread_lock:
             self._threads[(project_id, request_id)] = thread
+            self._cancels[(project_id, request_id, attempt_id)] = threading.Event()
         thread.start()
+
+    def cancel(self, project_id, request_id, payload):
+        obj(payload, {"mutationId"}, "cancel planning")
+        identifier(request_id, "Request ID")
+        with closing(self.store.connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            self.store._row(db, project_id)
+            row = db.execute("SELECT status,attempt_id FROM planning_requests WHERE project_id=? AND id=?", (project_id, request_id)).fetchone()
+            if row is None:
+                raise NotFoundError("Planning request not found.")
+            if not self._receipt(db, project_id, "cancel:" + request_id, payload) and row["status"] == "running":
+                with self._thread_lock:
+                    event = self._cancels.get((project_id, request_id, row["attempt_id"]))
+                    if event is not None:
+                        event.set()
+                db.execute("UPDATE planning_requests SET status='failed',error=?,updated_at=? WHERE project_id=? AND id=?",
+                           ("Planning cancelled. Your message is retained; retry only when you want another attempt.", now(), project_id, request_id))
+        return self.state(project_id)
 
     def add_comment(self, project_id, payload):
         obj(payload, {"mutationId", "diagramId", "nodeId", "text"}, "node comment")
@@ -526,7 +549,11 @@ class PlanningService:
         state["answerReceipt"] = {"questionSetId": set_id, "requestId": continuation_id}
         return state
 
-    def capabilities(self, refresh=False):
+    def capabilities(self, refresh=False, provider="codex"):
+        if provider != "codex":
+            from .providers import ProviderRegistry
+            registry = self.planner if isinstance(self.planner, ProviderRegistry) else ProviderRegistry(self.store.db_path.parent)
+            return registry.capabilities(provider=provider, refresh=refresh)
         if hasattr(self.planner, "capabilities"):
             return self.planner.capabilities(refresh=refresh)
         return {"status": "unavailable", "source": "cli_catalogue", "cliVersion": None,
@@ -534,6 +561,9 @@ class PlanningService:
 
     @staticmethod
     def _selection(value):
+        if isinstance(value, dict) and "provider" in value:
+            from .providers import normalize_selection
+            return normalize_selection(value)
         obj(value, {"mode", "model", "reasoningEffort"}, "model selection")
         if value.get("mode") == "default":
             obj(value, {"mode"}, "default model selection")
@@ -557,7 +587,10 @@ class PlanningService:
         return None
 
     def _with_agent(self, state):
-        state["agent"] = self.planner.status()
+        from .providers import ProviderRegistry
+        selection = (state.get("request") or {}).get("selection") or {}
+        state["agent"] = (self.planner.status(selection.get("provider", "codex"))
+                          if isinstance(self.planner, ProviderRegistry) else self.planner.status())
         return state
 
     def _generate(self, project_id, request_id, attempt_id):
@@ -569,7 +602,14 @@ class PlanningService:
                 context = json.loads(request["context"])
             # Authored planning text is allowed. Scanner evidence, confirmed
             # symbol relationships, source-root grants and filesystem data are not.
-            response = validate_envelope(self.planner.generate(provider_context_for(context)), context.get("generation", {}).get("protocolVersion", 1))
+            from .providers import ProviderRegistry
+            if isinstance(self.planner, ProviderRegistry):
+                with self._thread_lock:
+                    cancel = self._cancels.get((project_id, request_id, attempt_id))
+                generated = self.planner.generate(provider_context_for(context), cancel=cancel)
+            else:
+                generated = self.planner.generate(provider_context_for(context))
+            response = validate_envelope(generated, context.get("generation", {}).get("protocolVersion", 1))
             proposed = response.get("proposal")
             proposal_id = None
             with closing(self.store.connect()) as db, db:
@@ -638,6 +678,10 @@ class PlanningService:
                 db.execute("INSERT INTO planning_messages VALUES(?,?,?,?,?,?,?,?,?)",
                            (message_id, project_id, "assistant", response["message"], now(), source["diagramId"],
                             source.get("nodeId"), original_node["title"] if original_node else None, proposal_id))
+                generation = context.get("generation") or {}
+                selection = generation.get("selection") or {}
+                db.execute("INSERT INTO planning_message_sources VALUES(?,?,?)",
+                           (message_id, generation.get("provider", "codex"), selection.get("model")))
                 if response["kind"] == "questions":
                     db.execute("UPDATE planning_question_sets SET state='superseded' WHERE project_id=? AND state='open'", (project_id,))
                     db.execute("INSERT INTO planning_question_sets VALUES(?,?,?,?,?,?,?,2,?,NULL,'open',?,NULL,NULL)",
@@ -653,7 +697,9 @@ class PlanningService:
                            (error[:2000], now(), project_id, request_id, attempt_id))
         finally:
             with self._thread_lock:
-                self._threads.pop((project_id, request_id), None)
+                self._cancels.pop((project_id, request_id, attempt_id), None)
+                if self._threads.get((project_id, request_id)) is threading.current_thread():
+                    self._threads.pop((project_id, request_id), None)
 
     def accept(self, project_id, proposal_id, payload):
         obj(payload, {"baseRevision", "mutationId", "diagram", "contentHash", "draftId", "draftRevision"}, "proposal acceptance")
