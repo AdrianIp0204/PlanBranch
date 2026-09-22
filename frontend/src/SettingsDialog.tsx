@@ -55,7 +55,7 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
         <button onClick={() => { resetLayout(); setNotice("Default layout restored."); }}>Restore default layout</button>
       </>}
       {section === "Agent" && <>
-        <h3>Planning defaults</h3>
+        <h3>Model defaults</h3>
         <ModelControls selection={model.selection} capabilities={model.capabilities} onChange={model.setSelection} problemId="settings-model-problem" />
         {model.problem && <p id="settings-model-problem" role="status">{model.problem}</p>}
         <p className="muted">Used for new requests. Existing requests and retries keep their captured settings.</p>

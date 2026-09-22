@@ -79,7 +79,7 @@ The editor, scanner and exports work offline. Dependency downloads and optional 
 
 ## Make the workspace yours
 
-Open **Settings** from the toolbar or welcome screen for Light, Dark or System appearance, readable text sizes, compact spacing, grid/minimap controls and snapping. Planning model defaults and the Codex connection check are available in Agent; Data & About shows the local data folder and backup action. Preferences stay in this browser and never edit a plan.
+Open **Settings** from the toolbar or welcome screen for Light, Dark or System appearance, readable text sizes, compact spacing, grid/minimap controls and snapping. Model defaults and the Codex connection check are available in Agent; Data & About shows the local data folder and backup action. Preferences stay in this browser and never edit a plan.
 
 By default, PlanBranch reopens your last project, diagram and Diagram/Build view. Choose **Settings → Editor → Startup → Show projects** to start with project selection instead. Full-diagram PNGs use a consistent light palette regardless of the workspace theme.
 

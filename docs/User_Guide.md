@@ -281,7 +281,7 @@ Open **Settings** in the top bar, including before opening a project. Appearance
 
 Editor contains grid/minimap visibility, optional 10-pixel snapping for future moves, startup behavior and Restore default layout. Existing positions are never snapped merely by enabling the preference. Panel sizes, model defaults, last-workspace navigation and other preferences are stored in this browser, outside project content, Undo and approval. Browser storage restrictions may prevent these preferences surviving closure.
 
-Startup reopens the last available project, diagram and Diagram/Build view; missing references fall back to valid content. Choose **Show projects** to open the project list instead. Agent Settings reuses chat's discovered model choices; changes affect new requests, while retries retain their captured settings. No global Codex configuration is changed. Data & About shows the configured data folder, app version, loopback connection and database backup action.
+Startup reopens the last available project, diagram and Diagram/Build view; missing references fall back to valid content. Choose **Show projects** to open the project list instead. Agent Settings shares discovered model choices with chat and new Run previews; changes affect future requests, while submitted requests and retries retain their captured settings. No global Codex configuration is changed. Data & About shows the configured data folder, app version, loopback connection and database backup action.
 
 
 ## Quick jump
