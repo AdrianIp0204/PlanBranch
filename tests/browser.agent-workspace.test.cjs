@@ -1648,3 +1648,49 @@ test(
     await assertMenuFocus();
   },
 );
+
+test("reading older messages survives a delayed durable send receipt and the later reply", { timeout: 120000 }, async t => {
+  const h = await setupBrowser(t, { name: "agent-reading-staged-send", planningFixture: true, viewport: { width: 1280, height: 800 } }), p = h.page;
+  for (let index = 0; index < 4; index++) await request(h, `Discuss previous requirements ${index}. ` + "Preserve each reviewed constraint and the existing decision branches. ".repeat(10));
+  await p.reload();
+  await openChat(p);
+  await until(async () => !/^Loading/.test(await p.getByTestId("writing-save-state").innerText()));
+  const scroll = p.locator("#planning-view-conversation .planning-scroll");
+  const composer = p.getByLabel("Message Codex", { exact: true });
+  const messageCount = await p.locator("[data-message-id]").count();
+  let release, held = false;
+  const gate = new Promise(resolve => { release = resolve; });
+  t.after(() => release());
+  await p.route("**/planning/writing", async route => {
+    const body = route.request().method() === "PUT" ? route.request().postDataJSON() : null;
+    if (!body?.payload?.failedPrompt || held) return route.continue();
+    held = true;
+    await gate;
+    await route.continue();
+  });
+  await composer.fill("Discuss a slow update while a draft receipt is pending");
+  const posted = p.waitForResponse(response => response.request().method() === "POST" && response.url().endsWith("/planning/messages"));
+  await p.getByRole("button", { name: "Send", exact: true }).click();
+  await until(() => held);
+  const newer = "A newer unsent thought must remain while I read the older conversation.";
+  await composer.fill(newer);
+  await scroll.evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event("scroll")); });
+  await p.getByRole("button", { name: /^Jump to latest/ }).waitFor();
+  assert.equal(await scroll.evaluate(el => el.scrollTop), 0);
+  release();
+  const response = await posted;
+  assert.equal(response.ok(), true);
+  const admitted = await response.json();
+  await until(async () => await p.locator("[data-message-id]").count() >= messageCount + 1);
+  assert.equal(await scroll.evaluate(el => el.scrollTop), 0, "The late send receipt preserves the reader's position");
+  await until(async () => {
+    const value = await h.api(`/projects/${h.initial.id}/planning`);
+    return value.request?.id === admitted.request.id && value.request.status === "succeeded";
+  });
+  await until(async () => await p.locator("[data-message-id]").count() >= messageCount + 2);
+  assert.equal(await scroll.evaluate(el => el.scrollTop), 0, "The incoming reply preserves the reader's position");
+  assert.equal(await composer.inputValue(), newer);
+  await p.getByRole("button", { name: /^Jump to latest/ }).click();
+  await until(() => scroll.evaluate(el => el.scrollHeight - el.clientHeight - el.scrollTop < 70));
+  await p.screenshot({ path: path.join(h.output, "reading-position-preserved.png") });
+});

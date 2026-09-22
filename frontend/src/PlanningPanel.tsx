@@ -517,9 +517,10 @@ export default function PlanningPanel({
       ? undefined
       : writing.captureVersion("message");
     await work("Sending", async () => {
+      // Capture send intent now; scrolling while durable writes await must win.
+      followConversation.current = true;
       await saved();
       await writing.stage("message", body, !prompt, submittedVersion);
-      followConversation.current = true;
       await mutate("/messages", body);
       writing.retire("message", body.mutationId);
       setFailedAnswer(null);
@@ -640,6 +641,7 @@ export default function PlanningPanel({
     const interaction = focusInteraction.current;
     const submittedVersion = writing.captureVersion("answer", set.id);
     await work("Submitting answers", async () => {
+      followConversation.current = true;
       const latest = replay ? getSnapshot() : await saved();
       if (
         !replay &&
@@ -656,7 +658,6 @@ export default function PlanningPanel({
       };
       await writing.stage("answer", submission, true, submittedVersion);
       const { setId, ...body } = submission;
-      followConversation.current = true;
       try {
         await mutate(`/questions/${setId}/answers`, body);
       } catch (error) {
