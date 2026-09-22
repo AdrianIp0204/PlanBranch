@@ -86,7 +86,7 @@ def released_v5(tmp_path):
         for row in db.execute("SELECT id,content FROM planning_approvals").fetchall():
             db.execute("UPDATE planning_approvals SET content=? WHERE id=?", (encode(legacy(json.loads(row["content"]))), row["id"]))
         db.execute("ALTER TABLE planning_proposals DROP COLUMN editable_sections")
-        for table in ("execution_receipts", "execution_runs", "execution_previews", "execution_repositories"):
+        for table in ("writing_draft_receipts", "writing_drafts", "execution_receipts", "execution_runs", "execution_previews", "execution_repositories"):
             db.execute("DROP TABLE " + table)
         db.execute("DELETE FROM schema_migrations WHERE version>=6")
     return dict(store=store, project=project, proposal=proposal, diagram=diagram, summary=summary,

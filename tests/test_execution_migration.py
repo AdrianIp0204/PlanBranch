@@ -46,7 +46,7 @@ def test_execution_migration_preserves_manual_history_frozen_approval_and_receip
     assert upgraded.get_project(project["id"]) == project
     assert PlanningService(upgraded, FakePlanner()).state(project["id"])["approval"]["current"]
     with closing(upgraded.connect()) as db:
-        assert migrations.applied_versions(db) == tuple(range(1, 9))
+        assert migrations.applied_versions(db) == tuple(range(1, migrations.DATABASE_VERSION + 1))
         assert db.execute("SELECT COUNT(*) FROM execution_runs").fetchone()[0] == 0
     portable = portable_project(project, [])
     assert set(portable) == {"format", "version", "content", "views", "symbols"}
@@ -56,11 +56,11 @@ def test_execution_migration_preserves_manual_history_frozen_approval_and_receip
 def test_execution_migration_failure_rolls_back_new_tables_without_manual_changes(tmp_path, monkeypatch):
     previous, project = previous_store(tmp_path, monkeypatch)
     before = raw_content(previous)
-    original = migrations.MIGRATIONS[-1]
+    original = next(item for item in migrations.MIGRATIONS if item.version == 8)
     def fail(db, owner):
         original.apply(db, owner)
         raise RuntimeError("Interrupted additive migration")
-    monkeypatch.setattr(migrations, "MIGRATIONS", (*migrations.MIGRATIONS[:-1], migrations.Migration(8, original.name, False, fail)))
+    monkeypatch.setattr(migrations, "MIGRATIONS", tuple(migrations.Migration(8, original.name, False, fail) if item.version == 8 else item for item in migrations.MIGRATIONS))
     with pytest.raises(RuntimeError, match="Interrupted additive"):
         Store(previous.db_path)
     assert raw_content(previous) == before

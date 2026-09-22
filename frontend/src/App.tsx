@@ -7,6 +7,7 @@ import {
 } from "react";
 import { readPreferences } from "./preferences";
 import { readWorkspaceMemory, rememberedPlace, rememberWorkspace } from "./workspaceMemory";
+import type { DraftGuard } from "./writingDrafts";
 import SettingsDialog from "./SettingsDialog";
 import type { ReactFlowInstance } from "@xyflow/react";
 import { api, ApiError, bootstrap, download, post } from "./api";
@@ -394,6 +395,8 @@ function Workbench({
   const proposalPreviewRef = useRef(proposalPreview);
   proposalPreviewRef.current = proposalPreview;
   const proposalLeaveGuard = useRef<ProposalLeaveGuard | null>(null);
+  const writingLeaveGuard = useRef<DraftGuard | null>(null);
+  const registerWritingLeaveGuard = useCallback((guard: DraftGuard | null) => { writingLeaveGuard.current = guard; }, []);
   const registerProposalLeaveGuard = useCallback(
     (guard: ProposalLeaveGuard | null) => {
       proposalLeaveGuard.current = guard;
@@ -792,6 +795,10 @@ function Workbench({
   const perform = async (action: () => void | Promise<void>, save = true) => {
     setError("");
     try {
+      if (save && writingLeaveGuard.current && !(await writingLeaveGuard.current.flush())) {
+        setError("Your writing has not saved. Open Chat to retry or recover the draft before leaving.");
+        return;
+      }
       if (save && !(await flush())) return;
       await action();
     } catch (e) {
@@ -1783,6 +1790,7 @@ function Workbench({
             }
           >
             <PlanningPanel
+              onDraftGuard={registerWritingLeaveGuard}
               diagramId={diagram.id}
               nodeId={
                 diagram.nodes.some((node) => node.id === selected)

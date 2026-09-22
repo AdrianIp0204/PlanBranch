@@ -276,3 +276,12 @@ Shared browser preferences, Settings, semantic System/Light/Dark themes, fixed c
 Windows: production build passed; full frontend suite passed **223 tests**, plus **2 workspace-memory tests**. Four focused browser scenarios passed across initial run and affected-fixture rerun: preference persistence and unchanged history/approval, model synchronization, system appearance, contrast/graph dimensions, narrow/real 200% keyboard access, and light full-diagram PNG from dark mode. Existing fixture assumptions were updated to explicitly select the requested project after reload. External browser requests were blocked; all data was disposable.
 
 Baseline images: `output/playwright/qol-baseline-8xmPUw`; comparable light images: `output/playwright/qol-after-xkUpjR`; dark/light images: `output/playwright/qol-settings-vnmxd3`; narrow/zoom: `output/playwright/qol-settings-access-jblwxQ`; PNG: `output/playwright/qol-light-export-zGYBiE`. Browser logs: `output/qol-m1-browser*.log`. Later milestone and package checks follow below.
+
+
+## Quality-of-life milestone 2 — durable unsent writing (2026-09-22)
+
+SQLite schema 9 stores unsent chat, node comments and partially answered questions independently of manual history, approvals and proposal drafts. Conditional saves and receipts preserve concurrent copies and newer typing; legacy session drafts import conservatively. Submission retires the captured writing version only after its existing receipt is acknowledged.
+
+Verified on disposable Windows data: 56 focused frontend tests and 21 backend writing/migration tests passed. Five production-browser recovery scenarios passed across initial and corrected targeted runs: browser/server restart, orphan recovery, delayed/failed saves with guarded navigation, conflicting tabs/copy retirement, and lost submission acknowledgement with newer text retained. Browser reports recorded zero external requests and zero page errors. Evidence: `output/qol-writing-navigation-rerun.log` and writing fixture folders under `output/playwright/`.
+
+The first full backend run found three outdated historical-schema fixture expectations (480 passed, 9 skipped, 3 failed). Fixtures now construct the correct old schema and target migration 8 explicitly; all affected tests passed on rerun. Final full-suite results are recorded below when complete.

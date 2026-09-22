@@ -83,6 +83,8 @@ Open **Settings** from the toolbar or welcome screen for Light, Dark or System a
 
 By default, PlanBranch reopens your last project, diagram and Diagram/Build view. Choose **Settings → Editor → Startup → Show projects** to start with project selection instead. Full-diagram PNGs use a consistent light palette regardless of the workspace theme.
 
+Unsent chat, node comments and question answers save separately from the plan and recover after restart. Conflicting edits retain recoverable copies; recovered writing is never sent automatically.
+
 ## Your data and your decisions
 
 - **Saved locally.** The default data folder remains `%LOCALAPPDATA%\FlowDesk` on Windows, or `$XDG_DATA_HOME/flowdesk` / `~/.local/share/flowdesk` on Linux. Use `--data-dir` and `--port` to override defaults. The server binds to loopback only.

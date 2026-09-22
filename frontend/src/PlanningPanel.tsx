@@ -19,8 +19,6 @@ import { uid } from "./types";
 import {
   samePlan,
   selectionLabel,
-  readPlanningDrafts,
-  writePlanningDrafts,
   reviewFieldLabel,
   reviewNames,
   reviewValueText,
@@ -34,6 +32,9 @@ import {
   type QuestionSet,
 } from "./planning";
 import "./planning.css";
+import useWritingDrafts from "./useWritingDrafts";
+import WritingRecovery from "./WritingRecovery";
+import type { DraftGuard } from "./writingDrafts";
 
 type Tab = "conversation" | "comments" | "review";
 const tabs: Tab[] = ["conversation", "comments", "review"];
@@ -111,6 +112,7 @@ export default function PlanningPanel({
   onState,
   revisionRequest,
   refreshKey = 0,
+  onDraftGuard,
 }: {
   diagramId: string;
   nodeId: string | null;
@@ -125,34 +127,45 @@ export default function PlanningPanel({
   onState?: (state: PlanningState) => void;
   revisionRequest?: ProposalRevision | null;
   refreshKey?: number;
+  onDraftGuard?: (guard: DraftGuard | null) => void;
 }) {
   const { session, flush, getSnapshot } = useProject();
   const modelSettings = useModelSelection(active);
-  const [recoveredDrafts] = useState(() => readPlanningDrafts(session.id));
+  const writing = useWritingDrafts(session.id, onDraftGuard);
   const [state, setState] = useState<PlanningState | null>(null);
   const [tab, setTab] = useState<Tab>("conversation");
-  const [draft, setDraft] = useState(recoveredDrafts.message);
-  const [revision, setRevision] = useState<ProposalRevision | null>(
-    recoveredDrafts.revision ?? null,
-  );
+  const draft = writing.value.message;
+  const setDraft = (value: string | ((current: string) => string)) =>
+    writing.set("message", value);
+  const revision = writing.value.revision;
+  const setRevision = (
+    value:
+      | ProposalRevision
+      | null
+      | ((current: ProposalRevision | null) => ProposalRevision | null),
+  ) => writing.set("revision", value);
   const [aboutNode, setAboutNode] = useState(false);
-  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>(
-    recoveredDrafts.comments,
-  );
+  const commentDrafts = writing.value.comments;
+  const setCommentDrafts = (
+    value:
+      | Record<string, string>
+      | ((current: Record<string, string>) => Record<string, string>),
+  ) => writing.set("comments", value);
   const [commentScope, setCommentScope] = useState<"all" | "selected">("all");
   const [showResolved, setShowResolved] = useState(false);
   const [error, setError] = useState("");
   const [loadingError, setLoadingError] = useState("");
   const [busy, setBusy] = useState("");
-  const [failedPrompt, setFailedPrompt] = useState<PlanningPrompt | null>(
-    recoveredDrafts.failedPrompt,
-  );
-  const [questionDrafts, setQuestionDrafts] = useState<QuestionDrafts>(
-    recoveredDrafts.questionDrafts ?? {},
-  );
-  const [failedAnswer, setFailedAnswer] = useState<AnswerSubmission | null>(
-    recoveredDrafts.failedAnswer ?? null,
-  );
+  const failedPrompt = writing.value.failedPrompt;
+  const setFailedPrompt = (value: PlanningPrompt | null) =>
+    writing.set("failedPrompt", value);
+  const questionDrafts = writing.value.questionDrafts;
+  const setQuestionDrafts = (
+    value: QuestionDrafts | ((current: QuestionDrafts) => QuestionDrafts),
+  ) => writing.set("questionDrafts", value);
+  const failedAnswer = writing.value.failedAnswer;
+  const setFailedAnswer = (value: AnswerSubmission | null) =>
+    writing.set("failedAnswer", value);
   const [announcement, setAnnouncement] = useState("");
   const [help, setHelp] = useState<
     "sharing" | "approval" | "node" | "settings" | null
@@ -201,6 +214,7 @@ export default function PlanningPanel({
   const operation = useRef(false);
   const focusInteraction = useRef(0);
   const uncertainAcceptance = useRef<string | null>(null);
+  const importedRevisionNonce = useRef<string | null>(null);
   const mutationIds = useRef(new Map<string, string>());
   function stableMutationId(key: string) {
     let id = mutationIds.current.get(key);
@@ -218,12 +232,6 @@ export default function PlanningPanel({
     if (active && mounted.current && focusInteraction.current === interaction)
       composer.current?.focus({ preventScroll: true });
   }
-  const failedComment = useRef<{
-    mutationId: string;
-    nodeId: string;
-    diagramId: string;
-    text: string;
-  } | null>(null);
   const base = `/projects/${session.id}/planning`;
   const diagram = session.content.diagrams.find(
     (item) => item.id === diagramId,
@@ -266,7 +274,7 @@ export default function PlanningPanel({
         ? "Accept or reject pending changes before approving."
         : unresolved.length
           ? "Resolve the open node comments before approving."
-          : !hasNodes && !(session.content.buildTasks?.length)
+          : !hasNodes && !session.content.buildTasks?.length
             ? "Add at least one task or flow node before approving a plan."
             : "";
 
@@ -315,31 +323,19 @@ export default function PlanningPanel({
     if (state) onState?.(state);
   }, [state, onState]);
   useEffect(() => {
-    if (!revisionRequest) return;
+    if (
+      !revisionRequest ||
+      !writing.ready ||
+      importedRevisionNonce.current === revisionRequest.nonce
+    )
+      return;
+    importedRevisionNonce.current = revisionRequest.nonce;
     setRevision(revisionRequest);
     setFailedPrompt(null);
     setAboutNode(false);
     setTab("conversation");
     requestAnimationFrame(() => composer.current?.focus());
-  }, [revisionRequest?.nonce]);
-  useEffect(() => {
-    writePlanningDrafts(session.id, {
-      message: draft,
-      comments: commentDrafts,
-      failedPrompt,
-      questionDrafts,
-      failedAnswer,
-      revision,
-    });
-  }, [
-    session.id,
-    draft,
-    commentDrafts,
-    failedPrompt,
-    questionDrafts,
-    failedAnswer,
-    revision,
-  ]);
+  }, [revisionRequest?.nonce, writing.ready]);
   useEffect(() => {
     if (!running) return;
     const timer = setInterval(() => void refresh(), 1200);
@@ -431,13 +427,19 @@ export default function PlanningPanel({
     }
   }
   async function send(prompt?: PlanningPrompt, forceNew = false) {
-    if (modelSettings.serverIncompatible) return;
-    const capturedRevision = revision;
+    if (modelSettings.serverIncompatible || !writing.ready) return;
     const captured: PlanningPrompt = prompt ?? {
       mutationId: uid(),
       text: draft.trim(),
-      diagramId: revision?.diagram.id ?? diagramId,
-      nodeId: revision ? null : aboutNode ? (node?.id ?? null) : null,
+      diagramId:
+        revision?.diagram.id ?? writing.value.context?.diagramId ?? diagramId,
+      nodeId: revision
+        ? null
+        : writing.value.context
+          ? writing.value.context.nodeId
+          : aboutNode
+            ? (node?.id ?? null)
+            : null,
       selection: modelSettings.selection,
       ...(revision
         ? {
@@ -486,17 +488,16 @@ export default function PlanningPanel({
       return;
     }
     const interaction = focusInteraction.current;
+    const submittedVersion = prompt
+      ? undefined
+      : writing.captureVersion("message");
     await work("Sending", async () => {
       await saved();
-      setFailedPrompt(body);
+      await writing.stage("message", body, !prompt, submittedVersion);
       followConversation.current = true;
       await mutate("/messages", body);
-      setFailedPrompt(null);
+      writing.retire("message", body.mutationId);
       setFailedAnswer(null);
-      setRevision((current) =>
-        current?.nonce === capturedRevision?.nonce ? null : current,
-      );
-      setDraft((current) => (current.trim() === body.text ? "" : current));
       setAnnouncement("Message sent. The agent is preparing a reply.");
       restoreComposerFocus(interaction);
     });
@@ -520,9 +521,15 @@ export default function PlanningPanel({
   const retriesDraft = Boolean(
     failedPrompt &&
     draft.trim() === failedPrompt.text &&
-    (revision?.diagram.id ?? diagramId) === failedPrompt.diagramId &&
-    (revision ? null : aboutNode ? (node?.id ?? null) : null) ===
-      failedPrompt.nodeId &&
+    (revision?.diagram.id ?? writing.value.context?.diagramId ?? diagramId) ===
+      failedPrompt.diagramId &&
+    (revision
+      ? null
+      : writing.value.context
+        ? writing.value.context.nodeId
+        : aboutNode
+          ? (node?.id ?? null)
+          : null) === failedPrompt.nodeId &&
     revision?.proposalId === failedPrompt.proposalId &&
     samePlan(
       revision && (revision.editableSections ?? ["diagram"]).includes("diagram")
@@ -596,7 +603,7 @@ export default function PlanningPanel({
     answers: QuestionAnswer[],
     replay?: AnswerSubmission,
   ) {
-    if (modelSettings.serverIncompatible) return;
+    if (modelSettings.serverIncompatible || !writing.ready) return;
     if (!replay && (questionOutdated(set) || modelSettings.problem)) {
       setError(
         questionOutdated(set)
@@ -606,6 +613,7 @@ export default function PlanningPanel({
       return;
     }
     const interaction = focusInteraction.current;
+    const submittedVersion = writing.captureVersion("answer", set.id);
     await work("Submitting answers", async () => {
       const latest = replay ? getSnapshot() : await saved();
       if (
@@ -621,7 +629,7 @@ export default function PlanningPanel({
         answers,
         selection: modelSettings.selection,
       };
-      setFailedAnswer(submission);
+      await writing.stage("answer", submission, true, submittedVersion);
       const { setId, ...body } = submission;
       followConversation.current = true;
       try {
@@ -638,7 +646,7 @@ export default function PlanningPanel({
         }
         throw error;
       }
-      setFailedAnswer(null);
+      writing.retire("answer", submission.mutationId);
       setAnnouncement("Answers submitted. Codex is continuing the plan.");
       restoreComposerFocus(interaction);
     });
@@ -687,7 +695,9 @@ export default function PlanningPanel({
           Object.hasOwn(questionDrafts, set.id) ? questionDrafts[set.id] : {}
         }
         stale={questionOutdated(set)}
-        busy={Boolean(busy || running || failedAnswer?.setId === set.id)}
+        busy={Boolean(
+          !writing.ready || busy || running || failedAnswer?.setId === set.id,
+        )}
         blocked={modelSettings.problem}
         onDraft={(questionId, value) =>
           setQuestionDrafts((current) => ({
@@ -791,6 +801,11 @@ export default function PlanningPanel({
           ×
         </button>
       </header>
+      <WritingRecovery
+        writing={writing}
+        content={session.content}
+        planning={state}
+      />
       <span id="planning-approval-reason" className="sr-only">
         {approvalReason}
       </span>
@@ -1124,6 +1139,35 @@ export default function PlanningPanel({
             void send();
           }}
         >
+          {!revision &&
+            draft &&
+            writing.value.context &&
+            (writing.value.context.diagramId !== diagramId ||
+              (writing.value.context.nodeId !== null &&
+                writing.value.context.nodeId !== node?.id)) && (
+              <div className="planning-revision-context">
+                <span>
+                  For: {writing.value.context.diagramName || "Earlier diagram"}
+                  {writing.value.context.nodeTitle
+                    ? ` / ${writing.value.context.nodeTitle}`
+                    : ""}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    writing.setContext({
+                      diagramId,
+                      nodeId: null,
+                      diagramName: diagram?.name ?? "",
+                      nodeTitle: "",
+                    });
+                    setAboutNode(false);
+                  }}
+                >
+                  Use current diagram
+                </button>
+              </div>
+            )}
           {revision && (
             <div className="planning-revision-context" role="status">
               <span>
@@ -1149,6 +1193,7 @@ export default function PlanningPanel({
             ref={composer}
             id="planning-message"
             value={draft}
+            readOnly={!writing.ready}
             maxLength={12000}
             rows={3}
             placeholder={
@@ -1158,7 +1203,16 @@ export default function PlanningPanel({
                   ? "Change direction or add a requirement…"
                   : "Describe a goal or ask for a change…"
             }
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              if (!draft && event.target.value && !revision)
+                writing.setContext({
+                  diagramId,
+                  nodeId: aboutNode ? (node?.id ?? null) : null,
+                  diagramName: diagram?.name ?? "",
+                  nodeTitle: aboutNode ? (node?.title ?? "") : "",
+                });
+              setDraft(event.target.value);
+            }}
             aria-describedby="planning-sharing-summary"
             onKeyDown={(event) => {
               if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
@@ -1179,8 +1233,24 @@ export default function PlanningPanel({
               <label className="planning-check">
                 <input
                   type="checkbox"
-                  checked={aboutNode}
-                  onChange={(event) => setAboutNode(event.target.checked)}
+                  checked={
+                    aboutNode ||
+                    Boolean(writing.value.context?.nodeId === node.id)
+                  }
+                  onChange={(event) => {
+                    setAboutNode(event.target.checked);
+                    if (draft)
+                      writing.setContext({
+                        diagramId,
+                        nodeId: event.target.checked
+                          ? (node?.id ?? null)
+                          : null,
+                        diagramName: diagram?.name ?? "",
+                        nodeTitle: event.target.checked
+                          ? (node?.title ?? "")
+                          : "",
+                      });
+                  }}
                   aria-label="About selected node"
                 />
                 About
@@ -1218,6 +1288,7 @@ export default function PlanningPanel({
               type="submit"
               className="primary"
               disabled={
+                !writing.ready ||
                 !draft.trim() ||
                 !state?.agent.available ||
                 modelSettings.serverIncompatible ||
@@ -1342,7 +1413,7 @@ export default function PlanningPanel({
             className="planning-composer"
             onSubmit={(event) => {
               event.preventDefault();
-              const previous = failedComment.current;
+              const previous = writing.value.failedComment;
               const target =
                 previous &&
                 previous.nodeId === node.id &&
@@ -1356,20 +1427,15 @@ export default function PlanningPanel({
                       mutationId: uid(),
                     };
               if (!target.text) return;
+              const submittedVersion = writing.captureVersion(
+                "comment",
+                target.nodeId,
+              );
               void work("Adding comment", async () => {
                 await saved();
-                failedComment.current = target;
+                await writing.stage("comment", target, true, submittedVersion);
                 await mutate("/comments", target);
-                failedComment.current = null;
-                setCommentDrafts((current) => {
-                  const draft = Object.hasOwn(current, target.nodeId)
-                    ? current[target.nodeId]
-                    : "";
-                  return {
-                    ...current,
-                    [target.nodeId]: draft.trim() === target.text ? "" : draft,
-                  };
-                });
+                writing.retire("comment", target.mutationId);
                 setAnnouncement(
                   "Node comment added. Send a message when you want Codex to address it.",
                 );
@@ -1385,6 +1451,7 @@ export default function PlanningPanel({
               rows={3}
               maxLength={12000}
               value={commentDraft}
+              readOnly={!writing.ready}
               onChange={(event) =>
                 setCommentDrafts((current) => ({
                   ...current,
@@ -1398,7 +1465,11 @@ export default function PlanningPanel({
               <span>{commentDraft.length.toLocaleString()} / 12,000</span>
               <button
                 className="primary"
-                disabled={!commentDraft.trim() || Boolean(busy || !state)}
+                disabled={
+                  !writing.ready ||
+                  !commentDraft.trim() ||
+                  Boolean(busy || !state)
+                }
               >
                 Add comment
               </button>

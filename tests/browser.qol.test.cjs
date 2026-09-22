@@ -222,3 +222,51 @@ test("dark workspace exports a light full-diagram PNG with distant content", { t
   assert.equal(await workspaceColor(p), dark, "Export does not switch the working theme");
   await until(async () => await p.locator(".png-export").count() === 0);
 });
+
+test("startup resumes the chosen project, diagram and Build task and permits the project list", { timeout: 120000, skip: baselineOnly }, async (t) => {
+  const h = await setupBrowser(t, { name: "qol-resume", planningFixture: true });
+  const p = h.page;
+  const second = await h.api("/projects", "POST", { name: "Resume another workspace" });
+  const diagramId = crypto.randomUUID();
+  const taskId = crypto.randomUUID();
+  const prepared = await h.saveContent(second.id, content => {
+    content.diagrams.push({ id: diagramId, name: "Secondary workflow", nodes: [], edges: [] });
+    content.buildTasks = [{ id: taskId, title: "Remember the selected task", deliverable: "Recover the same workspace", nodeLinks: [], prerequisiteIds: [], expectedFiles: [], acceptanceChecks: [], status: "not_started" }];
+  });
+  await p.reload();
+  await p.getByTestId("diagram-canvas").waitFor();
+  assert.ok(await p.locator(`.react-flow__node[data-id="${h.initial.content.diagrams[0].nodes[0].id}"]`).count(),
+    "Creating a newer project through the API does not replace the remembered project");
+  const projects = p.getByRole("navigation", { name: "Projects", exact: true });
+  await projects.getByRole("button").filter({ hasText: prepared.content.name }).click();
+  await p.getByRole("navigation", { name: "Diagrams", exact: true }).getByRole("button").filter({ hasText: "Secondary workflow" }).click();
+  await p.locator("#canvas-title > span").filter({ hasText: "Secondary workflow" }).waitFor();
+  await p.getByRole("group", { name: "Plan views", exact: true }).getByRole("button", { name: "Build", exact: true }).click();
+  await p.getByRole("region", { name: "Build tasks editor", exact: true }).getByRole("button", { name: "Task: Remember the selected task", exact: true }).click();
+  await h.restart();
+  assert.equal(await p.getByRole("group", { name: "Plan views", exact: true }).getByRole("button", { name: "Build", exact: true }).getAttribute("aria-pressed"), "true");
+  assert.equal(await p.getByRole("region", { name: "Build tasks editor", exact: true }).getByLabel("Task title", { exact: true }).inputValue(), "Remember the selected task");
+  await p.getByRole("group", { name: "Plan views", exact: true }).getByRole("button", { name: "Diagram", exact: true }).click();
+  await p.locator("#canvas-title > span").filter({ hasText: "Secondary workflow" }).waitFor();
+  let dialog = await settings(p);
+  await dialog.getByRole("button", { name: "Editor", exact: true }).click();
+  await selectText(dialog.getByLabel("Startup", { exact: true }), /^Show projects$/);
+  await p.keyboard.press("Escape");
+  await p.reload();
+  await p.getByRole("navigation", { name: "Projects", exact: true }).getByRole("button", { name: prepared.content.name, exact: true }).waitFor();
+  assert.equal(await p.getByRole("group", { name: "Plan views", exact: true }).count(), 0);
+  assert.equal(await p.getByTestId("diagram-canvas").count(), 0);
+  await p.getByRole("navigation", { name: "Projects", exact: true }).getByRole("button", { name: prepared.content.name, exact: true }).click();
+  await p.locator("#canvas-title > span").filter({ hasText: "Secondary workflow" }).waitFor();
+  dialog = await settings(p);
+  await dialog.getByRole("button", { name: "Editor", exact: true }).click();
+  await selectText(dialog.getByLabel("Startup", { exact: true }), /^Reopen last workspace$/);
+  await p.keyboard.press("Escape");
+  const unchanged = await h.api(`/projects/${second.id}`);
+  assert.deepEqual(unchanged.content, prepared.content);
+  assert.deepEqual(unchanged.history, prepared.history);
+  await h.saveContent(second.id, content => { content.diagrams = content.diagrams.filter(diagram => diagram.id !== diagramId); }, "Remove remembered diagram fixture");
+  await p.reload();
+  await p.locator("#canvas-title > span").filter({ hasText: prepared.content.diagrams[0].name }).waitFor();
+  assert.equal((await h.api(`/projects/${second.id}/planning`)).request, null, "Recovery never sends an agent request");
+});

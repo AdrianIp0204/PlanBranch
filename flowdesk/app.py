@@ -16,6 +16,7 @@ from .reconciliation import reconcile
 from .planning import PlanningService
 from .proposal_drafts import DraftConflictError
 from .execution import ExecutionService, ExecutionReceiptError
+from .writing_drafts import WritingDrafts, WritingConflict, MAX_BYTES as WRITING_MAX_BYTES
 
 
 def create_app(data_dir=None, *, testing=False, planner=None, executor=None, execution_git=None):
@@ -30,6 +31,7 @@ def create_app(data_dir=None, *, testing=False, planner=None, executor=None, exe
     scans = ScanService(store)
     planning = PlanningService(store, planner)
     execution = ExecutionService(store, planning, executor, execution_git)
+    writing = WritingDrafts(store)
     app.extensions.update(flowdesk_store=store, flowdesk_scans=scans, flowdesk_planning=planning, flowdesk_execution=execution)
 
     @app.before_request
@@ -64,6 +66,10 @@ def create_app(data_dir=None, *, testing=False, planner=None, executor=None, exe
     def conflict(exc):
         return jsonify(error=str(exc), conflict=True,
                        revision=getattr(exc, "current_revision", None)), 409
+
+    @app.errorhandler(WritingConflict)
+    def writing_conflict(exc):
+        return jsonify(exc.response), 409
 
     @app.errorhandler(DraftConflictError)
     def draft_conflict(exc):
@@ -191,6 +197,20 @@ def create_app(data_dir=None, *, testing=False, planner=None, executor=None, exe
     @app.get("/api/projects/<project_id>/planning")
     def get_planning(project_id):
         return jsonify(planning.state(project_id))
+
+    @app.get("/api/projects/<project_id>/planning/writing")
+    def get_writing(project_id):
+        return jsonify(writing.get(project_id))
+
+    @app.put("/api/projects/<project_id>/planning/writing")
+    def save_writing(project_id):
+        if len(request.get_data(cache=True)) > WRITING_MAX_BYTES + 65536:
+            raise ValidationError("Unsent writing requests must be smaller than 6 MB.")
+        return jsonify(writing.save(project_id, body()))
+
+    @app.delete("/api/projects/<project_id>/planning/writing/copies/<draft_id>")
+    def discard_writing_copy(project_id, draft_id):
+        return jsonify(writing.discard_copy(project_id, draft_id, planning_body()))
 
     @app.post("/api/projects/<project_id>/planning/messages")
     def planning_message(project_id):

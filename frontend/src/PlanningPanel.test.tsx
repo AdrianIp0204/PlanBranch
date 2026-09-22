@@ -16,7 +16,6 @@ import { createNode, copy, emptyBrief, type Content } from "./types";
 import type { Session } from "./history";
 import {
   samePlan,
-  PLANNING_DRAFT_PREFIX,
   reviewNames,
   reviewValueText,
   type PlanProposal,
@@ -25,6 +24,45 @@ import {
 } from "./planning";
 
 vi.mock("./api", () => ({ api: vi.fn() }));
+const writingStore = vi.hoisted(() => ({ value: null as unknown }));
+vi.mock("./writingApi", async () => {
+  const { emptyWriting } = await import("./writingDrafts");
+  const current = () =>
+    (writingStore.value ??= {
+      draft: {
+        id: "current",
+        revision: 0,
+        updatedAt: null,
+        payload: emptyWriting(),
+      },
+      copies: [],
+    }) as import("./writingDrafts").WritingState;
+  return {
+    loadWriting: async () => structuredClone(current()),
+    saveWriting: async (
+      _id: string,
+      body: import("./writingDrafts").WritingSave,
+    ) => {
+      const value = current();
+      if (body.copyOnly)
+        value.copies.push({
+          id: "copy" + value.copies.length,
+          revision: 1,
+          updatedAt: null,
+          payload: structuredClone(body.payload),
+        });
+      else
+        value.draft = {
+          id: "current",
+          revision: value.draft.revision + 1,
+          updatedAt: null,
+          payload: structuredClone(body.payload),
+        };
+      return structuredClone(value);
+    },
+    discardWritingCopy: async () => structuredClone(current()),
+  };
+});
 const flush = vi.fn<() => Promise<boolean>>();
 let session: Session;
 vi.mock("./store", () => ({
@@ -59,6 +97,11 @@ async function mount() {
   await screen.findByText("What should this plan accomplish?");
   return result;
 }
+function cachedDrafts() {
+  return JSON.parse(
+    sessionStorage.getItem("flowdesk.unsentWriting.v1." + session.id)!,
+  ).payload;
+}
 function posts(path: string) {
   return vi
     .mocked(api)
@@ -68,6 +111,7 @@ function posts(path: string) {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  writingStore.value = null;
   sessionStorage.clear();
   localStorage.clear();
   flush.mockResolvedValue(true);
@@ -226,6 +270,32 @@ it("cancels proposal context without deleting the user's message", async () => {
 });
 
 describe("planning conversation", () => {
+  it("keeps newer typing when the project save delays staging the submitted message", async () => {
+    await mount();
+    let finishSave!: (saved: boolean) => void;
+    flush.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSave = resolve;
+        }),
+    );
+    const composer = screen.getByLabelText("Message Codex");
+    fireEvent.change(composer, { target: { value: "Submitted message" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(flush).toHaveBeenCalledTimes(1));
+    expect(posts("/messages")).toHaveLength(0);
+    fireEvent.change(composer, { target: { value: "Newer unsent message" } });
+    await act(async () => finishSave(true));
+    await waitFor(() => expect(posts("/messages")).toHaveLength(1));
+    expect(JSON.parse(posts("/messages")[0][1]!.body as string).text).toBe(
+      "Submitted message",
+    );
+    await waitFor(() => expect(cachedDrafts().failedPrompt).toBeNull());
+    expect((composer as HTMLTextAreaElement).value).toBe(
+      "Newer unsent message",
+    );
+    expect(cachedDrafts().message).toBe("Newer unsent message");
+  });
   it("preserves unsent text when saving fails and uses a fresh saved revision for approval", async () => {
     await mount();
     fireEvent.change(screen.getByLabelText("Message Codex"), {
@@ -507,9 +577,7 @@ describe("planning conversation", () => {
         ) as HTMLTextAreaElement
       ).value,
     ).toBe("Keep this node constraint");
-    const stored = JSON.parse(
-      sessionStorage.getItem(PLANNING_DRAFT_PREFIX + session.id)!,
-    );
+    const stored = cachedDrafts();
     expect(stored.comments.step).toBe("Keep this node constraint");
   });
 
@@ -1025,10 +1093,7 @@ it("handles a legacy selection rejection without dropping settings or retrying a
     model: "quick",
     reasoningEffort: "low",
   });
-  expect(
-    JSON.parse(sessionStorage.getItem(PLANNING_DRAFT_PREFIX + session.id)!)
-      .failedPrompt,
-  ).toBeNull();
+  expect(cachedDrafts().failedPrompt).toBeNull();
 });
 
 it("blocks failed reply retries and new question answers against an old server", async () => {
@@ -1191,9 +1256,7 @@ it("marks manual changes outdated but ignores viewport and composer layout chang
     screen.getByRole("button", { name: "Ask again using this plan" }),
   );
   await waitFor(() => expect(posts("/messages")).toHaveLength(1));
-  const persisted = JSON.parse(
-    sessionStorage.getItem(PLANNING_DRAFT_PREFIX + session.id)!,
-  );
+  const persisted = cachedDrafts();
   expect(persisted.questionDrafts["question-set"].storage.choice).toBe(
     "sqlite",
   );
@@ -1261,16 +1324,17 @@ it.each(["constructor", "__proto__"])(
       await screen.findByText("Enter your answer to continue."),
     ).toBeTruthy();
     fireEvent.change(input, { target: { value: "Python" } });
+    const stored = cachedDrafts();
+    expect(Object.hasOwn(stored.questionDrafts, id)).toBe(true);
+    expect(Object.hasOwn(stored.questionDrafts[id], id)).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(posts("/answers")).toHaveLength(1));
     expect(JSON.parse(posts("/answers")[0][1]!.body as string).answers).toEqual(
       [{ questionId: id, optionId: null, text: "Python" }],
     );
-    const stored = JSON.parse(
-      sessionStorage.getItem(PLANNING_DRAFT_PREFIX + session.id)!,
+    await waitFor(() =>
+      expect(Object.hasOwn(cachedDrafts().questionDrafts, id)).toBe(false),
     );
-    expect(Object.hasOwn(stored.questionDrafts, id)).toBe(true);
-    expect(Object.hasOwn(stored.questionDrafts[id], id)).toBe(true);
   },
 );
 

@@ -90,7 +90,8 @@ async function setupBrowser(t, {name = 'acceptance', seed = {sample:true}, viewp
   }
   async function restart({reload = true} = {}) {
     await stop();await start();
-    if (reload) {await page.reload();await page.getByTestId('diagram-canvas').waitFor();}
+    // A restored Build workspace intentionally has no diagram canvas.
+    if (reload) {await page.reload();await page.getByRole('group',{name:'Plan views',exact:true}).waitFor();}
   }
   async function saveContent(projectId, mutate, label = 'Prepare test fixture', diagramId) {
     const envelope = await api('/projects/'+projectId);

@@ -1,0 +1,38 @@
+.writing-state {
+  flex: 0 0 auto;
+  display: block;
+  width: 100%;
+  padding: 4px 12px;
+  min-height: 28px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  text-align: left;
+  font-size: var(--font-small);
+  background: transparent;
+  color: var(--muted);
+}
+.writing-state.needs-attention {
+  color: var(--ink);
+  font-weight: 600;
+}
+.writing-dialog {
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+}
+.writing-dialog section {
+  padding-block: 12px;
+  border-top: 1px solid var(--line);
+}
+.writing-dialog textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+}
+.writing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
