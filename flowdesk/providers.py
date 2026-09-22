@@ -32,7 +32,7 @@ INSTRUCTIONS = {"planning": "provider-planner-v1", "coding": "provider-coder-v1"
 _V1_INSTRUCTIONS = {"provider-planner-v1": "planning", "provider-coder-v1": "coding"}
 MAX_CONTEXT_BYTES = 500_000
 MAX_OUTPUT_TOKENS = 16_384
-OLLAMA_CONTEXT_LIMIT = 32_768
+OLLAMA_CONTEXT_LIMIT = 24_576
 MAX_MODELS = 100
 CACHE_SECONDS = 300
 FAILURE_CACHE_SECONDS = 15
@@ -43,6 +43,8 @@ _V1_EFFORTS = {"openai": {"none", "minimal", "low", "medium", "high", "xhigh", "
                "gemini": {"minimal", "low", "medium", "high"},
                "ollama": {"on", "off", "low", "medium", "high"}}
 _V1_LIMITS = {"apiOutput": 16_384, "apiInputBytes": 1_500_000, "localContext": 32_768,
+              "localOutput": 4096, "localOverhead": 1024}
+_V2_LIMITS = {"apiOutput": 16_384, "apiInputBytes": 1_500_000, "localContext": 32_768,
               "localOutput": 4096, "localOverhead": 1024}
 # Deliberately small, documented catalogue. Model-default reasoning is always
 # allowed, including for explicitly entered IDs outside these suggestions.
@@ -138,7 +140,10 @@ def validate_generation(value, purpose=None):
             raise ProviderError(str(exc)) from None
     fields = {"providerGenerationVersion", "provider", "selection", "purpose", "modelIdentity", "endpoint", "limits",
               "providerVersion", "cliVersion", "instructionVersion", "instructionHash", "instructions", "protocolVersion"}
-    if (set(value) != fields or type(value["providerGenerationVersion"]) is not int or value["providerGenerationVersion"] != 1
+    generation_version = value["providerGenerationVersion"]
+    if type(generation_version) is int and generation_version == 2:
+        fields.add("contextWindowCap")
+    if (set(value) != fields or type(generation_version) is not int or generation_version not in (1, 2)
             or not isinstance(value["purpose"], str) or value["purpose"] not in ("planning", "coding")
             or (purpose is not None and value["purpose"] != purpose)
             or not isinstance(value["instructionVersion"], str)
@@ -179,19 +184,41 @@ def validate_generation(value, purpose=None):
                 or any(e not in _V1_EFFORTS[provider] for e in identity["reasoningEfforts"])
                 or identity["tools"] is False or version is not None):
             raise ProviderError("The saved API model configuration is invalid. Start a new request.")
-    if value["limits"] != _limits(identity["contextWindow"]):
+    cap = None
+    if generation_version == 2:
+        cap = value["contextWindowCap"]
+        if ((provider == "ollama" and (type(cap) is not int or not 2048 <= cap <= _V2_LIMITS["localContext"]))
+                or (provider != "ollama" and cap is not None)):
+            raise ProviderError("The saved model context cap is invalid. Start a new request.")
+    limits = value["limits"]
+    if (not isinstance(limits, dict) or set(limits) != {"contextWindow", "maxOutputTokens", "inputByteBudget"}
+            or any(type(limits[k]) is not int for k in ("maxOutputTokens", "inputByteBudget"))
+            or (limits["contextWindow"] is not None and type(limits["contextWindow"]) is not int)
+            or limits != _limits(identity["contextWindow"], version=generation_version, context_cap=cap)):
         raise ProviderError("The saved model context limits are invalid. Start a new request.")
     return deepcopy(value)
 
 
-def _limits(context_window):
+def _configured_context_window():
+    raw = os.environ.get("PLANBRANCH_OLLAMA_CONTEXT_WINDOW")
+    if raw is None:
+        return OLLAMA_CONTEXT_LIMIT
+    value = raw.strip()
+    if not re.fullmatch(r"[0-9]{1,5}", value) or not 2048 <= int(value) <= 32768:
+        raise ProviderError("PLANBRANCH_OLLAMA_CONTEXT_WINDOW must be an integer from 2048 to 32768. Fix it outside PlanBranch and start a new request.")
+    return int(value)
+
+
+def _limits(context_window, *, version=1, context_cap=None):
+    # Persisted versions never consult current defaults or environment values.
+    profile = _V1_LIMITS if version == 1 else _V2_LIMITS
     if context_window is None:
-        return {"contextWindow": None, "maxOutputTokens": _V1_LIMITS["apiOutput"], "inputByteBudget": _V1_LIMITS["apiInputBytes"]}
-    window = min(context_window, _V1_LIMITS["localContext"])
-    output = min(_V1_LIMITS["localOutput"], window // 4)
+        return {"contextWindow": None, "maxOutputTokens": profile["apiOutput"], "inputByteBudget": profile["apiInputBytes"]}
+    window = min(context_window, profile["localContext"] if version == 1 else context_cap)
+    output = min(profile["localOutput"], window // 4)
     # UTF-8 bytes are a conservative input-size guard, not a claimed tokenizer.
     # Include the schema, tools and all serialized native history in that guard.
-    return {"contextWindow": window, "maxOutputTokens": output, "inputByteBudget": window - output - _V1_LIMITS["localOverhead"]}
+    return {"contextWindow": window, "maxOutputTokens": output, "inputByteBudget": window - output - profile["localOverhead"]}
 
 
 def _api_headers(provider):
@@ -374,6 +401,7 @@ class ProviderRegistry:
                 from .codex_executor import CodexExecutor
                 return CodexExecutor().configure(selection)
             return self.codex.configure(selection)
+        context_cap = _configured_context_window() if provider == "ollama" else None
         catalog = self.capabilities(provider)
         model = next((m for m in catalog["models"] if m["id"] == selection["model"]), None)
         if provider == "ollama" and (catalog["status"] != "ready" or model is None):
@@ -386,11 +414,11 @@ class ProviderRegistry:
         endpoint = (_ollama_endpoint(os.environ.get("PLANBRANCH_OLLAMA_URL", "http://127.0.0.1:11434"))
                     if provider == "ollama" else ENDPOINTS[provider])
         instructions = instruction_resource(purpose)
-        return validate_generation({"providerGenerationVersion": 1, "provider": provider, "selection": selection, "purpose": purpose,
+        return validate_generation({"providerGenerationVersion": 2, "contextWindowCap": context_cap, "provider": provider, "selection": selection, "purpose": purpose,
             "modelIdentity": {"id": selection["model"], "digest": model.get("digest") if model else None,
                               "tools": model.get("tools") if model else None, "reasoningEfforts": efforts,
                               "contextWindow": model.get("contextWindow") if model else None},
-            "limits": _limits(model.get("contextWindow") if model else None),
+            "limits": _limits(model.get("contextWindow") if model else None, version=2, context_cap=context_cap),
             "endpoint": endpoint, "providerVersion": catalog.get("providerVersion"), "cliVersion": None,
             "instructionVersion": INSTRUCTIONS[purpose], "instructionHash": hashlib.sha256(instructions.encode()).hexdigest(),
             "instructions": instructions, "protocolVersion": 4}, purpose)
@@ -447,10 +475,10 @@ class ProviderRegistry:
     def _turn(self, generation, messages, tools, cancel, schema):
         from .provider_protocols import make_request, parse_response
         from .provider_streams import StreamDecoder
-        headers = self._ready(generation, cancel)
         path, body = make_request(generation, messages, tools, schema)
         if len(encode_json(body)) > generation["limits"]["inputByteBudget"]:
             raise ProviderError("This request exceeds the selected model's frozen context budget. Reduce the context or choose a model with a larger context window; nothing was truncated.")
+        headers = self._ready(generation, cancel)
         response = request_json(generation["endpoint"], path, data=body, headers=headers, timeout=self.timeout,
                                 cancel=cancel, stream_parser=StreamDecoder(generation["provider"]))
         result = parse_response(generation, response)

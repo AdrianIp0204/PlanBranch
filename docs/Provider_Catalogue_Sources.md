@@ -32,7 +32,7 @@ choices. Discovery reads installed metadata only. It skips embedding-only models
 remote-backed models, and models without a reported context limit. Thinking models
 advertise on/off except GPT-OSS, which advertises low/medium/high. Local inference
 freezes the tag's digest, rechecks it before and after a response, explicitly sets
-`num_ctx` to at most 32,768 and `num_predict` to at most 4,096, and rejects requests
+`num_ctx` explicitly and `num_predict` to at most 4,096, and rejects requests
 over a conservative UTF-8 byte budget. This byte guard is not a tokenizer or an
 inference-quality guarantee. Missing terminal events and reported context-limit
 exhaustion are errors, not accepted partial results.
@@ -44,7 +44,26 @@ arguments are never executable. Requests have byte, event, time, and concurrency
 limits; cancellation closes the active HTTP connection. Cloud cancellation cannot
 guarantee that an already accepted request avoids provider charges.
 
-Generation version 1 has an immutable option and limit profile. Catalogue edits
+New requests use generation version 2. Ollama's per-request context cap defaults
+to 24,576 and can be set with `PLANBRANCH_OLLAMA_CONTEXT_WINDOW` to an integer from
+2,048 through 32,768. Invalid values fail clearly; they never silently select a
+fallback. The selected cap and effective limits are frozen in the generation,
+with the effective window bounded by the model's discovered maximum. Retries do
+not read the current environment. Output allowance is at most 4,096, or one
+quarter of the window when smaller; input UTF-8 bytes are bounded by the remaining
+window after a 1,024-unit reserve. The complete serialized request, including
+instructions, schemas and tools, is checked before any inference. Smaller caps
+can reject planning requests with large schemas; no context is silently removed.
+
+This default reduces context allocation compared with 32,768. Local verification
+found that a 4B model at 32,768 exceeded the available memory on an 8 GB-class GPU
+and used CPU offloading; this is a hardware-specific observation, not a performance
+guarantee. The setting affects only PlanBranch requests and does not change global
+Ollama configuration. Adjust it for the chosen model and hardware.
+
+Generation version 1 retains its immutable 32,768 maximum, original output/input
+budgets, and exact retry behavior. Version 2 retains the same native wire protocol
+while freezing its explicit context cap. Catalogue edits
 must not alter a retained request's model, options, instructions, or limits. Future
 changes to the wire contract or limit profile require a new generation version;
 older validators remain available for exact retries. The endpoint is frozen, and

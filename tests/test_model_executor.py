@@ -174,8 +174,8 @@ def test_three_consecutive_tool_failures_stop_before_more_work(tmp_path):
 def test_total_deadline_cancels_provider_and_prevents_late_tool_effect(tmp_path,monkeypatch):
     import time
     import flowdesk.model_executor as module
-    root,executor,context,registry=setup(tmp_path,[])
     monkeypatch.setattr(module,'MAX_SECONDS',.01)
+    root,executor,context,registry=setup(tmp_path,[])
     def delayed(generation,messages,tools,cancel):
         assert cancel.wait(.1)
         return reply('write_file',{'path':'late','content':'bad','expectedSha256':None})
@@ -210,3 +210,13 @@ def test_archive_preserves_executable_metadata_and_existing_permissions():
     assert output_mode(0o751,0o751,0o644)==0o640  # chmod-x
     assert output_mode(0o651,0o651,0o755)==0o651  # ordinary content edit preserves unusual x bits
     assert output_mode(None,0o640,0o755)==0o751  # newly generated executable
+
+
+def test_harness_limits_are_frozen_and_older_records_use_fixed_v1_profile(tmp_path,monkeypatch):
+    import flowdesk.model_executor as module
+    root,executor,context,registry=setup(tmp_path,[reply()])
+    assert context['generation']['harnessPolicy']=={'version':1,'maxTurns':24,'maxCalls':80,'maxSeconds':1200,'maxContextBytes':1500000}
+    monkeypatch.setattr(module,'MAX_TURNS',0)
+    assert executor.run(context,root,threading.Event(),lambda _:None)['status']=='succeeded'
+    assert module.harness_policy(None)['maxTurns']==24
+    with pytest.raises(WorkspaceError): module.harness_policy({**context['generation']['harnessPolicy'],'maxCalls':999})

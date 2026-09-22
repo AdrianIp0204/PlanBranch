@@ -21,6 +21,19 @@ VERSION = "model-executor-v1"
 MAX_TURNS, MAX_CALLS, MAX_SECONDS, MAX_CONTEXT = 24, 80, 1200, 1_500_000
 
 
+def harness_policy(value):
+    # Earlier records from this same instruction version used this fixed profile.
+    value = deepcopy(value) if value is not None else {"version": 1, "maxTurns": 24, "maxCalls": 80, "maxSeconds": 1200, "maxContextBytes": 1_500_000}
+    if not isinstance(value, dict) or set(value) != {"version", "maxTurns", "maxCalls", "maxSeconds", "maxContextBytes"} or value["version"] != 1:
+        raise WorkspaceError("The frozen harness policy is unsupported. Preview a new Run step.")
+    for key, maximum in (("maxTurns", 24), ("maxCalls", 80), ("maxContextBytes", 1_500_000)):
+        if type(value[key]) is not int or not 1 <= value[key] <= maximum:
+            raise WorkspaceError("The frozen coding limits are invalid.")
+    if type(value["maxSeconds"]) not in (int, float) or not math.isfinite(value["maxSeconds"]) or not 0 < value["maxSeconds"] <= 1200:
+        raise WorkspaceError("The frozen coding duration is invalid.")
+    return value
+
+
 def encoded(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
@@ -125,7 +138,8 @@ class ModelExecutor:
         instructions = files("flowdesk").joinpath("prompts", VERSION + ".md").read_text(encoding="utf-8")
         return {"provider": selection["provider"], "selection": deepcopy(selection), "providerGeneration": provider,
                 "instructionVersion": VERSION, "instructionHash": hashlib.sha256(instructions.encode()).hexdigest(),
-                "instructions": instructions, "toolSchemaVersion": 1, "commandPolicy": self.runner.configure()}
+                "instructions": instructions, "toolSchemaVersion": 1, "commandPolicy": self.runner.configure(),
+                "harnessPolicy": {"version": 1, "maxTurns": MAX_TURNS, "maxCalls": MAX_CALLS, "maxSeconds": MAX_SECONDS, "maxContextBytes": MAX_CONTEXT}}
 
     def run(self, context, worktree, cancel, on_event):
         journal = ToolJournal(self.data_dir, context["runId"])
@@ -141,6 +155,7 @@ class ModelExecutor:
                 raise WorkspaceError("The coding instruction contract is unsupported. Review a new Run step.")
             if hashlib.sha256(generation["instructions"].encode()).hexdigest() != generation.get("instructionHash"):
                 raise WorkspaceError("The frozen coding instruction identity is invalid.")
+            policy = harness_policy(generation.get("harnessPolicy"))
             identity = fingerprint({key: context[key] for key in ("task", "brief", "linkedNodes", "sourceCommit", "generation")})
             tools = WorkspaceTools(worktree)
             if state is None:
@@ -168,13 +183,13 @@ class ModelExecutor:
             payload["priorVisibleWork"] = state["messages"]
             messages = [{"role": "system", "content": generation["instructions"]},
                         {"role": "user", "content": encoded(payload)}]
-            deadline = time.monotonic() + MAX_SECONDS
+            deadline = time.monotonic() + policy["maxSeconds"]
             bounded_cancel = DeadlineCancel(cancel, deadline)
-            for _ in range(MAX_TURNS):
+            for _ in range(policy["maxTurns"]):
                 if cancel.is_set():
                     result["status"] = "cancelled"
                     break
-                if time.monotonic() > deadline or state["turns"] >= MAX_TURNS or len(encoded(messages).encode()) > MAX_CONTEXT:
+                if time.monotonic() > deadline or state["turns"] >= policy["maxTurns"] or len(encoded(messages).encode()) > policy["maxContextBytes"]:
                     raise WorkspaceError("The coding turn, time or context limit was reached. Review the retained work.")
                 state["turns"] += 1
                 journal.save(state)
@@ -217,7 +232,7 @@ class ModelExecutor:
                             raise WorkspaceError("A tool identity changed or has an uncertain result. It will not be replayed.")
                         raise WorkspaceError("The provider repeated a completed tool identity. Its operation was not repeated.")
                     else:
-                        if len(state["calls"]) >= MAX_CALLS:
+                        if len(state["calls"]) >= policy["maxCalls"]:
                             raise WorkspaceError("The coding tool-call limit was reached.")
                         record = {"id": key, "nativeId": native_key, "name": name, "arguments": deepcopy(args), "signature": signature, "state": "pending"}
                         state["calls"].append(record)

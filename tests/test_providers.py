@@ -24,6 +24,7 @@ def isolated_keys(monkeypatch):
     for key in api.KEYS.values():
         monkeypatch.setenv(key, "fixture-not-a-real-key")
     monkeypatch.delenv("PLANBRANCH_OLLAMA_URL", raising=False)
+    monkeypatch.delenv("PLANBRANCH_OLLAMA_CONTEXT_WINDOW", raising=False)
 
 
 @pytest.fixture
@@ -166,7 +167,7 @@ def test_generation_freezes_provider_options_and_rejects_mismatch(registry, prov
     assert api.validate_generation(value, "coding") == value
     assert value["protocolVersion"] == 4
     assert value["instructionVersion"] == "provider-coder-v1"
-    for field, changed in [("providerGenerationVersion", 2), ("instructionHash", "bad"), ("endpoint", "https://untrusted.invalid"), ("purpose", "planning")]:
+    for field, changed in [("providerGenerationVersion", 3), ("instructionHash", "bad"), ("endpoint", "https://untrusted.invalid"), ("purpose", "planning")]:
         bad = deepcopy(value); bad[field] = changed
         with pytest.raises(api.ProviderError):
             api.validate_generation(bad, "coding")
@@ -185,10 +186,12 @@ def test_ollama_metadata_filtering_cache_tools_digest_and_context(registry, serv
         registry.configure(selection("ollama", "plain:latest"), "coding")
     frozen = registry.configure(selection("ollama", effort="off"), "coding")
     assert frozen["modelIdentity"]["digest"] == "a" * 64
-    assert frozen["limits"] == {"contextWindow": 32768, "maxOutputTokens": 4096, "inputByteBudget": 27648}
+    assert frozen["providerGenerationVersion"] == 2
+    assert frozen["contextWindowCap"] == 24576
+    assert frozen["limits"] == {"contextWindow": 24576, "maxOutputTokens": 4096, "inputByteBudget": 19456}
     registry.turn(frozen, [{"role": "user", "content": "Read a.py"}], TOOLS)
     body = next(body for path, body, _ in reversed(server.requests) if body is not None and path != "/api/show")
-    assert body["options"] == {"num_ctx": 32768, "num_predict": 4096}
+    assert body["options"] == {"num_ctx": 24576, "num_predict": 4096}
     assert body["think"] is False
     server.digest = "d" * 64
     count = sum(path == "/api/chat" for path, *_ in server.requests)
@@ -327,8 +330,12 @@ def test_cross_provider_continuation_is_rejected(registry):
 
 
 @pytest.mark.parametrize("provider", list(api.KEYS))
-def test_frozen_retry_survives_catalogue_and_live_default_changes(registry, server, monkeypatch, provider):
+@pytest.mark.parametrize("generation_version", [1, 2])
+def test_frozen_retry_survives_catalogue_and_live_default_changes(registry, server, monkeypatch, provider, generation_version):
     frozen = registry.configure(selection(provider, effort="low"))
+    if generation_version == 1:
+        frozen["providerGenerationVersion"] = 1
+        frozen.pop("contextWindowCap")
     original = deepcopy(frozen)
     monkeypatch.setitem(api.CLOUD_MODELS, provider, [])
     monkeypatch.setitem(api.INSTRUCTIONS, "planning", "provider-planner-v2")
@@ -455,3 +462,102 @@ def test_connection_check_cancelled_before_dispatch_does_not_send_headers(regist
     with pytest.raises(api.ProviderCancelled):
         registry.check_connection("gemini", cancel=cancelled)
     assert server.requests == []
+
+
+@pytest.mark.parametrize("cap", [2048, 8192, 16384, 24576, 32768])
+def test_local_context_cap_freezes_bounded_explicit_request_limits(registry, server, monkeypatch, cap):
+    ollama(server, monkeypatch)
+    monkeypatch.setenv("PLANBRANCH_OLLAMA_CONTEXT_WINDOW", str(cap))
+    frozen = registry.configure(selection("ollama"), "coding")
+    assert frozen["providerGenerationVersion"] == 2 and frozen["contextWindowCap"] == cap
+    assert frozen["limits"] == {"contextWindow": cap, "maxOutputTokens": min(4096, cap // 4),
+                                "inputByteBudget": cap - min(4096, cap // 4) - 1024}
+    _, body = make_request(frozen, [{"role": "user", "content": "Hi"}], [])
+    assert body["options"]["num_ctx"] == cap
+    assert api.validate_generation(frozen, "coding") == frozen
+
+
+@pytest.mark.parametrize("raw", ["", "garbage", "2047", "32769", "1.5", "1e4", "-2048", "true", "12345678901234567890"])
+def test_invalid_context_environment_fails_before_metadata_with_no_fallback(tmp_path, monkeypatch, raw):
+    monkeypatch.setenv("PLANBRANCH_OLLAMA_CONTEXT_WINDOW", raw)
+    monkeypatch.setattr(api, "request_json", lambda *_a, **_k: pytest.fail("Invalid context cap must not contact Ollama"))
+    with pytest.raises(api.ProviderError, match="PLANBRANCH_OLLAMA_CONTEXT_WINDOW must be an integer"):
+        api.ProviderRegistry(tmp_path).configure(selection("ollama"))
+
+
+def test_configured_context_never_exceeds_discovered_model_maximum(registry, server, monkeypatch):
+    ollama(server, monkeypatch)
+    catalog = registry.capabilities("ollama")
+    catalog["models"][0]["contextWindow"] = 8192
+    monkeypatch.setattr(registry, "capabilities", lambda *_a, **_k: catalog)
+    monkeypatch.setenv("PLANBRANCH_OLLAMA_CONTEXT_WINDOW", "24576")
+    frozen = registry.configure(selection("ollama"), "coding")
+    assert frozen["contextWindowCap"] == 24576
+    assert frozen["limits"] == {"contextWindow": 8192, "maxOutputTokens": 2048, "inputByteBudget": 5120}
+
+
+@pytest.mark.parametrize("generation_version,expected_window", [(1, 32768), (2, 24576)])
+def test_retained_local_generation_ignores_environment_and_live_default_changes(registry, server, monkeypatch, generation_version, expected_window):
+    ollama(server, monkeypatch)
+    frozen = registry.configure(selection("ollama"), "coding")
+    if generation_version == 1:
+        frozen["providerGenerationVersion"] = 1
+        frozen.pop("contextWindowCap")
+        frozen["limits"] = {"contextWindow": 32768, "maxOutputTokens": 4096, "inputByteBudget": 27648}
+    original = deepcopy(frozen)
+    monkeypatch.setenv("PLANBRANCH_OLLAMA_CONTEXT_WINDOW", "invalid-new-value")
+    monkeypatch.setattr(api, "OLLAMA_CONTEXT_LIMIT", 8192)
+    assert api.validate_generation(frozen, "coding") == original
+    registry.turn(frozen, [{"role": "user", "content": "Read a.py"}], TOOLS)
+    body = next(body for path, body, _ in reversed(server.requests) if path == "/api/chat")
+    assert body["options"] == {"num_ctx": expected_window, "num_predict": 4096}
+    assert frozen == original
+    with pytest.raises(api.ProviderError, match="PLANBRANCH_OLLAMA_CONTEXT_WINDOW"):
+        registry.configure(selection("ollama"), "coding")
+
+
+def test_frozen_local_byte_boundary_includes_schema_before_any_network(registry, server, monkeypatch):
+    ollama(server, monkeypatch)
+    monkeypatch.setenv("PLANBRANCH_OLLAMA_CONTEXT_WINDOW", "16384")
+    frozen = registry.configure(selection("ollama"), "coding")
+    messages = [{"role": "user", "content": ""}]
+    _, empty = make_request(frozen, messages, TOOLS)
+    budget = frozen["limits"]["inputByteBudget"]
+    messages[0]["content"] = "x" * (budget - len(transport.encode_json(empty)))
+    _, exact = make_request(frozen, messages, TOOLS)
+    assert len(transport.encode_json(exact)) == budget
+    registry.turn(frozen, messages, TOOLS)
+    assert sum(path == "/api/chat" for path, *_ in server.requests) == 1
+    server.requests.clear()
+    messages[0]["content"] += "x"
+    with pytest.raises(api.ProviderError, match="nothing was truncated"):
+        registry.turn(frozen, messages, TOOLS)
+    assert server.requests == []
+
+
+@pytest.mark.parametrize("cap", [None, True, 2047, 32769, "24576", 24576.0])
+def test_saved_v2_context_cap_cannot_be_forged(registry, server, monkeypatch, cap):
+    ollama(server, monkeypatch)
+    frozen = registry.configure(selection("ollama"), "coding")
+    frozen["contextWindowCap"] = cap
+    with pytest.raises(api.ProviderError, match="context cap"):
+        api.validate_generation(frozen, "coding")
+
+
+def test_cloud_generation_does_not_depend_on_local_context_environment(registry, monkeypatch):
+    monkeypatch.setenv("PLANBRANCH_OLLAMA_CONTEXT_WINDOW", "invalid-local-setting")
+    frozen = registry.configure(selection("openai"))
+    assert frozen["providerGenerationVersion"] == 2 and frozen["contextWindowCap"] is None
+    assert frozen["limits"] == {"contextWindow": None, "maxOutputTokens": 16384, "inputByteBudget": 1500000}
+    assert api.validate_generation(frozen) == frozen
+
+
+def test_changing_valid_context_setting_applies_only_to_new_requests(registry, server, monkeypatch):
+    ollama(server, monkeypatch)
+    first = registry.configure(selection("ollama"), "coding")
+    monkeypatch.setenv("PLANBRANCH_OLLAMA_CONTEXT_WINDOW", "16384")
+    second = registry.configure(selection("ollama"), "coding")
+    assert first["contextWindowCap"] == first["limits"]["contextWindow"] == 24576
+    assert second["contextWindowCap"] == second["limits"]["contextWindow"] == 16384
+    assert api.validate_generation(first, "coding") == first
+    assert api.validate_generation(second, "coding") == second

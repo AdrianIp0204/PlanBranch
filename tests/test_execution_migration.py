@@ -8,9 +8,9 @@ import pytest
 
 from flowdesk import migrations
 from flowdesk.exports import portable_project
-from flowdesk.planning import PlanningService
+from flowdesk.planning import PlanningService, fingerprint, manual_fingerprint
 from flowdesk.sample import sample_content
-from flowdesk.storage import Store
+from flowdesk.storage import Store, encode, now
 from test_build_tasks import task
 from test_planning import FakePlanner, save
 
@@ -27,15 +27,22 @@ def previous_store(tmp_path, monkeypatch):
     revised["brief"]["goal"] = "Retained redo goal"
     changed = save(store, project, revised)
     restored = save(store, changed, cursor=project["cursor"])
-    service = PlanningService(store, FakePlanner())
-    service.approve(project["id"], {"mutationId": str(uuid4()), "baseRevision": restored["revision"]})
+    # Seed the released schema directly: the current service may depend on
+    # tables added after version 7 and must not run before this migration.
+    payload = {"mutationId": str(uuid4()), "baseRevision": restored["revision"]}
+    with closing(store.connect()) as db, db:
+        db.execute("INSERT INTO planning_approvals VALUES(?,?,?,?,?,?,?,0)",
+                   (str(uuid4()), project["id"], restored["revision"], restored["cursor"],
+                    manual_fingerprint(restored["content"]), encode(restored["content"]), now()))
+        db.execute("INSERT INTO planning_receipts VALUES(?,?,?)",
+                   (project["id"], payload["mutationId"], fingerprint({"action": "approve", "payload": payload})))
     return store, restored
 
 
 def raw_content(store):
     with closing(store.connect()) as db:
         return {table: [tuple(row) for row in db.execute(f"SELECT * FROM {table} ORDER BY 1")]
-                for table in ("projects", "history_checkpoints", "save_receipts", "planning_approvals", "planning_requests")}
+                for table in ("projects", "history_checkpoints", "save_receipts", "planning_approvals", "planning_receipts", "planning_requests")}
 
 
 def test_execution_migration_preserves_manual_history_frozen_approval_and_receipts(tmp_path, monkeypatch):
