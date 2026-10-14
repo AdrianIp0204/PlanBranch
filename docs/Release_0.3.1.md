@@ -9,6 +9,12 @@ The public 0.3.0 release and its tags and assets remain unchanged.
   distinction between agent reports, local observations and human review.
 - Source drift and changed task intent cannot silently reuse earlier approval or
   acceptance. Existing interrupted operations retain their original recovery bounds.
+- Handoffs prefer the explicitly selected execution repository, freeze its identity
+  and preserve planning-only exports for ordinary scanner folders. A separate
+  verify-without-editing action checks an exact imported candidate without a provider.
+- Prerequisite summaries use the same local evidence rules as execution previews.
+  Comparison shows name, blocker and other approval-affecting changes as readable
+  field differences under the existing semantic scope policy.
 - Release preparation uses the exact wheel and portable ZIP tested by both-platform
   CI and the standalone Windows smoke test. The real Ubuntu Docker gate is required.
   It never rebuilds binaries after certifying a previous workflow's tests.

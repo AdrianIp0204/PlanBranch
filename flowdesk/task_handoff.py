@@ -74,12 +74,22 @@ class TaskHandoffs:
         if attached:
             selection = {"kind": "source", "generation": attached["generation"], "root": attached["root"]}
             try:
+                root = Path(attached["root"])
+                # Only a missing root or absent marker is planning-only. Use
+                # lstat so permission errors and broken Git markers stay visible.
+                root.lstat()
+                (root / ".git").lstat()
+            except FileNotFoundError:
+                return {"bindingVersion": 1, "selection": selection, "head": None, "dirty": False,
+                        "baseUnavailableReason": "The read-only source attachment is missing or is not a Git repository root. This package contains planning intent only."}
+            except OSError as exc:
+                raise ValidationError("The read-only source attachment cannot be inspected. Check its path and access permissions before exporting a handoff. " + str(exc)) from exc
+            try:
                 # inspect_repository requires this exact root to be a Git top
                 # level. Never walk up from a consented scanner subdirectory.
                 inspected = self.execution.git.inspect_repository(attached["root"])
-            except (ValueError, RuntimeError, OSError):
-                return {"bindingVersion": 1, "selection": selection, "head": None, "dirty": False,
-                        "baseUnavailableReason": "The read-only source attachment is not a supported Git repository root with a commit. This package contains planning intent only."}
+            except (ValueError, RuntimeError, OSError) as exc:
+                raise ValidationError("The read-only source attachment has a Git marker but its repository cannot be inspected. Repair the repository or its access permissions before exporting a handoff. " + str(exc)) from exc
             return {**inspected, "bindingVersion": 1, "selection": selection}
         return {"bindingVersion": 1, "selection": {"kind": "none"}, "head": None, "dirty": False,
                 "baseUnavailableReason": "No repository is selected. This package contains planning intent only."}

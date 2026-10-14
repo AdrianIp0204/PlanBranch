@@ -83,6 +83,16 @@ def test_live_mutable_commands_remain_available_but_never_source_bound(runtime):
     assert observation_state(record, snapshot_identity(root)['sha256']) == 'mutable_command_observed'
 
 
+def test_live_mutable_rewrite_and_restore_does_not_upgrade_endpoint_equality(runtime):
+    runner, policy, root = runtime
+    command = "python -c \"from pathlib import Path; p=Path('source.py'); old=p.read_bytes(); p.write_text('VALUE = 999'); assert '999' in p.read_text(); p.write_bytes(old)\""
+    record = runner.run(policy, root, {'command': command}, 'transient', threading.Event(), lambda _: None)['command']
+    record['evidence']['hostAuthenticated'] = True
+    assert record['exitCode'] == 0 and record['evidence']['sourceChanged'] is False
+    assert (root / 'source.py').read_text() == 'VALUE = 1\n'
+    assert observation_state(record, snapshot_identity(root)['sha256']) == 'mutable_command_observed'
+
+
 def test_live_runtime_and_selected_candidate_drift_refused(runtime):
     runner, policy, root = runtime
     changed = deepcopy(policy); changed['daemonId'] = 'different'
@@ -90,4 +100,7 @@ def test_live_runtime_and_selected_candidate_drift_refused(runtime):
         runner.verify(changed, root, {'command': 'true'}, 'drift', threading.Event(), lambda _: None)
     changed = deepcopy(policy); changed['candidateHash'] = 'different'
     with pytest.raises(WorkspaceError, match='candidate changed'):
+        runner.verify(changed, root, {'command': 'true'}, 'drift', threading.Event(), lambda _: None)
+    changed = deepcopy(policy); changed['imageId'] = 'sha256:' + '0' * 64
+    with pytest.raises(WorkspaceError, match='runtime or selected image'):
         runner.verify(changed, root, {'command': 'true'}, 'drift', threading.Event(), lambda _: None)

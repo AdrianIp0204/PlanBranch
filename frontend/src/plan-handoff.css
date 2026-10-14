@@ -13,6 +13,7 @@
 .plan-field-change dl { margin: 0; }
 .plan-field-change dt { color: var(--muted); font-size: var(--font-small); }
 .plan-field-change dd { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.plan-field-change > button { margin-top: 8px; }
 .plan-library details, .task-handoff details { margin-block: 12px; }
 .plan-library summary, .task-handoff summary { cursor: pointer; font-weight: 600; }
 .handoff-return { min-height: 220px; font-family: monospace; }

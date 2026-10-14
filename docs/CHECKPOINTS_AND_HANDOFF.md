@@ -23,6 +23,10 @@ changed field with its saved and current value, including project names and node
 blocker text. Reordering identity-based collections alone does not count as an
 intent change. Historical repository-inspection receipts appear separately and
 do not affect the semantic comparison or approval fingerprint.
+Changed task and diagram fields link directly to entities that still exist in
+the selected plan. Removed entities retain their saved values without a dead
+navigation link. Expand **Raw comparison data** for a section's complete saved
+and current semantic JSON.
 
 Selecting an alternative or restoring a checkpoint first saves the active design
 as an immutable recovery checkpoint. The previous alternative's latest snapshot
@@ -52,7 +56,10 @@ selected execution repository takes precedence over the scanner selection. If
 that execution selection is broken, repair or deliberately replace it before
 exporting. A scanner-only folder that is not itself a Git root produces a
 planning-only package with an unavailable base; PlanBranch does not expand a
-subfolder selection to its enclosing repository. A planning-only package cannot
+subfolder selection to its enclosing repository. A missing scanner folder also
+produces a planning-only package. If the folder has a Git marker, repository
+corruption or access failures stop export with an actionable error; permission
+failures while inspecting the folder or marker are also reported. A planning-only package cannot
 accept a returned commit; create a new source-bound handoff first. Handoff
 creation reads an attached repository; it does not grant execution permission.
 The repository identity and selection are frozen at export. Changing either

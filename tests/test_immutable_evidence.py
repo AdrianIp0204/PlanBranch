@@ -93,3 +93,43 @@ def test_native_verification_uses_same_durable_budget_and_never_replays_uncertai
     assert journal['calls'][0]['state'] == 'pending' and journal['elapsedSeconds'] >= 0
     again = executor.run(context, root, threading.Event(), lambda _: None)
     assert 'not replayed' in again['error'] and len(calls) == 1 and len(registry.seen) == 1
+
+
+def test_long_native_command_ids_preserve_each_result_and_update_only_the_same_command(fixture):
+    from flowdesk.check_evidence import snapshot_identity
+    from flowdesk.model_executor import ModelExecutor
+    from test_model_executor import Registry, Runner, reply
+    _, _, project, _, injected, service = fixture
+    native_ids = ['x' * 198 + 'aa', 'x' * 198 + 'bb']
+    registry = Registry([reply('verify_without_editing', {'command': 'failing check'}, key=native_ids[0]),
+                         reply('verify_without_editing', {'command': 'passing check'}, key=native_ids[1]),
+                         reply(text='Finished both checks')])
+    runner = Runner()
+    def verify(policy, worktree, arguments, key, cancel, on_event):
+        identity = snapshot_identity(worktree)
+        command = {'id': key, 'command': arguments['command'], 'status': 'in_progress', 'exitCode': None, 'output': '',
+            'evidence': {'schemaVersion': 2, 'provenance': 'host_observed', 'runId': policy['evidenceRunId'],
+                        'executionMode': 'immutable_verification', 'runtime': 'test-double',
+                        'candidateBefore': identity['sha256'], 'candidateAfter': identity['sha256'], 'sourceChanged': False}}
+        on_event({'type': 'command', 'command': seal_command(service.data_dir, command)})
+        failed = arguments['command'] == 'failing check'
+        command.update(status='failed' if failed else 'completed', exitCode=1 if failed else 0,
+                       output='failure retained' if failed else 'success retained')
+        command = seal_command(service.data_dir, command)
+        on_event({'type': 'command', 'command': command})
+        return {'executed': True, 'command': command}
+    runner.verify = verify
+    executor = ModelExecutor(service.data_dir, registry, runner)
+    selection = {'provider': 'ollama', 'mode': 'explicit', 'model': 'fixture', 'reasoningEffort': None}
+    injected.configure = lambda _: executor.configure(selection)
+    injected.run = executor.run
+    preview = prepare(fixture)
+    started = service.start(project['id'], mutation(previewId=preview['id'], confirmed=True))['run']
+    run = finish(service, project['id'], started['id'])
+    assert run['state'] == 'succeeded', run
+    assert [command['id'] for command in run['commands']] == ['1:' + key for key in native_ids]
+    assert [command['exitCode'] for command in run['commands']] == [1, 0]
+    assert [command['output'] for command in run['commands']] == ['failure retained', 'success retained']
+    assert 'Observed command failures remain' in run['summary']
+    assert all(command['evidence']['hostAuthenticated'] for command in run['commands'])
+    assert all(command['verificationState'] == 'not_verified' for command in run['commands'])

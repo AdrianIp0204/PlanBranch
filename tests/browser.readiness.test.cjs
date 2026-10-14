@@ -58,7 +58,15 @@ test("semantic comparison shows name and blocker fields with the same meaning as
   await comparison.getByText("Private offline importer", { exact: true }).waitFor();
   await comparison.getByText("Privacy requires local-only storage.", { exact: true }).waitFor();
   assert.equal(await comparison.locator(".plan-field-change").count(), 2, "Layout and progress do not appear as semantic changes");
-  assert.equal(await comparison.locator("pre").count(), 0, "Changed fields are readable values, not whole-plan JSON");
+  assert.equal(await comparison.locator("pre:visible").count(), 0, "Raw JSON stays collapsed until requested");
+  const raw = comparison.locator("details").filter({ has: p.getByText("Raw comparison data: Project name and notes", { exact: true }) });
+  await raw.locator("summary").click();
+  assert.match(await raw.locator("pre").last().innerText(), /"name": "Private offline importer"/);
+  await raw.locator("summary").click();
   await comparison.scrollIntoViewIfNeeded();
   await p.screenshot({ path: path.join(h.output, "readable-field-comparison.png"), fullPage: true });
+  await comparison.getByRole("button", { name: "Open node: Begin import", exact: true }).click();
+  await dialog.waitFor({ state: "hidden" });
+  await p.locator(`.react-flow__node[data-id="${project.content.diagrams[0].nodes[0].id}"].selected`).waitFor();
+  assert.equal((await h.api(`/projects/${project.id}/execution`)).runs.length, 0);
 });

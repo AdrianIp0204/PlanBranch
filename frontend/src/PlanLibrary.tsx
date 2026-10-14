@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, post } from "./api";
 import { useProject } from "./store";
-import { type Envelope, uid } from "./types";
+import { type Content, type Envelope, uid } from "./types";
 import { Dialog, ErrorMessage, Field } from "./ui";
 import "./plan-handoff.css";
 
@@ -9,7 +9,28 @@ type Snapshot = { id: string; alternativeId: string | null; kind: string; name: 
 type Alternative = { id: string; parentId: string | null; name: string; snapshotId: string };
 type PlanState = { selectedAlternativeId: string | null; epoch: number; snapshots: Snapshot[]; alternatives: Alternative[]; decisions: { id: string; action: string; note: string; createdAt: string }[] };
 type FieldChange = { path: string; label: string; kind: string; before: unknown; after: unknown };
-type Comparison = { snapshotId: string; scopeVersion: number; beforeHash: string; afterHash: string; changes: { section: string; fields: FieldChange[] }[]; historyChanges?: { section: string; before: unknown; after: unknown }[] };
+type Comparison = { snapshotId: string; scopeVersion: number; beforeHash: string; afterHash: string; changes: { section: string; before: unknown; after: unknown; fields: FieldChange[] }[]; historyChanges?: { section: string; before: unknown; after: unknown }[] };
+export type PlanComparisonTarget = { kind: "task"; id: string } | { kind: "diagram" | "node" | "edge"; id: string; diagramId: string };
+
+function fieldDestination(section: string, path: string, content: Content): { target?: PlanComparisonTarget; label: string } | null {
+  const parts = path.split("/").slice(1).map(part => part.replace(/~1/g, "/").replace(/~0/g, "~"));
+  if (section === "Tasks, dependencies and acceptance criteria" && parts[0] === "tasks" && parts[1]) {
+    const task = content.buildTasks?.find(item => item.id === parts[1]);
+    return task ? { target: { kind: "task", id: task.id }, label: `Open task: ${task.title || "Untitled task"}` } : { label: "This task is not in the selected plan." };
+  }
+  if (section !== "Diagram elements and relationships" || !parts[0]) return null;
+  const diagram = content.diagrams.find(item => item.id === parts[0]);
+  if (!diagram) return { label: "This diagram is not in the selected plan." };
+  if ((parts[1] === "nodes" || parts[1] === "edges") && parts[2]) {
+    if (parts[1] === "nodes") {
+      const node = diagram.nodes.find(item => item.id === parts[2]);
+      return node ? { target: { kind: "node", id: node.id, diagramId: diagram.id }, label: `Open node: ${node.title || "Untitled node"}` } : { label: "This node is not in the selected plan." };
+    }
+    const edge = diagram.edges.find(item => item.id === parts[2]);
+    return edge ? { target: { kind: "edge", id: edge.id, diagramId: diagram.id }, label: `Open connection: ${edge.label || "Unlabelled connection"}` } : { label: "This connection is not in the selected plan." };
+  }
+  return { target: { kind: "diagram", id: diagram.id, diagramId: diagram.id }, label: `Open diagram: ${diagram.name}` };
+}
 
 function fieldValue(value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
@@ -18,7 +39,7 @@ function fieldValue(value: unknown): string {
   return typeof value === "object" ? JSON.stringify(value, null, 2) : String(value);
 }
 
-export default function PlanLibrary({ onClose }: { onClose: () => void }) {
+export default function PlanLibrary({ onClose, onNavigate }: { onClose: () => void; onNavigate?: (target: PlanComparisonTarget) => void }) {
   const { session, commit, flush, synchronize } = useProject();
   const [state, setState] = useState<PlanState | null>(null);
   const [name, setName] = useState("");
@@ -87,10 +108,13 @@ export default function PlanLibrary({ onClose }: { onClose: () => void }) {
       </li>)}</ul>
       {comparison && <section aria-label="Semantic plan comparison"><h3>Saved plan → current plan</h3>
         <p className="muted">Uses the same version {comparison.scopeVersion} meaning rules as intent approval. Layout and progress are excluded; names, blockers, requirements and design choices are included.</p>
-        {!comparison.changes.length ? <p>No semantic differences. Layout and progress do not affect this comparison.</p> : comparison.changes.map((change) => <section key={change.section} className="plan-field-section"><h4>{change.section}</h4>{change.fields.map((field) => <article className="plan-field-change" key={field.path}>
+        {!comparison.changes.length ? <p>No semantic differences. Layout and progress do not affect this comparison.</p> : comparison.changes.map((change) => <section key={change.section} className="plan-field-section"><h4>{change.section}</h4>{change.fields.map((field) => {
+          const destination = fieldDestination(change.section, field.path, session.content);
+          return <article className="plan-field-change" key={field.path}>
           <h5>{field.label} <span className="muted">· {field.kind}</span></h5>
           <dl className="plan-comparison"><div><dt>Saved</dt><dd>{fieldValue(field.before)}</dd></div><div><dt>Current</dt><dd>{fieldValue(field.after)}</dd></div></dl>
-        </article>)}</section>)}
+          {destination && (destination.target ? onNavigate && <button className="quiet" onClick={() => { onNavigate(destination.target!); onClose(); }}>{destination.label}</button> : <p className="muted">{destination.label} Saved values remain available here.</p>)}
+        </article>})}<details><summary>Raw comparison data: {change.section}</summary><div className="plan-comparison"><div><h5>Saved section</h5><pre tabIndex={0}>{JSON.stringify(change.before, null, 2)}</pre></div><div><h5>Current section</h5><pre tabIndex={0}>{JSON.stringify(change.after, null, 2)}</pre></div></div></details></section>)}
         {!!comparison.historyChanges?.length && <details><summary>Repository inspection history changed · outside intent approval</summary><p>These metadata receipts describe past inspections and do not grant source-sharing consent or execution authority.</p>{comparison.historyChanges.map((change) => <div key={change.section} className="plan-comparison"><div><h4>Saved references</h4><pre tabIndex={0}>{JSON.stringify(change.before, null, 2)}</pre></div><div><h4>Current references</h4><pre tabIndex={0}>{JSON.stringify(change.after, null, 2)}</pre></div></div>)}</details>}
       </section>}
       {inspected && <section aria-label="Saved checkpoint"><h3>{inspected.name}</h3><p>{inspected.authority}</p><pre tabIndex={0}>{JSON.stringify(inspected.content, null, 2)}</pre>{!!inspected.sourceReferences?.length && <details><summary>Historical repository inspection references · no source or consent</summary><pre tabIndex={0}>{JSON.stringify(inspected.sourceReferences, null, 2)}</pre></details>}</section>}

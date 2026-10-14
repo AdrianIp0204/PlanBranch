@@ -2319,7 +2319,27 @@ function Workbench({
         />
       )}
       {briefOpen && <ProjectBriefDialog onClose={() => setBriefOpen(false)} />}
-      {plansOpen && <PlanLibrary onClose={() => setPlansOpen(false)} />}
+      {plansOpen && <PlanLibrary onClose={() => setPlansOpen(false)} onNavigate={(target) => {
+        commit();
+        if (proposalPreviewRef.current) closeProposal();
+        setFilter("all");
+        setNarrowNavigationOpen(false);
+        setFocusPane("canvas");
+        if (target.kind === "task") {
+          setWorkspaceView("build");
+          setSelectedBuildTask(target.id);
+          focusAfterLayout("build-title");
+        } else if (target.kind === "node") {
+          reveal(target.id);
+          focusAfterLayout("canvas-title");
+        } else {
+          setWorkspaceView("diagram");
+          setActive(target.diagramId);
+          setSelected(target.kind === "edge" ? target.id : null);
+          if (target.kind === "edge") setInspector(true);
+          focusAfterLayout("canvas-title");
+        }
+      }} />}
       {setupOpen && <SetupDialog projectId={session.id} onClose={() => setSetupOpen(false)} />}
       {guideOpen && <GuidedExample onClose={() => setGuideOpen(false)} onLoadExample={() => perform(onExample)} />}
       {quickJump && (

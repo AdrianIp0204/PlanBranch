@@ -2,6 +2,7 @@
 from contextlib import closing
 from copy import deepcopy
 import json
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -74,6 +75,57 @@ def test_changed_execution_selection_rejects_import_even_when_old_repository_rem
     with pytest.raises(ValueError, match="repository selection"):
         service.import_result(project["id"], exported["manifest"]["handoffId"], payload)
     assert service.state(project["id"], payload["taskId"])["results"] == []
+
+
+def scanner_package(fixture, path):
+    _, store, project, planning, _, execution = fixture
+    attach_source(fixture, path)
+    planning.approve(project["id"], mutation(baseRevision=project["revision"]))
+    return TaskHandoffs(store, planning, execution), {"taskId": project["content"]["buildTasks"][0]["id"], "baseRevision": project["revision"]}
+
+
+def test_missing_scanner_root_exports_planning_only_without_inspecting_parent(fixture, tmp_path, monkeypatch):
+    scanner = tmp_path / "scanner"
+    scanner.mkdir()
+    service, request = scanner_package(fixture, scanner)
+    scanner.rename(tmp_path / "moved-scanner")
+    monkeypatch.setattr(fixture[5].git, "inspect_repository", lambda *_: pytest.fail("A missing scanner root must not expand to its parent"))
+    exported = service.create(fixture[2]["id"], request)
+    assert exported["manifest"]["baseCommit"] is None
+    assert "missing" in exported["manifest"]["baseUnavailableReason"]
+
+
+def test_corrupt_scanner_git_marker_is_an_actionable_error_not_planning_fallback(fixture, tmp_path):
+    scanner = tmp_path / "corrupt-scanner"
+    scanner.mkdir()
+    (scanner / ".git").write_text("not a valid Git pointer\n")
+    service, request = scanner_package(fixture, scanner)
+    with pytest.raises(ValueError, match="Git marker.*Repair the repository"):
+        service.create(fixture[2]["id"], request)
+    with closing(fixture[1].connect()) as db:
+        assert db.execute("SELECT COUNT(*) FROM task_handoffs").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("denied", ["root", "marker", "inspect"])
+def test_scanner_permission_failures_never_fall_back_to_planning_only(fixture, monkeypatch, denied):
+    source = fixture[0]
+    service, request = scanner_package(fixture, source)
+    if denied == "inspect":
+        def inspect_denied(*_):
+            raise PermissionError("fixture access denied")
+        monkeypatch.setattr(fixture[5].git, "inspect_repository", inspect_denied)
+    else:
+        target = source if denied == "root" else source / ".git"
+        original_lstat = Path.lstat
+        def denied_lstat(path, *args, **kwargs):
+            if path == target:
+                raise PermissionError("fixture access denied")
+            return original_lstat(path, *args, **kwargs)
+        monkeypatch.setattr(Path, "lstat", denied_lstat)
+    with pytest.raises(ValueError, match="access permissions.*fixture access denied"):
+        service.create(fixture[2]["id"], request)
+    with closing(fixture[1].connect()) as db:
+        assert db.execute("SELECT COUNT(*) FROM task_handoffs").fetchone()[0] == 0
 
 
 def test_broken_execution_selection_does_not_fall_back_to_scanner(fixture, tmp_path):

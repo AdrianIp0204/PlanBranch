@@ -456,8 +456,11 @@ class ExecutionService:
             progress = row["progress"]
             if event.get("type") == "command" and isinstance(event.get("command"), dict):
                 command = event["command"]
-                key = str(command.get("id", ""))[:200]
-                if not key: return
+                key = command.get("id")
+                # Native tool IDs can be 200 characters before their invocation
+                # prefix. Never truncate identities: distinct checks must not
+                # overwrite each other's evidence at the storage boundary.
+                if not isinstance(key, str) or not 1 <= len(key) <= 256: return
                 item = {"id": key, "command": str(command.get("command", ""))[:16000], "status": str(command.get("status", "unknown"))[:100],
                         "exitCode": command.get("exitCode") if type(command.get("exitCode")) is int else None, "output": str(command.get("output", ""))[-65536:]}
                 # Only our isolated command runner creates this envelope. Codex
