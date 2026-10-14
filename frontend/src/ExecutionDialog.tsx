@@ -991,9 +991,9 @@ export default function ExecutionDialog({
               <div className="execution-notice">
                 {run.candidateStale && (
                   <p>
-                    The candidate source changed or has not been captured.
-                    Refresh results and review the current candidate before
-                    accepting, completing, or applying it.
+                    {run.applyRequest && !run.capturedCandidate
+                      ? "This historical run has no captured candidate source. Recover its existing Apply request first; recovery uses only the originally accepted artifact."
+                      : "The candidate source changed or has not been captured. Refresh results and review the current candidate before accepting, completing, or applying it."}
                   </p>
                 )}
                 {run.sourceStale && (
@@ -1098,7 +1098,8 @@ export default function ExecutionDialog({
                     !!busy ||
                     !!receipt ||
                     !accepted ||
-                    run.candidateStale ||
+                    (run.candidateStale &&
+                      !(run.applyRequest && !run.capturedCandidate)) ||
                     run.applied ||
                     run.sourceStale ||
                     run.applyPlanStale

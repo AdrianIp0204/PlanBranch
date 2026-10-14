@@ -98,17 +98,34 @@ Validation record (logs under ignored `output/`):
 - Frontend: **312 passed**, `roadmap-frontend-final.log`.
 - Migration/progress regressions: **27 passed**, `roadmap-migration-fix.log`.
 - New handoff production browser round trip: **1 passed**, `roadmap-browser-handoff.log`.
-- Full backend/browser suites: running; discovered regressions are fixed and
-  rerun before the release commit is certified.
+- Local broad backend: **723 passed, 19 skipped, 4 failed** on the initial source
+  snapshot. Three legacy fixture/progress expectations were repaired before the
+  first push; the remaining version-7 comparison now checks every historical
+  column plus the new legacy scope default explicitly (**2 focused tests passed**).
+- First cross-platform CI: **755 passed / 10 skipped** on Ubuntu and **750 passed /
+  15 skipped** on Windows, each with that one version-7 comparison failure.
+- Broad production browser run: **95 passed, 3 failed**. Focused reruns passed for
+  the short-window composer fix, all 12 menu actions, and movement (whose failure
+  was caused by rebuilding shared assets during the run). The assertions were
+  retained. Additional handoff and dock checks passed. Final CI rebuilds once,
+  installs the wheel, then runs the complete browser suite.
+- Independent recovery audit: **4 authority tests, 3 Apply/resumption tests and
+  26 dialog tests passed**. Legacy pending Apply can still recover after browser
+  storage loss without authorizing new actions lacking candidate provenance.
+- Release/startup audit: **15 tests passed**, including rejection of stale wheel
+  source/UI and portable artifacts with mismatched wheel or manifest bytes.
 - The local Docker Linux daemon is unavailable. Live container checks are not
   claimed; command/runtime regressions use deterministic fixtures without model
   calls. Ordinary release CI and standalone Windows packaging remain required.
 
-Remaining release gates: clean committed source; full backend, frontend and
+Required final release gates: clean committed source; full backend, frontend and
 installed-wheel browser checks on Ubuntu and Windows; standalone Windows portable
 smoke (including spaces/Unicode paths); final artifact hashes and source receipt.
 Existing generated directories owned by the former sandbox account are left
 untouched; local packaging uses a clean archive of the final commit and the normal
 builder. The release workflow accepts only a successful same-repository push or
 dispatch check run for the exact SHA, creates its tag atomically and refuses to
-replace an existing tag or release. No public release is claimed by this record.
+replace an existing tag or release. Final gate status belongs to the exact-commit
+[PR checks](https://github.com/AdrianIp0204/PlanBranch/pull/1/checks), and the
+published artifact receipt records the SHA and successful push/dispatch run. This
+source document does not substitute earlier test results for that final receipt.

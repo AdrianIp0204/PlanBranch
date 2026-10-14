@@ -41,8 +41,12 @@ def previous_store(tmp_path, monkeypatch):
 
 def raw_content(store):
     with closing(store.connect()) as db:
-        return {table: [tuple(row) for row in db.execute(f"SELECT * FROM {table} ORDER BY 1")]
-                for table in ("projects", "history_checkpoints", "save_receipts", "planning_approvals", "planning_receipts", "planning_requests")}
+        fields = {table: "*" for table in ("projects", "history_checkpoints", "save_receipts", "planning_receipts", "planning_requests")}
+        # Compare every historical field; an additive scope column is separately
+        # verified below rather than mistaken for a rewrite of the old record.
+        fields["planning_approvals"] = "id,project_id,revision,cursor,content_hash,content,created_at,revoked"
+        return {table: [tuple(row) for row in db.execute(f"SELECT {columns} FROM {table} ORDER BY 1")]
+                for table, columns in fields.items()}
 
 
 def test_execution_migration_preserves_manual_history_frozen_approval_and_receipts(tmp_path, monkeypatch):
@@ -55,6 +59,7 @@ def test_execution_migration_preserves_manual_history_frozen_approval_and_receip
     with closing(upgraded.connect()) as db:
         assert migrations.applied_versions(db) == tuple(range(1, migrations.DATABASE_VERSION + 1))
         assert db.execute("SELECT COUNT(*) FROM execution_runs").fetchone()[0] == 0
+        assert db.execute("SELECT scope_version FROM planning_approvals").fetchone()[0] == 0
     portable = portable_project(project, [])
     assert set(portable) == {"format", "version", "content", "views", "symbols"}
     assert "execution" not in json.dumps(portable)
