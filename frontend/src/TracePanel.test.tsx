@@ -158,7 +158,7 @@ it("gives a next action and a direct prerequisite link without treating approval
     nextAction: "Complete Database first.",
     action: "prerequisite",
     approvalCurrent: true,
-    blockers: [{ taskId: "database", message: "Open Database prerequisite" }],
+    blockers: [{ code: "prerequisite_incomplete", taskId: "database", message: "Database still needs its reviewed completion.", action: "open_task", actionLabel: "Open Database prerequisite" }],
     boundaryNote: "Approval and execution authorization are separate.",
   });
   const select = vi.fn(),

@@ -49,6 +49,7 @@ def implementation_brief(manifest):
 class TaskHandoffs:
     def __init__(self, store, planning, execution):
         self.store, self.planning, self.execution = store, planning, execution
+        self.execution.verification_binding = self.verification_binding
 
     def _handoff(self, db, project_id, handoff_id):
         identifier(handoff_id, "Handoff ID")
@@ -58,11 +59,40 @@ class TaskHandoffs:
         return row
 
     def _repository(self, db, project_id):
-        # Read-only scanner attachment is sufficient: export grants no execution.
-        attached = db.execute("SELECT root FROM source_attachments WHERE project_id=?", (project_id,)).fetchone()
+        # The explicitly selected execution repository is authoritative. A
+        # broken selection must not silently fall back to an unrelated scanner.
         execution = self.execution._repository(db, project_id)
-        path = attached["root"] if attached else execution["path"] if execution else None
-        return self.execution.git.inspect_repository(path) if path else None
+        if execution:
+            try:
+                inspected = self.execution.git.inspect_repository(execution["path"])
+            except (ValueError, RuntimeError, OSError) as exc:
+                raise ValidationError("The selected execution repository is unavailable. Repair or deliberately replace that selection before exporting or reviewing a handoff. " + str(exc)) from exc
+            if any(inspected[key] != execution[key] for key in ("path", "gitDir", "commonDir")):
+                raise ValidationError("The selected execution repository identity changed. Select it again before exporting a handoff.")
+            return {**inspected, "bindingVersion": 1, "selection": {"kind": "execution", "id": execution["id"]}}
+        attached = db.execute("SELECT root,generation FROM source_attachments WHERE project_id=?", (project_id,)).fetchone()
+        if attached:
+            selection = {"kind": "source", "generation": attached["generation"], "root": attached["root"]}
+            try:
+                # inspect_repository requires this exact root to be a Git top
+                # level. Never walk up from a consented scanner subdirectory.
+                inspected = self.execution.git.inspect_repository(attached["root"])
+            except (ValueError, RuntimeError, OSError):
+                return {"bindingVersion": 1, "selection": selection, "head": None, "dirty": False,
+                        "baseUnavailableReason": "The read-only source attachment is not a supported Git repository root with a commit. This package contains planning intent only."}
+            return {**inspected, "bindingVersion": 1, "selection": selection}
+        return {"bindingVersion": 1, "selection": {"kind": "none"}, "head": None, "dirty": False,
+                "baseUnavailableReason": "No repository is selected. This package contains planning intent only."}
+
+    def _bound_repository(self, db, project_id, handoff):
+        """Bind reads and local checks to the exact selection made at export."""
+        saved = json.loads(handoff["repository"]) if handoff["repository"] else None
+        if not saved or saved.get("bindingVersion") != 1:
+            raise ValidationError("This older handoff has no repository selection binding. Create a new handoff before importing or verifying a result.")
+        live = self._repository(db, project_id)
+        if saved.get("selection") != live.get("selection") or any(saved.get(key) != live.get(key) for key in ("path", "gitDir", "commonDir")):
+            raise ValidationError("The repository selection changed after export. Create a new handoff for the selected repository.")
+        return live
 
     def create(self, project_id, payload):
         from .traceability import requirement_record
@@ -87,12 +117,12 @@ class TaskHandoffs:
             if not approval or not (scope["current"] if scope else approval["current"]):
                 raise ValidationError("Approve this task's current saved scope before creating a handoff.")
             repository = self._repository(db, project_id)
-            if repository and repository["dirty"]:
+            if repository["dirty"]:
                 raise ValidationError("Commit or preserve the repository's uncommitted changes before exporting a revision-bound handoff.")
             selected = db.execute("SELECT alternative_id FROM plan_selection WHERE project_id=?", (project_id,)).fetchone()
             key = str(uuid4())
             expected = {"schema": RETURN_SCHEMA, "projectId": project_id, "taskId": task["id"], "handoffId": key,
-                        "baseCommit": repository["head"] if repository else None, "candidateCommit": "REPLACE_WITH_FULL_LOCAL_COMMIT_HASH",
+                        "baseCommit": repository["head"], "candidateCommit": "REPLACE_WITH_FULL_LOCAL_COMMIT_HASH",
                         "manifestHash": "COPY_MANIFEST_CONTENT_HASH", "report": {"summary": "", "checks": []}}
             linked_ids = {link["nodeId"] for link in task["nodeLinks"]}
             nodes = [{"diagramId": diagram["id"], **{key: value for key, value in node.items() if key in {"id", "title", "description", "targetFile", "targetScope", "why", "pseudocode"}}}
@@ -103,11 +133,12 @@ class TaskHandoffs:
                         "approvalId": approval["id"], "task": {key: deepcopy(value) for key, value in task.items() if key != "status"},
                         "brief": {key: value for key, value in project["content"]["brief"].items() if key in {"goal", "requirements", "constraints", "outOfScope", "decisions", "assumptions"}},
                         "requirements": [requirement_record(project_id, project["content"])],
-                        "diagramReferences": nodes, "baseCommit": repository["head"] if repository else None,
+                        "diagramReferences": nodes, "baseCommit": repository["head"],
+                        "repositorySelection": repository["selection"]["kind"], "baseUnavailableReason": repository.get("baseUnavailableReason"),
                         "supportingContext": supporting, "sourceIncluded": bool(supporting), "createdAt": now(),
                         "expectedReturn": expected, "authority": "Task intent only. This package grants no PlanBranch execution or application permissions."}
             manifest["contentHash"] = fingerprint(manifest)
-            db.execute("INSERT INTO task_handoffs VALUES(?,?,?,?,?,?,?)", (key, project_id, task["id"], encode(manifest), manifest["contentHash"], encode(repository) if repository else None, manifest["createdAt"]))
+            db.execute("INSERT INTO task_handoffs VALUES(?,?,?,?,?,?,?)", (key, project_id, task["id"], encode(manifest), manifest["contentHash"], encode(repository), manifest["createdAt"]))
             return {"manifest": manifest, "markdown": implementation_brief(manifest)}
 
     def detail(self, project_id, handoff_id):
@@ -128,11 +159,11 @@ class TaskHandoffs:
         repository = json.loads(row["repository"]) if row["repository"] else None
         if repository:
             try:
-                live = self._repository(db, row["project_id"])
-                if live is None or any(live[key] != repository[key] for key in ("path", "gitDir", "commonDir")) or live["head"] not in {repository["head"], candidate} or live["dirty"]:
+                live = self._bound_repository(db, row["project_id"], row)
+                if live["head"] not in {repository["head"], candidate} or live["dirty"]:
                     issues.append("The attached source identity, revision, or working tree changed after export.")
-            except (ValueError, RuntimeError, OSError):
-                issues.append("The exported source repository is no longer available for comparison.")
+            except (ValueError, RuntimeError, OSError) as exc:
+                issues.append(str(exc))
         return issues
 
     def state(self, project_id, task_id):
@@ -140,12 +171,18 @@ class TaskHandoffs:
         with closing(self.store.connect()) as db:
             self.store._row(db, project_id)
             handoffs = [dict(row) for row in db.execute("SELECT id,manifest_hash AS contentHash,created_at AS createdAt FROM task_handoffs WHERE project_id=? AND task_id=? ORDER BY created_at DESC", (project_id, task_id))]
+            verifications = {}
+            for run in db.execute("SELECT * FROM execution_runs WHERE project_id=? ORDER BY created_at DESC,id DESC", (project_id,)):
+                snapshot = json.loads(run["snapshot"])
+                if snapshot.get("executionMode") == "immutable_verification" and snapshot.get("task", {}).get("id") == task_id:
+                    verifications.setdefault(snapshot.get("externalResultId"), []).append(self.execution._summary(run))
             results = []
             for row in db.execute("SELECT * FROM external_results WHERE project_id=? AND task_id=? ORDER BY created_at DESC", (project_id, task_id)):
                 handoff = self._handoff(db, project_id, row["handoff_id"])
                 data = json.loads(row["data"])
                 results.append({"id": row["id"], "handoffId": row["handoff_id"], **data,
                                 "compatibilityIssues": self._compatibility(db, handoff, data["candidateCommit"]),
+                                "localVerifications": verifications.get(row["id"], []),
                                 "reviews": [dict(review) for review in db.execute("SELECT id,decision,note,created_at AS createdAt FROM external_reviews WHERE result_id=? ORDER BY created_at DESC", (row["id"],))]})
             return {"handoffs": handoffs, "results": results}
 
@@ -168,6 +205,7 @@ class TaskHandoffs:
                 raise ValidationError("Return the full 40- or 64-character lowercase candidate commit hash, available in the attached local repository.")
             if not row["repository"] or not manifest["baseCommit"]:
                 raise ValidationError("This offline handoff has no source base. Attach a repository and create a new handoff to review a commit.")
+            self._bound_repository(db, project_id, row)
             repository = json.loads(row["repository"])
             git = self.execution.git
             live = git.repository_identity(repository["path"])
@@ -234,16 +272,15 @@ class TaskHandoffs:
             db.execute("INSERT INTO external_reviews VALUES(?,?,?,?,?)", (key, result_id, payload["decision"], note, now()))
             return {"reviewId": key, "decision": payload["decision"], "authority": "Human review only. No task approval, execution, application or commit occurred."}
 
-    def prepare_run(self, project_id, result_id, payload):
-        """Read-only preflight; a subsequent ordinary preview grants nothing yet."""
-        obj(payload, {"contentHash"}, "external result local run preview")
+    def verification_binding(self, project_id, result_id):
+        """Rechecked by the execution service at both preview and start."""
+        identifier(result_id, "External result ID")
         with closing(self.store.connect()) as db:
+            db.execute("BEGIN")
             row = db.execute("SELECT * FROM external_results WHERE project_id=? AND id=?", (project_id, result_id)).fetchone()
             if row is None:
                 raise NotFoundError("External result not found in this project.")
             data = json.loads(row["data"])
-            if payload.get("contentHash") != data["contentHash"]:
-                raise ValidationError("Refresh this external result before preparing a local run.")
             handoff = self._handoff(db, project_id, row["handoff_id"])
             issues = self._compatibility(db, handoff, data["candidateCommit"])
             if issues:
@@ -255,8 +292,37 @@ class TaskHandoffs:
             source = self.execution.git.inspect_repository(grant["path"])
             if source["head"] != data["candidateCommit"] or source["dirty"]:
                 raise ValidationError("Use your Git tools to check out the exact returned candidate with a clean working tree, then retry. PlanBranch will not change your checkout.")
-            return {"taskId": row["task_id"], "candidateCommit": data["candidateCommit"], "externalResultId": result_id,
-                    "instruction": "Review the ordinary execution preview and authorize a new local run. It may edit files within the approved task scope; new observations remain separate from external claims."}
+            return {"taskId": row["task_id"], "candidateCommit": data["candidateCommit"],
+                    "externalContentHash": data["contentHash"], "repository": source}
+
+    def prepare_run(self, project_id, result_id, payload):
+        """Legacy read-only preflight; never opens an editing run implicitly."""
+        obj(payload, {"contentHash"}, "external result local run preview")
+        bound = self.verification_binding(project_id, result_id)
+        if payload.get("contentHash") != bound["externalContentHash"]:
+            raise ValidationError("Refresh this external result before preparing local verification.")
+        return {"taskId": bound["taskId"], "candidateCommit": bound["candidateCommit"], "externalResultId": result_id,
+                "instruction": "Choose a check and preview verification without editing. This preflight grants no execution permission."}
+
+    def preview_verification(self, project_id, result_id, payload):
+        obj(payload, {"contentHash", "command", "timeoutSeconds"}, "external verification preview")
+        bound = self.verification_binding(project_id, result_id)
+        if payload.get("contentHash") != bound["externalContentHash"]:
+            raise ValidationError("Refresh this external result before preparing local verification.")
+        return self.execution.preview_verification(project_id, {
+            "taskId": bound["taskId"], "externalResultId": result_id,
+            "externalContentHash": bound["externalContentHash"], "candidateCommit": bound["candidateCommit"],
+            "command": payload.get("command"), "timeoutSeconds": payload.get("timeoutSeconds")})
+
+    def start_verification(self, project_id, result_id, payload):
+        obj(payload, {"previewId", "mutationId", "confirmed"}, "external verification authorization")
+        identifier(payload.get("previewId"), "Preview ID")
+        with closing(self.store.connect()) as db:
+            row = db.execute("SELECT snapshot FROM execution_previews WHERE project_id=? AND id=?",
+                             (project_id, payload["previewId"])).fetchone()
+        if row is None or json.loads(row["snapshot"]).get("externalResultId") != result_id:
+            raise ValidationError("This verification preview does not belong to the selected external result.")
+        return self.execution.start_verification(project_id, payload)
 
 
 def register_handoff_routes(app, service):
@@ -285,3 +351,11 @@ def register_handoff_routes(app, service):
     @app.post("/api/projects/<project_id>/external-results/<result_id>/prepare-run")
     def external_prepare_run(project_id, result_id):
         return jsonify(service.prepare_run(project_id, result_id, request.get_json()))
+
+    @app.post("/api/projects/<project_id>/external-results/<result_id>/verification/preview")
+    def external_verification_preview(project_id, result_id):
+        return jsonify(service.preview_verification(project_id, result_id, request.get_json()))
+
+    @app.post("/api/projects/<project_id>/external-results/<result_id>/verification/start")
+    def external_verification_start(project_id, result_id):
+        return jsonify(service.start_verification(project_id, result_id, request.get_json()))

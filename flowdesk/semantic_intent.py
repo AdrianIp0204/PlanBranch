@@ -85,6 +85,78 @@ def task_fingerprint(content, task_id):
     return digest(semantic_scope(content, task_id))
 
 
+def semantic_sections(content):
+    """Present the exact approval policy, without maintaining a second allowlist.
+
+    Scope version 1 already includes project names and node blocker text. This
+    presentation repair does not alter that policy or revive older approvals.
+    Historical inspection receipts are deliberately outside semantic meaning.
+    """
+    scope = semantic_scope(content)
+    return {
+        "Project name and notes": {key: scope[key] for key in ("name", "notes")},
+        "Requirements, constraints and decisions": scope["brief"],
+        "Diagram elements and relationships": scope["diagrams"],
+        "Tasks, dependencies and acceptance criteria": {
+            "tasks": scope["tasks"], "missingTasks": scope["missingTasks"]},
+        "Variables and source references": {
+            key: scope[key] for key in ("variables", "nodeLinks", "matches")},
+    }
+
+
+_FIELD_LABELS = {
+    "name": "Name", "notes": "Notes", "goal": "Goal", "users": "Users",
+    "requirements": "Requirements", "constraints": "Constraints", "decisions": "Decisions",
+    "nonGoals": "Out of scope", "nodes": "Nodes", "edges": "Connections", "title": "Title",
+    "description": "Description", "pseudocode": "Pseudocode", "targetFile": "Target file",
+    "targetScope": "Target scope", "why": "Reason", "alternatives": "Alternatives",
+    "blocker": "Blocker", "checklist": "Checklist", "text": "Text", "type": "Type",
+    "source": "Source node", "target": "Target node", "sourceHandle": "Source branch",
+    "targetHandle": "Target port", "label": "Label", "tasks": "Tasks",
+    "deliverable": "Deliverable", "expectedFiles": "Expected files",
+    "prerequisiteIds": "Prerequisite tasks", "acceptanceChecks": "Acceptance checks",
+    "nodeLinks": "Node links", "nodeId": "Node", "diagramId": "Diagram", "missing": "Missing link",
+    "variables": "Variables", "intendedType": "Intended type", "intendedFile": "Intended file",
+    "scopeKind": "Scope kind", "scope": "Scope", "initialExpression": "Initial expression",
+    "matches": "Source matches", "missingTasks": "Missing tasks", "origin": "Origin",
+    "variableId": "Variable", "relationship": "Relationship", "plannedId": "Planned variable",
+    "detectedId": "Detected variable", "scanId": "Scan", "status": "Status",
+}
+_MISSING = object()
+
+
+def field_changes(before, after, path=(), labels=()):
+    """Stable identity paths plus readable changed fields, never whole-plan blobs."""
+    if before == after:
+        return []
+    if isinstance(before, dict) or isinstance(after, dict):
+        left = before if isinstance(before, dict) else {}
+        right = after if isinstance(after, dict) else {}
+        result = []
+        for key in sorted(set(left) | set(right)):
+            # Collection identity appears in its path, rather than a UUID-only row.
+            if key == "id": continue
+            result.extend(field_changes(left.get(key, _MISSING), right.get(key, _MISSING),
+                (*path, key), (*labels, _FIELD_LABELS.get(key, key))))
+        return result
+    values = [value for value in (before, after) if value is not _MISSING]
+    if values and all(isinstance(value, list) and all(isinstance(item, dict) and "id" in item for item in value) for value in values):
+        left = {item["id"]: item for item in before} if isinstance(before, list) else {}
+        right = {item["id"]: item for item in after} if isinstance(after, list) else {}
+        result = []
+        for key in sorted(set(left) | set(right)):
+            item = right.get(key) or left[key]
+            title = next((item.get(field) for field in ("title", "name", "text", "label") if item.get(field)), key)
+            result.extend(field_changes(left.get(key, _MISSING), right.get(key, _MISSING),
+                (*path, key), (*labels, str(title))))
+        return result
+    return [{"path": "/" + "/".join(str(part).replace("~", "~0").replace("/", "~1") for part in path),
+             "label": " → ".join(labels) or "Value",
+             "kind": "added" if before is _MISSING else "removed" if after is _MISSING else "changed",
+             "before": None if before is _MISSING else before,
+             "after": None if after is _MISSING else after}]
+
+
 def task_approved(approval, task_id):
     if not approval: return False
     if approval.get("scopeVersion") == SCOPE_VERSION:

@@ -63,12 +63,15 @@ def test_ignored_source_drift_requires_fresh_candidate_review_for_all_actions(fi
     with pytest.raises(ExecutionReceiptError, match="Accept this exact diff"):
         execution.apply(project["id"], run["id"], mutation(digest=digest, confirmed=True))
     accepted = accept(fixture, refreshed)
-    # Explicitly excluded runtime output does not withdraw a source review.
+    # v2 excludes no candidate file except Git metadata. Old output directories
+    # can contain executable input; new verification writes outside the candidate.
     outputs = Path(run["worktreePath"]) / ".planbranch-results"
     outputs.mkdir()
     (outputs / "junit.xml").write_text("<testsuite/>", encoding="utf-8")
+    assert execution.detail(project['id'], run['id'])['run']['candidateStale']
     stable = execution.refresh(project["id"], run["id"], mutation())["run"]
-    assert not stable["candidateStale"] and stable["acceptedDigest"] == accepted["acceptedDigest"]
+    assert not stable["candidateStale"] and stable["acceptedDigest"] is None
+    accept(fixture, stable)
     assert execution.apply(project["id"], run["id"], mutation(digest=digest, confirmed=True))["run"]["applied"]
 
 

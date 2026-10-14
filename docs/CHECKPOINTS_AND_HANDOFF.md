@@ -18,6 +18,12 @@ requirements, diagram semantics, task scope, criteria and references. Canvas
 movement and progress are omitted from that comparison. These alternatives do
 not create or switch Git branches.
 
+Comparison uses the same versioned semantic policy as approval. It presents each
+changed field with its saved and current value, including project names and node
+blocker text. Reordering identity-based collections alone does not count as an
+intent change. Historical repository-inspection receipts appear separately and
+do not affect the semantic comparison or approval fingerprint.
+
 Selecting an alternative or restoring a checkpoint first saves the active design
 as an immutable recovery checkpoint. The previous alternative's latest snapshot
 is updated to that recovery point. Task, diagram and variable progress is reset;
@@ -41,10 +47,17 @@ context is supplied explicitly by pasting selected excerpts into the export
 field; it is shown in the preview and covered by the manifest hash. This export
 selection is independent of planning-provider source consent.
 
-A source-bearing package requires a clean committed Git baseline. A planning-only
-package can be created without a repository, but it cannot accept a returned
-commit without creating a new source-bound handoff. Handoff creation reads an
-attached repository; it does not grant execution permission.
+A source-bound package requires a clean committed Git baseline. The explicitly
+selected execution repository takes precedence over the scanner selection. If
+that execution selection is broken, repair or deliberately replace it before
+exporting. A scanner-only folder that is not itself a Git root produces a
+planning-only package with an unavailable base; PlanBranch does not expand a
+subfolder selection to its enclosing repository. A planning-only package cannot
+accept a returned commit; create a new source-bound handoff first. Handoff
+creation reads an attached repository; it does not grant execution permission.
+The repository identity and selection are frozen at export. Changing either
+requires a new handoff. Older exports without this binding remain readable but
+cannot authorize a new commit import or local verification.
 
 To return work, make the external candidate commit available in the local
 repository using your existing Git tools. Choose the original handoff, select
@@ -68,12 +81,20 @@ working tree is reported as drift. **Export external review JSON** preserves the
 candidate, diff, report, human review history and fixed external provenance in a
 versioned review document; it is not an execution or application package.
 
-For new local observations, check out the exact candidate cleanly in your own Git
-tools, select that same repository for execution, and choose **Preview authorized
-local execution**. A read-only preflight validates the candidate before opening
-the ordinary Run preview. Execution still needs separate authorization and may
-edit files within the approved task scope. Its observations are new local
-records; they do not replace or upgrade external provenance.
+For new local observations, select the execution repository before exporting
+the handoff. Check out the exact returned candidate cleanly in your own Git
+tools, keep that same selection, and expand **Verify returned
+candidate without editing**. Enter a check yourself, then choose **Preview
+verification without editing**. The preview binds the returned content hash,
+commit, selected repository, command, timeout and runtime. Explicitly authorize
+that check before choosing **Run verification without editing**. The service
+revalidates the binding at start and before execution. No provider or coding
+agent is called. The Docker runtime mounts candidate source read-only, with
+separate writable temporary, cache and artifact directories. Unsupported checks
+that need to edit source fail rather than gaining write access. These are new
+local observations, available in saved local verification history; they never
+replace or upgrade the external report. Process success alone does not prove a
+requirement, and this verification action cannot apply code or complete a task.
 
 ## Persistence and limits
 

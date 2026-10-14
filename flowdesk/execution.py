@@ -9,8 +9,8 @@ import threading
 from uuid import uuid4
 import weakref
 from .planning import fingerprint, manual_fingerprint
-from .semantic_intent import task_approved, task_fingerprint
-from .check_evidence import snapshot_identity, observation_state
+from .semantic_intent import task_approved, task_fingerprint, SCOPE_VERSION
+from .check_evidence import snapshot_identity, observation_state, authenticated_command
 from .storage import ConflictError, NotFoundError, encode, now
 from .validation import MAX_HISTORY, ValidationError, identifier, integer, obj, string, validate_content
 
@@ -148,6 +148,7 @@ class ExecutionService:
     def _summary(row):
         snapshot = json.loads(row["snapshot"])
         return {"id": row["id"], "previewId": row["preview_id"], "taskId": snapshot["task"]["id"], "taskTitle": snapshot["task"]["title"],
+                'executionMode': snapshot.get('executionMode', 'implementation'),
                 "state": row["state"], "createdAt": row["created_at"], "updatedAt": row["updated_at"], "sourceCommit": snapshot["sourceCommit"],
                 "summary": row["summary"], "error": row["error"], "progress": row["progress"], "acceptedDigest": row["accepted_digest"],
                 "completedCursor": row["completed_cursor"], "applied": bool(row["applied"]),
@@ -181,13 +182,45 @@ class ExecutionService:
                 self._done(db, project_id, payload, {"repositoryId": key})
         return self.state(project_id)
 
-    def preview(self, project_id, payload):
+    def preview_verification(self, project_id, payload):
+        obj(payload, {'taskId', 'externalResultId', 'externalContentHash', 'candidateCommit', 'command', 'timeoutSeconds'}, 'verification preview')
+        string(payload.get('command'), 'Verification command', 8000, True)
+        if '\0' in payload['command']: raise ValidationError('Verification commands cannot contain NUL bytes.')
+        seconds = payload.get('timeoutSeconds', 60)
+        if type(seconds) is not int or not 1 <= seconds <= 120: raise ValidationError('Verification timeout must be 1 to 120 seconds.')
+        binding = self.verification_binding(project_id, payload.get('externalResultId'))
+        if any(binding[key] != payload.get(key) for key in ('taskId', 'externalContentHash', 'candidateCommit')):
+            raise ValidationError('The selected external candidate changed. Review a new verification preview.')
+        return self.preview(project_id, {'taskId': payload['taskId']}, verification={
+            **binding, 'externalResultId': payload['externalResultId'], 'command': payload['command'], 'timeoutSeconds': seconds})
+
+    def start_verification(self, project_id, payload):
+        with closing(self.store.connect()) as db:
+            row = db.execute('SELECT snapshot FROM execution_previews WHERE project_id=? AND id=?', (project_id, payload.get('previewId'))).fetchone()
+            if not row or json.loads(row['snapshot']).get('executionMode') != 'immutable_verification':
+                raise ValidationError('Choose a verify-without-editing preview.')
+        return self.start(project_id, payload)
+
+    def _verification_current(self, project_id, snapshot):
+        if snapshot.get('executionMode') != 'immutable_verification': return
+        binding = self.verification_binding(project_id, snapshot['externalResultId'])
+        if (binding['taskId'] != snapshot['task']['id'] or
+                any(binding[key] != snapshot[key] for key in ('candidateCommit', 'externalContentHash')) or
+                any(binding['repository'].get(key) != snapshot['repository'].get(key) for key in ('path', 'gitDir', 'commonDir', 'head'))):
+            raise RuntimeError('The selected external candidate changed. Review a new verification preview.')
+
+    def preview(self, project_id, payload, *, verification=None):
         obj(payload, {"taskId", "selection"}, "execution preview")
         identifier(payload.get("taskId"), "Build task ID")
         raw_selection = payload.get("selection", {"mode": "default"})
         provider = raw_selection.get("provider", "codex") if isinstance(raw_selection, dict) else "codex"
         selection = self.planning._selection(raw_selection) if provider == "codex" else deepcopy(raw_selection)
-        executor = self._for_provider(provider)
+        if verification:
+            from .verification_executor import VerificationExecutor
+            executor = VerificationExecutor(self.data_dir, self._command_runner)
+            selection = verification
+        else:
+            executor = self._for_provider(provider)
         with closing(self.store.connect()) as db:
             db.execute("BEGIN")
             project = self.planning._current(db, project_id)
@@ -205,10 +238,8 @@ class ExecutionService:
         if not task["title"].strip(): issues.append("Give this task a meaningful title.")
         if not task["deliverable"].strip(): issues.append("Describe the intended deliverable.")
         if not any(check["text"].strip() for check in task["acceptanceChecks"]): issues.append("Add at least one acceptance check.")
-        if task["status"] == "done": issues.append("This task is already done. Reopen it before running again.")
+        if task["status"] == "done" and not verification: issues.append("This task is already done. Reopen it before running again.")
         if task["status"] == "blocked": issues.append("This task is marked blocked. Resolve its blocker and update its progress before authorizing a run.")
-        for key in task["prerequisiteIds"]:
-            if tasks[key]["status"] != "done": issues.append(f'Complete “{tasks[key]["title"]}” before running this task.')
         if any(link["missing"] for link in task["nodeLinks"]): issues.append("Resolve this task's removed flow-node links before running it.")
         approval = planning["approval"]
         approved = task_approved(approval, task["id"])
@@ -218,9 +249,10 @@ class ExecutionService:
         else:
             try: source = self.git.inspect_repository(repository["path"])
             except (OSError, RuntimeError, ValueError) as exc: issues.append(str(exc))
-        if source is not None:
-            with closing(self.store.connect()) as db:
-                issues.extend(self._prerequisite_issues(db, project_id, task, tasks, source))
+        from .prerequisites import evaluate_prerequisites
+        with closing(self.store.connect()) as db:
+            prerequisite_issues = evaluate_prerequisites(db, project_id, project['content'], task['id'], source, self.git)
+        issues.extend(item['message'] for item in prerequisite_issues)
         generation = None
         status = executor.status() if executor is self._executor else executor.status(provider)
         if not status.get("available"): issues.append(status.get("reason", "Codex execution is unavailable."))
@@ -231,10 +263,17 @@ class ExecutionService:
         snapshot = {"baseRevision": project["revision"], "repositoryId": repository["id"] if repository else None, "repository": source,
                     "approvalId": approval["id"] if approved else None,
                     "approvalHash": approval["contentHash"] if approved else None,
-                    "taskApprovalHash": task_fingerprint(project["content"], task["id"]) if approved and approval.get("scopeVersion") == 1 else None,
+                    "taskApprovalHash": task_fingerprint(project["content"], task["id"]) if approved and approval.get("scopeVersion") == SCOPE_VERSION else None,
                     "sourceCommit": source["head"] if source else None,
                     "task": deepcopy(task), "brief": deepcopy(project["content"]["brief"]), "content": deepcopy(project["content"]),
                     "linkedNodes": [deepcopy(node) for diagram in project["content"]["diagrams"] for node in diagram["nodes"] if node["id"] in linked], "generation": generation}
+        if verification:
+            snapshot.update(executionMode='immutable_verification', **{key: verification[key] for key in ('externalResultId', 'externalContentHash', 'candidateCommit', 'command', 'timeoutSeconds')})
+            if source != verification['repository']:
+                issues.append('The selected candidate repository changed while preparing verification.')
+            if source and generation:
+                snapshot['candidateIdentity'] = self.git.candidate_identity(source, verification['candidateCommit'])
+                generation['candidateHash'] = snapshot['candidateIdentity']['sha256']
         key, timestamp = str(uuid4()), now()
         with closing(self.store.connect()) as db, db:
             self.store._row(db, project_id)
@@ -242,7 +281,7 @@ class ExecutionService:
             snapshot["planEpoch"] = plan_epoch(db, project_id)
             db.execute("INSERT INTO execution_previews VALUES(?,?,?,?,?,?)", (key, project_id, encode(snapshot), int(not issues), encode(issues), timestamp))
         public = {name: value for name, value in snapshot.items() if name not in {"content", "approvalHash"}}
-        return {"preview": {"id": key, "createdAt": timestamp, **public}, "ready": not issues, "issues": issues}
+        return {"preview": {"id": key, "createdAt": timestamp, **public}, "ready": not issues, "issues": issues, 'prerequisiteIssues': prerequisite_issues}
 
     def _grant_matches(self, db, project_id, snapshot):
         repository = self._repository(db, project_id)
@@ -258,34 +297,10 @@ class ExecutionService:
         return bool(approval and approval["current"] and approval["contentHash"] == snapshot["approvalHash"])
 
     def _prerequisite_issues(self, db, project_id, task, tasks, source):
-        """A progress checkbox cannot turn unapplied agent work into source code."""
-        issues = []
-        for key in task["prerequisiteIds"]:
-            if tasks[key]["status"] != "done": continue
-            rows = db.execute("SELECT * FROM execution_runs WHERE project_id=? ORDER BY created_at DESC,id DESC", (project_id,)).fetchall()
-            prior = next((row for row in rows if json.loads(row["snapshot"])["task"]["id"] == key), None)
-            if prior is None:
-                issues.append(f'“{tasks[key]["title"]}” is marked done without a reviewed execution result. Reopen it, review an authorized local run, then accept, apply and complete it before running this dependent task.')
-                continue
-            title = tasks[key]["title"]
-            prior_scope = json.loads(prior["snapshot"])
-            current = self.planning._current(db, project_id)
-            from .plan_branches import plan_epoch
-            if prior_scope.get("planEpoch", 0) != plan_epoch(db, project_id):
-                issues.append(f'Prerequisite “{title}” belongs to an earlier selected plan. Review a new authorized result before using its completion.')
-            elif task_fingerprint(prior_scope["content"], key) != task_fingerprint(current["content"], key):
-                issues.append(f'The scope or acceptance criteria for prerequisite “{title}” changed; its earlier completion needs new review.')
-            elif not prior["accepted_digest"] or not prior["completed_cursor"]:
-                issues.append(f'Review and accept “{title}” before using its completion as a prerequisite.')
-            elif not prior["applied"]:
-                issues.append(f'Apply the accepted changes for “{title}” to your checkout first.')
-            else:
-                try:
-                    if not self.git.contains_artifact(source, prior["id"], prior["accepted_digest"]):
-                        issues.append(f'Commit the applied changes for “{title}” before this dependent task can run; its accepted files must be present in HEAD.')
-                except (OSError, ValueError, RuntimeError) as exc:
-                    issues.append(f'Cannot verify prerequisite “{title}”: {exc}')
-        return issues
+        from .prerequisites import evaluate_prerequisites
+        current = self.planning._current(db, project_id)
+        return [item['message'] for item in evaluate_prerequisites(
+            db, project_id, current['content'], task['id'], source, self.git)]
 
     def _source_current(self, snapshot):
         try:
@@ -314,6 +329,7 @@ class ExecutionService:
                 if db.execute("SELECT 1 FROM execution_receipts WHERE action LIKE 'apply:%' AND state='pending'").fetchone():
                     raise RuntimeError("Recover the unfinished checkout Apply before running another step.")
                 snapshot = json.loads(preview["snapshot"])
+                self._verification_current(project_id, snapshot)
                 project = self.planning._current(db, project_id)
                 if project["revision"] != snapshot["baseRevision"]: raise ConflictError(project["revision"])
                 approval = self.planning._state(db, project_id)["approval"]
@@ -369,6 +385,7 @@ class ExecutionService:
                       "commands": json.loads(row["commands"]), "events": json.loads(row["events"]), "planStale": not plan_current,
                       "applyPlanStale": not self._apply_plan_current(project, row, snapshot),
                       "applyRequest": json.loads(pending["result"])["request"] if pending and pending["result"] else None}
+            result['executionMode'] = snapshot.get('executionMode', 'implementation')
         workspace = self._workspace(row)
         result.update(worktreePath=workspace["path"] if workspace else None,
                       artifact=self.git.artifact(run_id, row["artifact_digest"]) if row["artifact_digest"] else None,
@@ -414,6 +431,8 @@ class ExecutionService:
 
     @staticmethod
     def _workflow(run):
+        if run.get('executionMode') == 'immutable_verification' and run['state'] not in ACTIVE:
+            return {'stage': 'Review verification', 'nextAction': 'Review this local check and its coverage. External reports remain external; this run grants no implementation acceptance or application.'}
         if run.get("question"): return {"stage": "Awaiting input", "nextAction": "Answer the execution question or cancel. Waiting does not consume active execution time."}
         if run["state"] in ACTIVE: return {"stage": "Running" if run["state"] != "cancelling" else "Cancelling", "nextAction": "Review progress or request cancellation; preserved work remains available."}
         if run["applied"]: return {"stage": "Applied", "nextAction": "Commit the applied changes in your development tools before running dependent tasks. PlanBranch does not commit for you."}
@@ -444,8 +463,9 @@ class ExecutionService:
                 # Only our isolated command runner creates this envelope. Codex
                 # stream records and external reports have no such provenance.
                 evidence = command.get("evidence")
-                if isinstance(evidence, dict) and evidence.get("schemaVersion") == 1 and evidence.get("provenance") == "host_observed":
+                if authenticated_command(self.data_dir, command, run_id):
                     item["evidence"] = deepcopy(evidence)
+                    item['evidence']['hostAuthenticated'] = True
                     item["evidence"]["baseRevision"] = json.loads(row["snapshot"])["sourceCommit"]
                     item["evidence"]["runId"] = run_id
                 old = next((index for index, value in enumerate(commands) if value["id"] == key), None)
@@ -495,7 +515,12 @@ class ExecutionService:
                             raise RuntimeError("The approved plan or repository changed while preparing the worktree. The agent was not started.")
                     if not self._source_current(snapshot):
                         raise RuntimeError("The source revision changed while preparing the worktree. The agent was not started.")
-                    executor = self._for_provider(snapshot["generation"].get("provider", "codex"))
+                    self._verification_current(project_id, snapshot)
+                    if snapshot.get('executionMode') == 'immutable_verification':
+                        from .verification_executor import VerificationExecutor
+                        executor = VerificationExecutor(self.data_dir, self._command_runner)
+                    else:
+                        executor = self._for_provider(snapshot["generation"].get("provider", "codex"))
                     result = executor.run(context, workspace["path"], cancel, lambda event: self._event(project_id, run_id, event))
                     for command in result.get("commands", []): self._event(project_id, run_id, {"type": "command", "command": command})
         except Exception as exc:
@@ -592,6 +617,8 @@ class ExecutionService:
         return workspace, artifact
 
     def _answered(self, row):
+        if json.loads(row['snapshot']).get('executionMode') == 'immutable_verification':
+            raise RuntimeError('This verification-only run contains observations, not implementation changes to accept, apply or complete.')
         if json.loads(row["snapshot"]).get("generation", {}).get("providerGeneration") and self._journal(row["id"]).public_question():
             raise RuntimeError("Answer or cancel the pending execution question before accepting these changes.")
 

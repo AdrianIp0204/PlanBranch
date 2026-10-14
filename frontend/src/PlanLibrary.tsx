@@ -8,7 +8,15 @@ import "./plan-handoff.css";
 type Snapshot = { id: string; alternativeId: string | null; kind: string; name: string; explanation: string; createdAt: string; historicalApprovalId: string | null };
 type Alternative = { id: string; parentId: string | null; name: string; snapshotId: string };
 type PlanState = { selectedAlternativeId: string | null; epoch: number; snapshots: Snapshot[]; alternatives: Alternative[]; decisions: { id: string; action: string; note: string; createdAt: string }[] };
-type Comparison = { snapshotId: string; changes: { section: string; before: unknown; after: unknown }[] };
+type FieldChange = { path: string; label: string; kind: string; before: unknown; after: unknown };
+type Comparison = { snapshotId: string; scopeVersion: number; beforeHash: string; afterHash: string; changes: { section: string; fields: FieldChange[] }[]; historyChanges?: { section: string; before: unknown; after: unknown }[] };
+
+function fieldValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (Array.isArray(value)) return value.map(fieldValue).join("\n") || "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return typeof value === "object" ? JSON.stringify(value, null, 2) : String(value);
+}
 
 export default function PlanLibrary({ onClose }: { onClose: () => void }) {
   const { session, commit, flush, synchronize } = useProject();
@@ -78,7 +86,12 @@ export default function PlanLibrary({ onClose }: { onClose: () => void }) {
         </div>
       </li>)}</ul>
       {comparison && <section aria-label="Semantic plan comparison"><h3>Saved plan → current plan</h3>
-        {!comparison.changes.length ? <p>No semantic differences. Layout and progress do not affect this comparison.</p> : comparison.changes.map((change) => <details key={change.section} open><summary>{change.section}</summary><div className="plan-comparison"><div><h4>Saved</h4><pre tabIndex={0}>{JSON.stringify(change.before, null, 2)}</pre></div><div><h4>Current</h4><pre tabIndex={0}>{JSON.stringify(change.after, null, 2)}</pre></div></div></details>)}
+        <p className="muted">Uses the same version {comparison.scopeVersion} meaning rules as intent approval. Layout and progress are excluded; names, blockers, requirements and design choices are included.</p>
+        {!comparison.changes.length ? <p>No semantic differences. Layout and progress do not affect this comparison.</p> : comparison.changes.map((change) => <section key={change.section} className="plan-field-section"><h4>{change.section}</h4>{change.fields.map((field) => <article className="plan-field-change" key={field.path}>
+          <h5>{field.label} <span className="muted">· {field.kind}</span></h5>
+          <dl className="plan-comparison"><div><dt>Saved</dt><dd>{fieldValue(field.before)}</dd></div><div><dt>Current</dt><dd>{fieldValue(field.after)}</dd></div></dl>
+        </article>)}</section>)}
+        {!!comparison.historyChanges?.length && <details><summary>Repository inspection history changed · outside intent approval</summary><p>These metadata receipts describe past inspections and do not grant source-sharing consent or execution authority.</p>{comparison.historyChanges.map((change) => <div key={change.section} className="plan-comparison"><div><h4>Saved references</h4><pre tabIndex={0}>{JSON.stringify(change.before, null, 2)}</pre></div><div><h4>Current references</h4><pre tabIndex={0}>{JSON.stringify(change.after, null, 2)}</pre></div></div>)}</details>}
       </section>}
       {inspected && <section aria-label="Saved checkpoint"><h3>{inspected.name}</h3><p>{inspected.authority}</p><pre tabIndex={0}>{JSON.stringify(inspected.content, null, 2)}</pre>{!!inspected.sourceReferences?.length && <details><summary>Historical repository inspection references · no source or consent</summary><pre tabIndex={0}>{JSON.stringify(inspected.sourceReferences, null, 2)}</pre></details>}</section>}
       {!!state?.decisions.length && <details><summary>Decision history</summary><ul>{state.decisions.map((decision) => <li key={decision.id}>{decision.action} · {new Date(decision.createdAt).toLocaleString()}{decision.note && <p>{decision.note}</p>}</li>)}</ul></details>}

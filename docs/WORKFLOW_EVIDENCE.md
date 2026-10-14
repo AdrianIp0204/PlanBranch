@@ -30,13 +30,22 @@ against the committed implementation before using it as a prerequisite. A no-op
 result can be deliberately reviewed and completed. This initial workflow does not
 provide a separate human-only prerequisite attestation mechanism.
 
+The workflow card and Run preview use the same read-only prerequisite evaluator.
+Both return the same issue codes, task/result references and corrective actions
+for incomplete work, missing review, incomplete progress, unapplied changes,
+changes missing from committed HEAD, stale plan/scope, and unavailable evidence.
+Correction buttons open the relevant task or exact recorded result; they do not
+accept, apply, complete, commit or execute anything. Execution checks these facts
+again when a reviewed run is started. Verification-only runs never replace the
+latest implementation result used to establish prerequisite completion.
+
 ## Approval scope version 1
 
-New approvals use a versioned, explicit semantic scope. Project brief fields and
-project notes are shared intent. Each task's scope includes its deliverable, file
+New approvals use a versioned, explicit semantic scope. Project name, brief fields
+and project notes are shared intent. Each task's scope includes its deliverable, file
 areas, node associations, dependencies and acceptance-check text; transitive
 prerequisite intent; connected diagram nodes and relationships (including decision
-handles); and related planned variables and associations.
+handles and blocker text); and related planned variables and associations.
 
 Progress statuses, checklist checked flags, node placement and pinning do not
 change approved intent. Checklist text, decision handles and acceptance criteria
@@ -81,42 +90,67 @@ sharing because commands can themselves print sensitive material.
 
 ## What was actually observed
 
-The application-owned Docker runner records host-observed process metadata: base
-revision, candidate identity before/after, command, relative working directory,
-runtime/image, timestamps, exit status and bounded output. Candidate identities
-include uncommitted source bytes and executable bits within the execution worktree.
-The existing bounded file reader refuses symlinks, junctions and special files.
+Version 2 separates **mutable implementation commands** from
+**verify without editing**. A coding command may change its isolated workspace;
+its exit is labelled **Writable command observed (not source-bound)**. Comparing
+hashes at its endpoints cannot prove what bytes a check exercised: a command can
+rewrite source, check it and restore it before exit.
 
-Identity excludes Git internals, Python `__pycache__` directories, `.pytest_cache`
-directories, and the explicit root `.planbranch-results` output directory. Other
-uncommitted files count as source even if Git ignores them. Put generated check
-artifacts in `.planbranch-results`; modifying other source while checking it marks
-the observation stale. Host changes during an isolated command prevent copy-back
-and mark the check stale. If source changes after a check, the old observation
-remains historical and cannot certify the new candidate.
+Verification mounts a fresh, host-created candidate snapshot at `/workspace`
+using a Docker read-only bind mount with recursive mounts disabled. The command
+runs without effective capabilities as UID 65534. The mount, rather than file
+permissions owned by the command, prevents edits, chmod, deletion and substitution
+throughout the check. The host checks the mounted image and read-only flag before
+launch. Network access, host credentials and Git metadata remain unavailable.
+The local Docker daemon and selected image remain part of the trusted runtime.
+See [Docker bind-mount semantics](https://docs.docker.com/engine/storage/bind-mounts/).
 
-Acceptance, completion, continuation and a new checkout Apply also require the
-captured candidate to remain unchanged, including ignored source files. Refreshing
-a changed candidate withdraws its active acceptance even when its Git-visible diff
-is identical; review and accept it again. Earlier decision receipts remain history.
-Recover an interrupted Apply before refreshing. Older interrupted Applies without
-a candidate snapshot retain only their existing artifact-bounded recovery, never
-new source provenance or permission to execute again.
+Writable verification locations are separate bounded tmpfs mounts: `/tmp` (32
+MiB), `/cache` (32 MiB), and `/artifacts` (16 MiB). Set compiler/build outputs there;
+checks that insist on editing source must use mutable commands and cannot receive
+source-bound evidence. `PYTHONPYCACHEPREFIX` and `XDG_CACHE_HOME` point to `/cache`.
+No verification outputs are copied into the candidate. Links, hard links, unsafe
+paths, special files and oversized output are refused during collection.
 
-For structured test counts, ask the authorized command to write JUnit XML to
-`.planbranch-results/junit.xml` (for example, pytest's
-`--junitxml=.planbranch-results/junit.xml`). The bounded XML reader counts actual
-testcase elements and distinguishes failures, skipped-only runs and no tests.
-An unchanged pre-existing report is labelled `unchanged report`, requiring human
-review. Unreadable or oversized reports are retained as identified artifacts but
-are not treated as successful test evidence. JUnit output is produced by the code
-under test: it is supporting evidence, not independent authentication.
+Candidate identity v2 covers all candidate bytes and executable bits, including
+ignored files, existing Python caches and old `.planbranch-results` contents.
+Only Git metadata is excluded. On Windows, Git execute bits are not represented
+by the ordinary checkout filesystem; the identity describes the materialized
+candidate. A changed candidate withdraws acceptance even if its Git-visible diff
+is identical. Historical identities are not silently recomputed into stronger
+observations. Recovery of an already interrupted legacy Apply remains limited to
+its originally accepted artifact.
 
-Codex-stream command reports and historical records without captured source
-provenance are labelled as executor/external reports. Agent prose cannot become
-host-observed evidence. A zero process exit is only an observed successful process;
-it does not prove that the intended tests ran, or that a natural-language requirement
-is satisfied. A content hash identifies bytes, not correctness or authenticity.
+The host records mode, candidate identity, command, daemon/image identity,
+timestamps, timeout, structured outcomes and bounded output. A local host-only
+seal binds command evidence to its run at ingestion. Provider JSON, Codex-stream
+reports and imported reports cannot assign trusted provenance or a verification
+mode. Historical v1 observations are labelled **Historical writable command (not
+source-bound)**; they do not acquire the new guarantee.
+
+Write JUnit XML to `/artifacts/junit.xml`, for example
+`pytest -o cache_dir=/cache/pytest --junitxml=/artifacts/junit.xml`. The bounded
+parser counts actual testcase elements and identifies failures, skipped-only
+runs, no tests and unreadable reports. A zero exit without structured test results
+is **Immutable command exit observed (coverage unverified)**. A passing JUnit
+observation says the immutable check reported passing cases; the report is still
+command-produced and does not prove requirement coverage. Human criterion review
+remains separate.
+
+For an imported local-commit candidate, choose **Verify without editing**, enter
+a check, review its preflight and explicitly authorize it. The selected repository,
+external result, plan, candidate commit and candidate bytes are bound through
+preview and start. Drift is refused; PlanBranch does not switch your checkout or
+substitute a newer candidate. Local checks become new observations and leave the
+original external report external. Verification-only runs cannot accept, apply or
+complete implementation changes. Their observations remain available after reload.
+
+The v2 coding instruction contract adds the same verification tool to native
+execution. Paused v1 coding sessions remain historical and cannot resume under a
+changed instruction contract; review retained work and create a fresh preview.
+Cumulative budgets, durable no-replay intents, cancellation and owned-container
+cleanup still apply. The Linux CI gate runs actual Docker integration tests;
+without that gate, unit tests alone establish no container guarantee.
 
 ## Cumulative limits
 

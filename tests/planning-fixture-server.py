@@ -183,6 +183,34 @@ class FixturePlanner:
                 proposal={"title": "Add a review step", "summary": "Make the expected result explicit before proceeding.", "diagramId": diagram["id"], "nodes": diagram["nodes"], "edges": diagram["edges"]})
 
 
+class FixtureVerificationRunner:
+    """Test-only command observation; explicitly does not establish Docker isolation."""
+    def __init__(self, data_dir):
+        self.data_dir = data_dir
+
+    def configure(self):
+        return {"version": "browser-fixture", "available": True, "imageLabel": "Test fixture; no Docker isolation"}
+
+    def verify(self, policy, root, arguments, call_id, cancel, on_event):
+        from pathlib import Path
+        from flowdesk.check_evidence import seal_command, snapshot_identity
+        root = Path(root)
+        if not (root / "fixture-only.marker").is_file() or arguments["command"] != "fixture verification check":
+            raise RuntimeError("The browser verifier only accepts its explicit disposable fixture check.")
+        identity = snapshot_identity(root)
+        if policy["candidateHash"] != identity["sha256"]:
+            raise RuntimeError("The selected fixture candidate changed.")
+        passed = (root / "main.py").read_text() == "value = 2\n"
+        command = {"id": call_id, "command": arguments["command"], "status": "completed", "exitCode": 0 if passed else 1,
+            "output": "Browser fixture observation only; no Docker isolation exercised.",
+            "evidence": {"schemaVersion": 2, "provenance": "host_observed", "runId": policy["evidenceRunId"],
+                "runtime": "browser-fixture", "executionMode": "immutable_verification", "sourceChanged": False,
+                "candidateBefore": identity["sha256"], "candidateAfter": identity["sha256"], "candidateIdentity": identity}}
+        command = seal_command(self.data_dir, command)
+        on_event({"type": "command", "command": command})
+        return {"executed": True, "command": command}
+
+
 class FixtureExecutor:
     """Only edits the service-created disposable worktree; no external agent."""
     def status(self):
@@ -223,4 +251,6 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--data-dir", required=True)
     args = parser.parse_args()
-    serve(create_app(args.data_dir, planner=FixturePlanner(), executor=FixtureExecutor()), host="127.0.0.1", port=args.port)
+    app = create_app(args.data_dir, planner=FixturePlanner(), executor=FixtureExecutor())
+    app.extensions["flowdesk_execution"]._command_runner = FixtureVerificationRunner(args.data_dir)
+    serve(app, host="127.0.0.1", port=args.port)

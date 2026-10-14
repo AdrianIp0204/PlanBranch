@@ -71,9 +71,10 @@ export default function BuildView({
             setExecutionHistory(false);
             setExecutionOpen(true);
           }}
-          onReview={() => {
+          onReview={(taskId, runId) => {
             commit();
-            setExecutionRunId(undefined);
+            if (taskId) onSelect(taskId);
+            setExecutionRunId(runId);
             setExecutionHistory(true);
             setExecutionOpen(true);
           }}
@@ -116,10 +117,10 @@ export default function BuildView({
         <TaskHandoffPanel
           key={selectedTask.id}
           taskId={selectedTask.id}
-          onRun={() => {
+          onRun={(runId) => {
             commit();
-            setExecutionRunId(undefined);
-            setExecutionHistory(false);
+            setExecutionRunId(runId);
+            setExecutionHistory(Boolean(runId));
             setExecutionOpen(true);
           }}
         />

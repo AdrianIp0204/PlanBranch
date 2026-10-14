@@ -42,3 +42,20 @@ it("does not compare unsaved conflicted work", async () => {
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Save or recover your current work before comparing plans.");
   expect(api).toHaveBeenCalledTimes(1);
 });
+
+it("shows readable changed fields under the approval semantics and keeps historical references separate", async () => {
+  vi.mocked(api).mockImplementation(async (path) => String(path).endsWith("/compare") ? {
+    scopeVersion: 1, beforeHash: "before", afterHash: "after", snapshotId: "one",
+    changes: [{ section: "Project name and notes", fields: [{ path: "/name", label: "Name", kind: "changed", before: "Offline importer", after: "Private importer" }] },
+      { section: "Diagram elements and relationships", fields: [{ path: "/diagram/nodes/node/blocker", label: "Nodes → Validate records → Blocker", kind: "changed", before: "", after: "<script>blocked()</script>" }] }],
+    historyChanges: [{ section: "Repository inspection reference history", before: [], after: [{ revision: "historical" }] }],
+  } : state);
+  render(<PlanLibrary onClose={vi.fn()} />);
+  await screen.findByText("Offline");
+  fireEvent.click(screen.getAllByRole("button", { name: "Compare with current" })[0]);
+  expect(await screen.findByText("Private importer")).toBeTruthy();
+  expect(screen.getByText("Nodes → Validate records → Blocker")).toBeTruthy();
+  expect(screen.getByText("<script>blocked()</script>").tagName).toBe("DD");
+  expect(document.querySelector(".plan-field-change pre")).toBeNull();
+  expect(screen.getByText(/Repository inspection history changed · outside intent approval/)).toBeTruthy();
+});

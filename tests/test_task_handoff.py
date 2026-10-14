@@ -1,6 +1,7 @@
 """A real commit round trip retains provenance and never runs or applies it."""
 from contextlib import closing
 from copy import deepcopy
+import json
 from uuid import uuid4
 
 import pytest
@@ -29,6 +30,119 @@ def returned_commit(fixture, exported):
     manifest = exported["manifest"]
     return {**manifest["expectedReturn"], "manifestHash": manifest["contentHash"], "candidateCommit": candidate,
             "report": {"origin": "host", "passed": True, "html": "<script>alert('untrusted')</script>", "checks": [{"command": "pytest", "status": "passed"}]}}
+
+
+def attach_source(fixture, path):
+    from flowdesk.scans import ScanService
+    scans = ScanService(fixture[1])
+    try:
+        scans.attach(fixture[2]["id"], str(path), confirmed=True)
+    finally:
+        scans.close()
+
+
+def test_execution_repository_takes_precedence_over_unrelated_scanner_attachment(fixture, tmp_path):
+    scanner = tmp_path / "scanner-only"
+    scanner.mkdir()
+    attach_source(fixture, scanner)
+    service, exported = package(fixture)
+    assert exported["manifest"]["baseCommit"] == git(fixture[0], "rev-parse", "HEAD").strip()
+    assert exported["manifest"]["repositorySelection"] == "execution"
+
+
+@pytest.mark.parametrize("subdirectory", [False, True])
+def test_scanner_only_non_repository_exports_a_planning_package_without_expanding_root(fixture, tmp_path, subdirectory):
+    source, store, project, planning, _, execution = fixture
+    scanner = (source / "selected-subdirectory") if subdirectory else (tmp_path / "non-git-source")
+    scanner.mkdir()
+    attach_source(fixture, scanner)
+    planning.approve(project["id"], mutation(baseRevision=project["revision"]))
+    service = TaskHandoffs(store, planning, execution)
+    exported = service.create(project["id"], {"taskId": project["content"]["buildTasks"][0]["id"], "baseRevision": project["revision"]})
+    assert exported["manifest"]["baseCommit"] is None
+    assert exported["manifest"]["baseUnavailableReason"]
+    assert str(scanner) not in str(exported)
+
+
+def test_changed_execution_selection_rejects_import_even_when_old_repository_remains_available(fixture, tmp_path):
+    source, _, project, _, _, execution = fixture
+    service, exported = package(fixture)
+    payload = returned_commit(fixture, exported)
+    replacement = tmp_path / "other-repository"
+    git(tmp_path, "clone", str(source), str(replacement))
+    execution.repository(project["id"], mutation(path=str(replacement), confirmed=True))
+    with pytest.raises(ValueError, match="repository selection"):
+        service.import_result(project["id"], exported["manifest"]["handoffId"], payload)
+    assert service.state(project["id"], payload["taskId"])["results"] == []
+
+
+def test_broken_execution_selection_does_not_fall_back_to_scanner(fixture, tmp_path):
+    source, store, project, _, _, _ = fixture
+    service, _ = package(fixture)
+    attach_source(fixture, source)
+    with closing(store.connect()) as db, db:
+        selected = json.loads(db.execute("SELECT repository FROM execution_repositories WHERE project_id=?", (project["id"],)).fetchone()[0])
+        selected["path"] = str(tmp_path / "repository-no-longer-present")
+        db.execute("UPDATE execution_repositories SET repository=? WHERE project_id=?", (json.dumps(selected), project["id"]))
+    with pytest.raises(ValueError, match="selected execution repository is unavailable"):
+        service.create(project["id"], {"taskId": project["content"]["buildTasks"][0]["id"], "baseRevision": project["revision"]})
+
+
+def test_scanner_repository_selection_is_frozen_for_return_import(fixture, tmp_path):
+    source, store, project, planning, _, execution = fixture
+    attach_source(fixture, source)
+    planning.approve(project["id"], mutation(baseRevision=project["revision"]))
+    service = TaskHandoffs(store, planning, execution)
+    exported = service.create(project["id"], {"taskId": project["content"]["buildTasks"][0]["id"], "baseRevision": project["revision"]})
+    assert exported["manifest"]["repositorySelection"] == "source"
+    payload = returned_commit(fixture, exported)
+    other = tmp_path / "new-read-only-source"
+    other.mkdir()
+    attach_source(fixture, other)
+    with pytest.raises(ValueError, match="repository selection"):
+        service.import_result(project["id"], exported["manifest"]["handoffId"], payload)
+
+
+def test_verification_binding_rechecks_selection_after_import(fixture, tmp_path):
+    source, _, project, _, executor, execution = fixture
+    service, exported = package(fixture)
+    payload = returned_commit(fixture, exported)
+    result = service.import_result(project["id"], exported["manifest"]["handoffId"], payload)
+    bound = execution.verification_binding(project["id"], result["id"])
+    assert bound["candidateCommit"] == payload["candidateCommit"]
+    assert bound["externalContentHash"] == result["contentHash"]
+    replacement = tmp_path / "replacement-with-same-commit"
+    git(tmp_path, "clone", str(source), str(replacement))
+    execution.repository(project["id"], mutation(path=str(replacement), confirmed=True))
+    with pytest.raises(ValueError, match="repository selection"):
+        execution.verification_binding(project["id"], result["id"])
+    assert executor.contexts == []
+
+
+def test_verification_preview_routes_only_explicit_command_and_exact_return_binding(fixture, monkeypatch):
+    _, _, project, _, executor, execution = fixture
+    service, exported = package(fixture)
+    payload = returned_commit(fixture, exported)
+    result = service.import_result(project["id"], exported["manifest"]["handoffId"], payload)
+    calls = []
+    monkeypatch.setattr(execution, "preview_verification", lambda project_id, request: calls.append((project_id, request)) or {"ready": True}, raising=False)
+    assert service.preview_verification(project["id"], result["id"], {"contentHash": result["contentHash"], "command": "python -m pytest", "timeoutSeconds": 40}) == {"ready": True}
+    assert calls == [(project["id"], {"taskId": payload["taskId"], "externalResultId": result["id"], "externalContentHash": result["contentHash"],
+                                  "candidateCommit": payload["candidateCommit"], "command": "python -m pytest", "timeoutSeconds": 40})]
+    with pytest.raises(ValueError, match="Refresh this external result"):
+        service.preview_verification(project["id"], result["id"], {"contentHash": "wrong", "command": "other", "timeoutSeconds": 40})
+    assert len(calls) == 1 and executor.contexts == []
+
+
+def test_verification_start_rejects_another_results_preview(fixture, monkeypatch):
+    _, store, project, _, _, execution = fixture
+    service, _ = package(fixture)
+    key = str(uuid4())
+    with closing(store.connect()) as db, db:
+        db.execute("INSERT INTO execution_previews VALUES(?,?,?,?,?,?)", (key, project["id"], json.dumps({"externalResultId": str(uuid4())}), 1, "[]", "2026-01-01"))
+    monkeypatch.setattr(execution, "start_verification", lambda *_: pytest.fail("A foreign preview cannot start"), raising=False)
+    with pytest.raises(ValueError, match="does not belong"):
+        service.start_verification(project["id"], str(uuid4()), mutation(previewId=key, confirmed=True))
 
 
 def test_export_is_source_free_per_task_with_concrete_return_template(fixture):

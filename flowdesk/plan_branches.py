@@ -5,6 +5,7 @@ import json
 from uuid import uuid4
 
 from .planning import fingerprint
+from .semantic_intent import SCOPE_VERSION, field_changes, semantic_fingerprint, semantic_sections
 from .storage import ConflictError, NotFoundError, encode, now
 from .validation import MAX_HISTORY, identifier, integer, obj, string, validate_content
 
@@ -12,27 +13,6 @@ from .validation import MAX_HISTORY, identifier, integer, obj, string, validate_
 def plan_epoch(db, project_id):
     row = db.execute("SELECT epoch FROM plan_selection WHERE project_id=?", (project_id,)).fetchone()
     return row[0] if row else 0
-
-
-def semantic_sections(content):
-    """Explicit comparison scope: progress, layout and viewport are not design."""
-    diagrams = []
-    for diagram in content["diagrams"]:
-        nodes = []
-        for original in diagram["nodes"]:
-            node = {key: value for key, value in original.items() if key not in {"position", "pinned", "status", "blocker"}}
-            node["checklist"] = [{"id": item["id"], "text": item["text"]} for item in original["checklist"]]
-            nodes.append(node)
-        diagrams.append({"id": diagram["id"], "name": diagram["name"],
-                         "nodes": sorted(nodes, key=lambda item: item["id"]),
-                         "edges": sorted(diagram["edges"], key=lambda item: item["id"])})
-    return {"Requirements, constraints and decisions": content.get("brief", {}),
-            "Diagram elements and relationships": sorted(diagrams, key=lambda item: item["id"]),
-            "Tasks, dependencies and acceptance criteria": sorted(
-                [{key: value for key, value in task.items() if key != "status"} for task in content.get("buildTasks", [])], key=lambda item: item["id"]),
-            "Variables and source references": {"variables": [{key: value for key, value in variable.items() if key != "status"} for variable in content["variables"]],
-                                                "nodeLinks": content["nodeLinks"], "matches": content["matches"]},
-            "Project notes": content["notes"]}
 
 
 class PlanBranches:
@@ -103,12 +83,18 @@ class PlanBranches:
             db.execute("BEGIN")
             saved = self._get_snapshot(db, project_id, snapshot_id)
             project = self.planning._current(db, project_id)
-            before = semantic_sections(json.loads(saved["content"]))
+            saved_content = json.loads(saved["content"])
+            before = semantic_sections(saved_content)
             after = semantic_sections(project["content"])
-            before["Repository inspection reference history"] = json.loads(saved["source_references"])
-            after["Repository inspection reference history"] = self._source_references(db, project)
-            return {"snapshotId": snapshot_id, "changes": [{"section": key, "before": before[key], "after": after[key]}
-                                                           for key in before if before[key] != after[key]]}
+            old_history = json.loads(saved["source_references"])
+            new_history = self._source_references(db, project)
+            return {"snapshotId": snapshot_id, "scopeVersion": SCOPE_VERSION,
+                    "beforeHash": semantic_fingerprint(saved_content), "afterHash": semantic_fingerprint(project["content"]),
+                    "changes": [{"section": key, "before": before[key], "after": after[key],
+                                 "fields": field_changes(before[key], after[key])}
+                                for key in before if before[key] != after[key]],
+                    "historyChanges": [] if old_history == new_history else [{
+                        "section": "Repository inspection reference history", "before": old_history, "after": new_history}]}
 
     def mutate(self, project_id, action, payload):
         obj(payload, {"mutationId", "baseRevision", "name", "explanation", "targetId", "note"}, "plan action")

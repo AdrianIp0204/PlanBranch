@@ -7,6 +7,12 @@
 .plan-records > li, .external-result { padding: 12px; border: 1px solid var(--line); border-radius: 8px; margin-block: 10px; }
 .plan-records small { display: block; margin-top: 4px; }
 .plan-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.plan-field-section { margin-block: 20px; }
+.plan-field-change { border-top: 1px solid var(--line); padding-block: 10px; }
+.plan-field-change h5 { font-size: inherit; margin: 0 0 8px; overflow-wrap: anywhere; }
+.plan-field-change dl { margin: 0; }
+.plan-field-change dt { color: var(--muted); font-size: var(--font-small); }
+.plan-field-change dd { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .plan-library details, .task-handoff details { margin-block: 12px; }
 .plan-library summary, .task-handoff summary { cursor: pointer; font-weight: 600; }
 .handoff-return { min-height: 220px; font-family: monospace; }

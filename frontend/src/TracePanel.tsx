@@ -14,6 +14,9 @@ export const verificationLabel = (value: string) =>
     human_review_required: "Human review required",
     human_review_recorded: "Human review recorded",
     external_result_reported: "External result reported",
+    legacy_writable_observation: "Historical writable command (not source-bound)",
+    mutable_command_observed: "Writable command observed (not source-bound)",
+    command_exit_observed: "Immutable command exit observed (coverage unverified)",
   })[value] ?? value;
 type Review = {
   id: string;
@@ -264,11 +267,12 @@ export default function TracePanel({
                         : "executor report; candidate provenance unavailable"}
                     </p>
                     <p>
-                      Checked candidate:{" "}
+                      Recorded candidate:{" "}
                       <code>
                         {command.evidence?.candidateBefore ?? "Not recorded"}
                       </code>
                     </p>
+                    {command.evidence?.executionMode && <p>Mode: {command.evidence.executionMode.replaceAll('_', ' ')}. Writable locations: {command.evidence.writableLocations?.join(', ')}.</p>}
                     {command.evidence?.testResult && (
                       <p>
                         JUnit artifact:{" "}

@@ -17,7 +17,7 @@ from .planning_questions import validate_answers, validate_questions
 from .workspace_tools import WorkspaceTools
 from .storage import now
 
-VERSION = "model-executor-v1"
+VERSION = "model-executor-v2"
 MAX_TURNS, MAX_CALLS, MAX_SECONDS, MAX_CONTEXT = 24, 80, 1200, 1_500_000
 
 
@@ -54,6 +54,7 @@ TOOLS = [
     {"name": "write_file", "description": "Write text with a matching read hash; null hash creates, null content removes.", "parameters": schema({"path": {"type": "string"}, "content": {"type": ["string", "null"]}, "expectedSha256": {"type": ["string", "null"]}}, ["path", "content", "expectedSha256"])},
     {"name": "diff", "description": "Review changes since this invocation began.", "parameters": schema({"path": {"type": "string"}})},
     {"name": "run_command", "description": "Run a bounded command only in the reviewed isolated command runtime. No host fallback.", "parameters": schema({"command": {"type": "string"}, "timeoutSeconds": {"type": "integer"}}, ["command"])},
+    {"name": "verify_without_editing", "description": "Check the current candidate on an OS read-only mount. Write caches to /cache, temporary files to /tmp and JUnit to /artifacts/junit.xml. Exit status alone does not prove a requirement.", "parameters": schema({"command": {"type": "string"}, "timeoutSeconds": {"type": "integer"}}, ["command"])},
     {"name": "ask_question", "description": "Pause for explicit choices or custom answers. Use this as the only call in a response.", "parameters": schema({"questions": {"type": "array", "minItems": 1, "maxItems": 3, "items": schema({
         "id": {"type": "string", "description": "UUID"}, "kind": {"type": "string", "enum": ["choice", "text"]}, "prompt": {"type": "string"},
         "options": {"type": "array", "items": schema({"id": {"type": "string", "description": "UUID"}, "label": {"type": "string"}, "description": {"type": "string"}}, ["id", "label", "description"])},
@@ -279,13 +280,14 @@ class ModelExecutor:
                                 save_state()
                                 result.update(status="interrupted", error="Answer the execution question to continue this step.")
                                 return {**result, "commands": list(commands.values())}
-                            if name == "run_command":
-                                output = self.runner.run(generation["commandPolicy"], worktree, args, key, bounded_cancel, event)
+                            if name in {"run_command", "verify_without_editing"}:
+                                run_command = self.runner.verify if name == 'verify_without_editing' else self.runner.run
+                                output = run_command({**generation["commandPolicy"], 'evidenceRunId': context['runId']}, worktree, args, key, bounded_cancel, event)
                                 if output.get("command"): commands[output["command"]["id"]] = output["command"]
                             else:
                                 output = getattr(tools, name)(args)
                         except (WorkspaceError, KeyError, TypeError, ValueError) as exc:
-                            if name == "run_command":
+                            if name in {"run_command", "verify_without_editing"}:
                                 raise  # an uncertain command intent must never be retried by the model
                             output = {"error": str(exc)[:2000]}
                         record.update(state="done", result=deepcopy(output))

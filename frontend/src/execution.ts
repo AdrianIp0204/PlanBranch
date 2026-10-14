@@ -62,6 +62,7 @@ export type ExecutionContext = {
   generation: GenerationDetails | null;
 };
 export type ExecutionRun = ExecutionRunSummary & {
+  executionMode?: 'implementation' | 'immutable_verification';
   workflow?: { stage: string; nextAction: string };
   candidate?: {
     sha256: string;
@@ -99,6 +100,8 @@ export type ExecutionRun = ExecutionRunSummary & {
     evidence?: {
       schemaVersion: number;
       provenance: string;
+      executionMode?: string;
+      writableLocations?: string[];
       workingDirectory: string;
       runtime: string;
       imageId?: string;

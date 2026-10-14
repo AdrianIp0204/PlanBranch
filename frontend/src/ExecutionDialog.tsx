@@ -887,9 +887,10 @@ export default function ExecutionDialog({
                     {command.evidence && (
                       <>
                         <p>
-                          Checked candidate:{" "}
+                          Recorded candidate:{" "}
                           <code>{command.evidence.candidateBefore}</code>
                         </p>
+                        {command.evidence.executionMode && <p>Mode: {command.evidence.executionMode.replaceAll('_', ' ')}. Writable locations: {command.evidence.writableLocations?.join(', ')}.</p>}
                         <p>
                           Runtime: {command.evidence.runtime} · working
                           directory: {command.evidence.workingDirectory}
@@ -1027,7 +1028,7 @@ export default function ExecutionDialog({
                 Apply.
               </p>
             )}
-            <div className="execution-review-actions">
+            {run.executionMode === 'immutable_verification' ? <p>Verification without editing records a local observation. Review its coverage in traceability; implementation acceptance, completion and application remain separate.</p> : <div className="execution-review-actions">
               <div>
                 <button
                   disabled={
@@ -1114,7 +1115,7 @@ export default function ExecutionDialog({
                 </button>
                 <p>Separately update the selected repository.</p>
               </div>
-            </div>
+            </div>}
           </>
         )}
         {busy && (

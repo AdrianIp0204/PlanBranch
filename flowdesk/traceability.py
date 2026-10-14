@@ -9,6 +9,7 @@ import json
 from uuid import UUID, uuid4, uuid5
 
 from .semantic_intent import digest, task_approved
+from .prerequisites import evaluate_prerequisites
 from .storage import encode, now
 from .validation import identifier, obj, string, ValidationError
 
@@ -25,6 +26,7 @@ class TraceabilityService:
 
     def workflow(self, project_id, task_id):
         with closing(self.store.connect()) as db:
+            db.execute("BEGIN")
             project = self.planning._current(db, project_id)
             tasks = {task["id"]: task for task in project["content"]["buildTasks"]}
             task = tasks.get(task_id)
@@ -36,11 +38,20 @@ class TraceabilityService:
             epoch = plan_epoch(db, project_id)
             snapshot = json.loads(row["snapshot"]) if row else None
             run_current = self.execution._plan_current(db, project_id, snapshot) if snapshot else False
-        blockers = [{"taskId": key, "message": f'Complete “{tasks[key]["title"]}” first.'}
-                    for key in task["prerequisiteIds"] if tasks[key]["status"] != "done"]
-        if task["status"] == "blocked": blockers.append({"message": "This task is marked blocked. Resolve its blocker and update progress before authorizing a run."})
+            repository = self.execution._repository(db, project_id)
+            source = None
+            if repository is not None and task["prerequisiteIds"]:
+                try: source = self.execution.git.inspect_repository(repository["path"])
+                except (OSError, RuntimeError, ValueError): pass
+            prerequisite_issues = evaluate_prerequisites(db, project_id, project["content"], task_id, source, self.execution.git) if task["prerequisiteIds"] else []
+        blockers = list(prerequisite_issues)
+        if task["status"] == "blocked": blockers.append({"code": "task_blocked", "taskId": task_id,
+            "message": "This task is marked blocked. Resolve its blocker and update progress before authorizing a run.",
+            "action": "open_task", "actionLabel": "Edit task progress", "reference": {"taskId": task_id}})
         current = task_approved(approval, task_id)
-        if not current: blockers.append({"message": "Review the changed task scope, requirements or acceptance criteria before running.", "action": "review_plan"})
+        if not current: blockers.append({"code": "approval_required", "taskId": task_id,
+            "message": "Review the changed task scope, requirements or acceptance criteria before running.",
+            "action": "review_plan", "actionLabel": "Review task intent", "reference": {"taskId": task_id}})
         if row:
             run = self.execution._summary(row)
             run["artifact"] = {"digest": row["artifact_digest"]} if row["artifact_digest"] else None
@@ -58,12 +69,15 @@ class TraceabilityService:
                 result.update(stage="Plan", nextAction="The prior result does not match the current approved task scope. Review its history, then review this task's intent and authorize a new run.",
                               action="preview_run" if current else "review_plan")
         elif task["status"] == "done":
-            result = {"stage": "Completion needs review", "nextAction": "Task progress is marked done without a reviewed execution result. Reopen progress and review an authorized local run to establish prerequisite evidence.", "action": "preview_run"}
+            result = {"stage": "Completion needs review", "nextAction": "Task progress is marked done without a reviewed execution result. Reopen progress and review an authorized local run to establish prerequisite evidence.", "action": "open_task"}
         elif blockers:
             result = {"stage": "Plan", "nextAction": blockers[0]["message"], "action": "review_plan" if not current else "prerequisite"}
         else:
             result = {"stage": "Ready to preview", "nextAction": "Review the source revision, execution permissions and runtime in Preview run before authorizing execution.", "action": "preview_run"}
+        if prerequisite_issues and (row is None or row["state"] not in {"queued", "running", "cancelling"}):
+            result.update(stage="Prerequisites need attention", nextAction=prerequisite_issues[0]["message"], action="prerequisite")
         return {**result, "taskId": task_id, "approvalCurrent": current, "blockers": blockers,
+            "prerequisiteIssues": prerequisite_issues,
             "progress": task["status"], "boundaryNote": "Intent approval → execution authorization → result acceptance → checkout apply → your Git commit are separate decisions."}
 
     def state(self, project_id, task_id, run_id=None):

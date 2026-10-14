@@ -12,7 +12,7 @@ function git(root, ...args) {
   }).toString().trim();
 }
 
-test('external task export and commit return preserve provenance through review and explicit local execution', {timeout:180000}, async t => {
+test('external task return preserves provenance through explicitly authorized verification without editing', {timeout:180000}, async t => {
   const h = await setupBrowser(t, {name:'handoff-roundtrip', planningFixture:true, viewport:{width:1280,height:900}});
   const p = h.page, url = '/projects/' + h.initial.id;
   const repo = path.join(h.output, 'external coding repository');
@@ -82,17 +82,21 @@ test('external task export and commit return preserve provenance through review 
   assert.equal(JSON.parse(await fs.readFile(reviewPath,'utf8')).origin,'external');
   await p.screenshot({path:path.join(h.output,'external-review.png'),fullPage:true});
 
-  await review.getByRole('button',{name:'Preview authorized local execution',exact:true}).click();
+  await review.getByText('Verify returned candidate without editing',{exact:true}).click();
+  assert.equal(await review.getByLabel('Local verification command',{exact:true}).inputValue(),'','Imported commands are never preselected');
+  await review.getByLabel('Local verification command',{exact:true}).fill('fixture verification check');
+  await review.getByRole('button',{name:'Preview verification without editing',exact:true}).click();
   await handoff.getByRole('alert').filter({hasText:'exact returned candidate'}).waitFor();
   assert.equal((await h.api(url+'/execution')).runs.length,0);
   git(repo,'checkout','--detach',candidate);
-  await review.getByRole('button',{name:'Preview authorized local execution',exact:true}).click();
-  const execution = p.getByRole('dialog',{name:'Run step',exact:true});
-  await execution.waitFor();
-  await execution.getByRole('button',{name:'Preview run',exact:true}).click();
-  await until(()=>execution.getByRole('button',{name:'Run step',exact:true}).isEnabled());
-  assert.equal((await h.api(url+'/execution')).runs.length,0,'External preflight and ordinary preview do not authorize execution');
-  await execution.getByRole('button',{name:'Run step',exact:true}).click();
+  await review.getByRole('button',{name:'Preview verification without editing',exact:true}).click();
+  const verification = review.getByRole('region',{name:'Local verification preview',exact:true});
+  await verification.waitFor();
+  assert.match(await verification.innerText(),new RegExp(candidate));
+  assert.equal(await verification.getByRole('button',{name:'Run verification without editing',exact:true}).isEnabled(),false);
+  assert.equal((await h.api(url+'/execution')).runs.length,0,'Preview does not authorize execution');
+  await verification.getByRole('checkbox',{name:'I authorize this check against this returned candidate without editing source.',exact:true}).check();
+  await verification.getByRole('button',{name:'Run verification without editing',exact:true}).click();
   const run = await until(async()=>{
     const runs=(await h.api(url+'/execution')).runs;
     if(!runs.length)return false;
@@ -100,6 +104,16 @@ test('external task export and commit return preserve provenance through review 
     return current.state==='succeeded' ? current : false;
   },45000);
   assert.equal(run.sourceCommit,candidate);
+  assert.equal(run.executionMode,'immutable_verification');
   assert.equal(run.commands.length,1);
+  assert.equal(run.commands[0].command,'fixture verification check');
+  assert.equal(run.commands[0].verificationState,'not_verified','The deterministic fixture cannot claim Docker isolation');
+  assert.deepEqual(run.artifact.files,[]);
+  assert.equal(await fs.readFile(path.join(repo,'main.py'),'utf8'),'value = 2\n');
   assert.equal((await h.api(url+'/handoffs?taskId='+task.id)).results[0].origin,'external','New local observations never rewrite external provenance');
+  assert.equal((await h.api(url)).content.buildTasks[0].status,'not_started');
+  await h.restart();
+  await handoff.getByText('Verify returned candidate without editing',{exact:true}).click();
+  await handoff.getByRole('region',{name:'Saved local verification history',exact:true}).getByRole('button',{name:'Review local check',exact:true}).waitFor();
+  await p.screenshot({path:path.join(h.output,'local-verification-history.png'),fullPage:true});
 });

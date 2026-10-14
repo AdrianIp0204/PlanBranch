@@ -8,7 +8,7 @@ type Workflow = {
   action: string;
   runId?: string;
   approvalCurrent: boolean;
-  blockers: { taskId?: string; message: string; action?: string }[];
+  blockers: { code: string; taskId?: string; runId?: string; message: string; action?: string; actionLabel?: string }[];
   boundaryNote: string;
 };
 
@@ -23,7 +23,7 @@ export default function TaskWorkflowSummary({
   taskId: string;
   refreshKey: boolean;
   onRun: () => void;
-  onReview: () => void;
+  onReview: (taskId?: string, runId?: string) => void;
   onPlanning?: () => void;
   onSelect: (id: string) => void;
 }) {
@@ -64,37 +64,46 @@ export default function TaskWorkflowSummary({
           {state.blockers.length > 0 && (
             <ul>
               {state.blockers.map((blocker, index) => (
-                <li key={index}>
-                  {blocker.taskId ? (
+                <li key={`${blocker.code}:${blocker.taskId ?? index}`} data-issue-code={blocker.code}>
+                  <p>{blocker.message}</p>
+                  {["review_result", "finish_task", "apply_changes", "commit_changes", "refresh_evidence"].includes(blocker.action ?? "") ? (
+                    <button className="quiet" onClick={() => onReview(blocker.taskId, blocker.runId)}>
+                      {blocker.actionLabel ?? "Review prerequisite result"}
+                    </button>
+                  ) : blocker.action === "preview_run" ? (
+                    <button className="quiet" onClick={onRun}>{blocker.actionLabel ?? "Review run authorization"}</button>
+                  ) : blocker.action === "review_plan" ? (
+                    onPlanning && <button className="quiet" onClick={onPlanning}>{blocker.actionLabel ?? "Review task intent"}</button>
+                  ) : blocker.taskId ? (
                     <button
                       className="quiet"
                       onClick={() => onSelect(blocker.taskId!)}
                     >
-                      {blocker.message}
+                      {blocker.actionLabel ?? "Open prerequisite task"}
                     </button>
-                  ) : (
-                    blocker.message
-                  )}
+                  ) : null}
                 </li>
               ))}
             </ul>
           )}
           <div className="execution-actions">
             {state.action === "review_result" ? (
-              <button className="primary" onClick={onReview}>
+              <button className="primary" onClick={() => onReview(taskId, state.runId)}>
                 Review task result
               </button>
-            ) : state.approvalCurrent ? (
+            ) : state.action === "preview_run" ? (
               <button className="primary" onClick={onRun}>
                 Review run authorization
               </button>
-            ) : (
+            ) : state.action === "open_task" ? (
+              <button className="primary" onClick={() => onSelect(taskId)}>Edit task progress</button>
+            ) : state.action === "review_plan" ? (
               onPlanning && (
                 <button className="primary" onClick={onPlanning}>
                   Review task intent
                 </button>
               )
-            )}
+            ) : null}
           </div>
           <details>
             <summary>Approval and application boundaries</summary>

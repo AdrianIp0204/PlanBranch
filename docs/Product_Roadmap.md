@@ -118,6 +118,12 @@ Validation record (logs under ignored `output/`):
   claimed; command/runtime regressions use deterministic fixtures without model
   calls. Ordinary release CI and standalone Windows packaging remain required.
 
+The 0.3.1 correctness follow-up is recorded in [Repair_0.3.1.md](Repair_0.3.1.md).
+It retains all six workflows while replacing the original evidence guarantee and
+release preparation mechanism described in this historical implementation record.
+The current release process reuses the exact tested CI artifacts and reconciles
+only a matching workflow-owned draft; it never overwrites published v0.3.0.
+
 Required final release gates: clean committed source; full backend, frontend and
 installed-wheel browser checks on Ubuntu and Windows; standalone Windows portable
 smoke (including spaces/Unicode paths); final artifact hashes and source receipt.

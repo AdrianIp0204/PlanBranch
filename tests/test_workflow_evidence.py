@@ -88,11 +88,12 @@ def test_requirement_identity_stays_stable_while_meaning_changes():
     assert before["id"] == after["id"] and before["meaningHash"] != after["meaningHash"]
 
 
-def test_candidate_identity_includes_uncommitted_source_and_excludes_declared_outputs():
+def test_candidate_identity_includes_all_candidate_bytes_outputs_are_separate_mounts():
     files = {"main.py": b"value = 1", "uncommitted.py": b"pass"}
     baseline = source_identity(files)
     files["__pycache__/main.pyc"] = b"cache"; files[".planbranch-results/junit.xml"] = b"report"
-    assert source_identity(files)["sha256"] == baseline["sha256"]
+    assert source_identity(files)["sha256"] != baseline["sha256"]
+    assert source_identity(files)['exclusions'] == ['.git']
     files["uncommitted.py"] = b"changed"
     assert source_identity(files)["sha256"] != baseline["sha256"]
 
@@ -113,6 +114,10 @@ def test_observed_result_never_proves_a_different_candidate_or_missing_tests():
     command = {"status": "completed", "exitCode": 0, "output": "All tests passed"}
     assert observation_state(command, "candidate") == "external_result_reported"
     command["evidence"] = {"schemaVersion": 1, "provenance": "host_observed", "candidateBefore": "candidate", "candidateAfter": "candidate", "sourceChanged": False}
+    assert observation_state(command, 'candidate') == 'legacy_writable_observation'
+    command['evidence'].update(schemaVersion=2, hostAuthenticated=True, executionMode='immutable_verification', mountReadOnly=True, runtime='docker-source-bound-v2')
+    assert observation_state(command, 'candidate') == 'command_exit_observed'
+    command['evidence']['testResult'] = {'state': 'passed'}
     assert observation_state(command, "candidate") == "observed_check_passed"
     assert observation_state(command, "different") == "stale_evidence"
     command["evidence"]["sourceChanged"] = True
