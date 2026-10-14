@@ -1,0 +1,51 @@
+.repository-context-dialog {
+  width: min(850px, calc(100vw - 24px));
+}
+.repository-context-dialog p,
+.repository-context-dialog label {
+  overflow-wrap: anywhere;
+}
+.repository-context-dialog label {
+  display: flex;
+  gap: 8px;
+  align-items: start;
+  margin: 8px 0;
+}
+.repository-context-dialog input[type="checkbox"] {
+  flex: 0 0 auto;
+}
+.repository-context-files {
+  max-height: 230px;
+  overflow: auto;
+  margin: 12px 0;
+}
+.repository-context-dialog pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px;
+  background: var(--surface-2, #f1f4f6);
+  font-size: 12px;
+}
+.repository-context-dialog details {
+  margin: 12px 0;
+}
+.repository-context-hash {
+  overflow-wrap: anywhere;
+  display: block;
+  font-size: 11px;
+}
+.repository-context-references {
+  margin: 10px 0;
+  font-size: 12px;
+}
+.repository-context-references li {
+  margin-bottom: 10px;
+}
+.planning-source-choice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}

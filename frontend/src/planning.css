@@ -723,8 +723,8 @@
   .planning-tabs button { padding-block: 4px; }
   .planning-comment-filters { padding: 4px 8px; }
   .planning-comment-filters select { padding-block: 4px; }
-  .planning-panel .planning-composer:not(.message-composer) { padding: 6px 8px; gap: 3px; }
-  .planning-panel .planning-composer:not(.message-composer) .planning-compose-actions > button { padding-block: 4px; }
+  .planning-panel .planning-composer { padding: 6px 8px; gap: 3px; }
+  .planning-panel .planning-composer .planning-compose-actions > button { padding-block: 4px; }
 }
 
 .planning-tab-content.is-constrained,

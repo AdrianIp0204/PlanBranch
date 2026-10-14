@@ -373,7 +373,7 @@ async function assertDockFits(p, { historyMinimum = 160 } = {}) {
   assert.ok(m.composer.bottom <= m.dock.bottom + 1, "Composer stays bounded");
   assert.ok(
     m.transcript.height >= historyMinimum - 1,
-    "History retains a useful viewport",
+    `History retains a useful viewport (minimum ${historyMinimum}px): ${JSON.stringify(m)}`,
   );
   const heading = await p.locator(".planning-heading").boundingBox();
   assert.ok(
@@ -1480,13 +1480,13 @@ test(
         true,
       );
       await assertActionInDock(zoomed.page, go);
+      await zoomed.page.screenshot({
+        path: path.join(h.output, "questions-zoom-200.png"),
+      });
       const bounds = await assertDockFits(zoomed.page, { historyMinimum: 60 });
       assert.equal(bounds.viewport.width, 640);
       assert.equal(bounds.viewport.devicePixelRatio, 2);
       measurements.zoom200 = bounds;
-      await zoomed.page.screenshot({
-        path: path.join(h.output, "questions-zoom-200.png"),
-      });
       await zoomed.page.keyboard.press("Enter");
       await requestState(h, "succeeded");
       assert.equal((await waitForQuestion(h, "answered")).state, "answered");

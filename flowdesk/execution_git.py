@@ -486,6 +486,25 @@ class GitWorkspace:
         return {"digest": digest, "sourceCommit": artifact["sourceCommit"],
                 "files": [{key: value for key, value in file.items() if key not in {"before", "after"}} for file in artifact["files"]]}
 
+    def contains_artifact(self, repository, run_id, digest):
+        """Read committed raw objects without hooks or filters for prerequisites."""
+        current = self.repository_identity(repository["path"])
+        artifact = self._artifact(run_id, digest)
+        workspace = self.load(run_id)
+        if workspace is None or any(current[key] != workspace["repository"][key] for key in ("path", "gitDir", "commonDir")):
+            return False
+        root = Path(current["path"])
+        tree = self._tree(root, current["head"])
+        entries = [tree[file["path"]] for file in artifact["files"] if file["path"] in tree]
+        blobs = self._blobs(root, entries)
+        for file in artifact["files"]:
+            entry = tree.get(file["path"])
+            if file["after"] is None:
+                if entry is not None: return False
+            elif entry is None or blobs[entry["oid"]] != _un64(file["after"]) or entry["mode"] != file.get("newMode"):
+                return False
+        return True
+
     def inspect_apply(self, workspace, digest):
         if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise WorkspaceError("Invalid review identity.")

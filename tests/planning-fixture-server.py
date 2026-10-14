@@ -45,6 +45,16 @@ class FixturePlanner:
 
     def generate(self, context):
         prompt = context["messages"][-1]["text"]
+        if prompt.startswith("Inspect selected helper"):
+            selected = context.get("repositoryContext", {}).get("files", [])
+            if not selected:
+                return self.envelope("reply", "No repository source was supplied.")
+            file = selected[0]
+            diagram = deepcopy(next(d for d in context["content"]["diagrams"] if d["id"] == context["activeDiagramId"]))
+            diagram["nodes"][0]["notes"] = "Reuse the helper inspected in " + file["path"] + " @ " + file["fileHash"]
+            return self.envelope("proposal", "I inspected " + file["path"] + " as reference material only.", proposal={
+                "title": "Reuse inspected helper", "summary": "Reuse the selected implementation, subject to human review.",
+                "diagramId": diagram["id"], "nodes": diagram["nodes"], "edges": diagram["edges"]})
         if prompt.startswith("Plan a Python task CLI"):
             diagram_id = context["activeDiagramId"]
             specs = [("start", "Read command", 340, 0),

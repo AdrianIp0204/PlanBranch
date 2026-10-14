@@ -37,3 +37,48 @@
   margin: 4px 0;
   font-size: var(--font-small);
 }
+.task-workflow,
+.trace-panel {
+  margin: 12px 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  min-width: 0;
+}
+.task-workflow h2 {
+  margin-top: 0;
+  font-size: 1.15rem;
+}
+.trace-panel > summary {
+  font-weight: 650;
+  cursor: pointer;
+}
+.trace-panel details {
+  margin: 8px 0;
+}
+.trace-panel code {
+  overflow-wrap: anywhere;
+}
+.trace-panel pre {
+  white-space: pre-wrap;
+  overflow: auto;
+  max-height: 260px;
+}
+.trace-panel fieldset label {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.trace-panel select,
+.trace-panel textarea {
+  width: 100%;
+  max-width: 100%;
+}
+.trace-criterion {
+  border-top: 1px solid var(--line);
+  padding: 8px 0;
+}
+.trace-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

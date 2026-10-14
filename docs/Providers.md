@@ -24,7 +24,7 @@ Installed Ollama models are discovered through the native API. Embedding-only mo
 
 ## Planning and review
 
-All providers use the same project context, clarification cards, visual proposals, brief and Build task review. Context includes the durable brief and relevant discussion, plus the visible candidate when revising it. Read-only scanner observations, filesystem permissions and attached source files are excluded.
+All providers use the same project context, clarification cards, visual proposals, brief and Build task review. Context includes the durable brief and relevant discussion, plus the visible candidate when revising it. Attached source is excluded by default. The explicit **Include selected repository context** action previews bounded file or symbol excerpts and the exact receiving provider/model before one-use consent. Source-folder access never grants execution permission. After source has been shared, later requests omit earlier conversation and generated questions that might repeat it; accepted manual plan content remains authored intent. See [Repository context](Repository_Context.md) for limits and retained records.
 
 Models cannot change saved plans directly. **Apply changes** is one undoable project edit. **Approve plan** records agreement on that saved plan and does not authorize coding. Manual proposal drafts and unsent writing retain their existing recovery and conflict controls.
 

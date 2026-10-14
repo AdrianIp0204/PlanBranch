@@ -29,7 +29,7 @@ ENDPOINTS = dict(_V1_ENDPOINTS)
 IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}\Z")
 DIGEST = re.compile(r"(?:sha256:)?[a-fA-F0-9]{64}\Z")
 INSTRUCTIONS = {"planning": "provider-planner-v1", "coding": "provider-coder-v1"}
-_V1_INSTRUCTIONS = {"provider-planner-v1": "planning", "provider-coder-v1": "coding"}
+_V1_INSTRUCTIONS = {"provider-planner-v1": "planning", "provider-planner-v2": "planning", "provider-coder-v1": "coding"}
 MAX_CONTEXT_BYTES = 500_000
 MAX_OUTPUT_TOKENS = 16_384
 OLLAMA_CONTEXT_LIMIT = 24_576
@@ -443,9 +443,8 @@ class ProviderRegistry:
         generation = validate_generation(context.get("generation"), "planning")
         if "providerGenerationVersion" not in generation:
             return self.codex.generate(context, cancel=cancel)
-        fields = ("content", "activeDiagramId", "nodeId", "messages", "comments", "omittedMessageCount",
-                  "omittedResolvedCommentCount", "questionSets", "reviewProposal")
-        payload = {key: context[key] for key in fields if key in context}
+        from .repository_context import planning_payload
+        payload = planning_payload(context)
         encoded = encode_json(payload)
         if len(encoded) > MAX_CONTEXT_BYTES:
             raise ProviderError("This planning context is too large. Shorten the conversation before retrying.")

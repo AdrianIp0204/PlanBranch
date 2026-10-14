@@ -1,0 +1,16 @@
+.capability-list > div { padding: 14px 0; border-bottom: 1px solid var(--line); }
+.capability-list dt { display: flex; gap: 12px; flex-wrap: wrap; font-weight: 650; }
+.capability-list dt span { font-weight: 400; color: var(--muted); text-transform: capitalize; }
+.capability-list dd { margin: 6px 0 0; line-height: 1.6; }
+.demo-label { padding: 12px; background: var(--canvas); border-left: 3px solid var(--accent); line-height: 1.6; }
+.demo-steps { display: flex; flex-wrap: wrap; gap: 6px; }
+.demo-steps [aria-current] { border-color: var(--accent); font-weight: 650; }
+.demo-stage { margin: 20px 0; line-height: 1.6; }
+.demo-stage dd { margin: 0 0 12px; }
+.demo-stage dt { font-weight: 650; }
+.demo-stage pre { white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; max-height: 240px; padding: 12px; background: var(--canvas); border: 1px solid var(--line); }
+.demo-flow { display: flex; gap: 24px; flex-wrap: wrap; padding-left: 25px; }
+.demo-flow li { padding: 10px 14px; border: 1px solid var(--line); border-radius: 6px; }
+@media (max-width: 600px) { .demo-flow { display: block; } .demo-flow li { margin: 8px 0; } }
+.onboarding-dialog { width: min(840px, calc(100vw - 32px)); }
+.onboarding-dialog .dialog-actions { position: sticky; bottom: -24px; background: var(--paper); padding: 12px 0; z-index: 1; }

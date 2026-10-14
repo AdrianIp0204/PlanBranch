@@ -1,6 +1,9 @@
 import { useState } from "react";
 import BuildTasksEditor from "./BuildTasksEditor";
 import ExecutionDialog from "./ExecutionDialog";
+import TaskWorkflowSummary from "./TaskWorkflowSummary";
+import TracePanel from "./TracePanel";
+import TaskHandoffPanel from "./TaskHandoffPanel";
 import { useProject } from "./store";
 import { emptyBrief } from "./types";
 import "./build-view.css";
@@ -19,6 +22,7 @@ export default function BuildView({
   const { session, change, commit } = useProject();
   const [executionOpen, setExecutionOpen] = useState(false);
   const [executionHistory, setExecutionHistory] = useState(false);
+  const [executionRunId, setExecutionRunId] = useState<string | undefined>();
   const selectedTask =
     session.content.buildTasks?.find((task) => task.id === selectedId) ??
     session.content.buildTasks?.[0];
@@ -35,6 +39,7 @@ export default function BuildView({
             disabled={!selectedTask}
             onClick={() => {
               commit();
+              setExecutionRunId(undefined);
               setExecutionHistory(false);
               setExecutionOpen(true);
             }}
@@ -44,6 +49,7 @@ export default function BuildView({
           <button
             onClick={() => {
               commit();
+              setExecutionRunId(undefined);
               setExecutionHistory(true);
               setExecutionOpen(true);
             }}
@@ -53,6 +59,26 @@ export default function BuildView({
           {selectedTask && <span>{selectedTask.title || "Untitled task"}</span>}
         </div>
       </div>
+      {selectedTask && (
+        <TaskWorkflowSummary
+          taskId={selectedTask.id}
+          refreshKey={executionOpen}
+          onSelect={onSelect}
+          onPlanning={onPlanning}
+          onRun={() => {
+            commit();
+            setExecutionRunId(undefined);
+            setExecutionHistory(false);
+            setExecutionOpen(true);
+          }}
+          onReview={() => {
+            commit();
+            setExecutionRunId(undefined);
+            setExecutionHistory(true);
+            setExecutionOpen(true);
+          }}
+        />
+      )}
       <BuildTasksEditor
         tasks={session.content.buildTasks ?? []}
         diagrams={session.content.diagrams}
@@ -74,10 +100,35 @@ export default function BuildView({
           )
         }
       />
+      {selectedTask && (
+        <TracePanel
+          taskId={selectedTask.id}
+          onRevealNode={onRevealNode}
+          onOpenRun={(id) => {
+            commit();
+            setExecutionRunId(id);
+            setExecutionHistory(true);
+            setExecutionOpen(true);
+          }}
+        />
+      )}
+      {selectedTask && (
+        <TaskHandoffPanel
+          key={selectedTask.id}
+          taskId={selectedTask.id}
+          onRun={() => {
+            commit();
+            setExecutionRunId(undefined);
+            setExecutionHistory(false);
+            setExecutionOpen(true);
+          }}
+        />
+      )}
       {executionOpen && (
         <ExecutionDialog
           taskId={selectedTask?.id ?? null}
           initialHistory={executionHistory}
+          initialRunId={executionRunId}
           onClose={() => setExecutionOpen(false)}
           onPlanning={
             onPlanning

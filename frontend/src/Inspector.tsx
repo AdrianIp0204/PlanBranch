@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { symbolDescription } from "./catalogue";
 import { useProject } from "./store";
 import { Field } from "./ui";
+import TracePanel from "./TracePanel";
 import "./inspector.css";
 import {
   nodeKinds,
@@ -22,6 +23,7 @@ export default function Inspector({
   onSelect,
   onVariable,
   onDiscuss,
+  onBuildTask,
 }: {
   diagram: Diagram;
   selected: string | null;
@@ -29,6 +31,7 @@ export default function Inspector({
   onSelect: (id: string | null) => void;
   onVariable: (id: string | null) => void;
   onDiscuss?: () => void;
+  onBuildTask?: (id: string) => void;
 }) {
   const { session, change, commit } = useProject();
   const content = session.content;
@@ -193,6 +196,36 @@ export default function Inspector({
         Node details <span>{nodeKinds[n.type]}</span>
       </div>
       {textField("Title", "title")}
+      <InspectorSection
+        name="task-evidence"
+        title="Implementation and evidence"
+        hasContent={(content.buildTasks ?? []).some((task) =>
+          task.nodeLinks.some((link) => link.nodeId === n.id),
+        )}
+      >
+        {(content.buildTasks ?? [])
+          .filter((task) => task.nodeLinks.some((link) => link.nodeId === n.id))
+          .map((task) => (
+            <div key={task.id}>
+              {onBuildTask ? (
+                <button className="quiet" onClick={() => onBuildTask(task.id)}>
+                  {task.title || "Untitled task"}
+                </button>
+              ) : (
+                <strong>{task.title || "Untitled task"}</strong>
+              )}
+              <TracePanel taskId={task.id} />
+            </div>
+          ))}
+        {!(content.buildTasks ?? []).some((task) =>
+          task.nodeLinks.some((link) => link.nodeId === n.id),
+        ) && (
+          <p className="muted">
+            Link this diagram element to a Build task to connect its
+            requirement, changes and evidence.
+          </p>
+        )}
+      </InspectorSection>
       <div className="field-row">
         <Field label="Status">
           <select

@@ -129,11 +129,16 @@ def test_writing_keeps_original_provider_payload_on_restart(tmp_path):
 
 
 def test_additive_provider_migration_preserves_project(tmp_path):
-    store = Store(tmp_path / "data.sqlite3")
+    from flowdesk import migrations
+    from flowdesk.storage import now
+    class VersionNineStore(Store):
+        def initialize(self):
+            with closing(self.connect()) as db, db:
+                for migration in migrations.MIGRATIONS[:9]:
+                    migration.apply(db, self)
+                    db.execute("INSERT INTO schema_migrations VALUES(?,?)", (migration.version, now()))
+    store = VersionNineStore(tmp_path / "data.sqlite3")
     project = store.create_project()
-    with closing(store.connect()) as db, db:
-        db.execute("DROP TABLE planning_message_sources")
-        db.execute("DELETE FROM schema_migrations WHERE version=10")
     upgraded = Store(store.db_path)
     assert upgraded.get_project(project["id"]) == project
     with closing(upgraded.connect()) as db:

@@ -10,7 +10,7 @@ import pytest
 from flowdesk import migrations
 from flowdesk.codex_planner import instruction_resource
 from flowdesk.content_versions import CONTENT_VERSION, empty_brief
-from flowdesk.planning import PlanningService, fingerprint
+from flowdesk.planning import PlanningService, fingerprint, manual_fingerprint
 from flowdesk.sample import sample_content
 from flowdesk.storage import Store, encode
 from test_planning import FakePlanner, payload, save
@@ -30,7 +30,8 @@ def frozen_rows(store):
         "planning_requests": "id,payload_hash,payload,context,base_hash,status",
         "planning_proposals": "id,content,changes,base_hash",
         "proposal_drafts": "id,candidate,apply_request,proposal_hash",
-        "proposal_draft_receipts": "*", "planning_receipts": "*", "planning_approvals": "*",
+        "proposal_draft_receipts": "*", "planning_receipts": "*",
+        "planning_approvals": "id,project_id,revision,cursor,content_hash,content,created_at,revoked",
     }
     with closing(store.connect()) as db:
         return {table: [tuple(row) for row in db.execute(f"SELECT {columns} FROM {table} ORDER BY 1")]
@@ -84,9 +85,15 @@ def released_v5(tmp_path):
         db.execute("UPDATE proposal_draft_receipts SET acknowledgement=? WHERE mutation_id=?",
                    (encode(prepared), prepare_request["mutationId"]))
         for row in db.execute("SELECT id,content FROM planning_approvals").fetchall():
-            db.execute("UPDATE planning_approvals SET content=? WHERE id=?", (encode(legacy(json.loads(row["content"]))), row["id"]))
+            content = legacy(json.loads(row["content"]))
+            db.execute("UPDATE planning_approvals SET content=?,content_hash=? WHERE id=?",
+                       (encode(content), manual_fingerprint(content), row["id"]))
         db.execute("ALTER TABLE planning_proposals DROP COLUMN editable_sections")
-        for table in ("planning_message_sources", "writing_draft_receipts", "writing_drafts", "execution_receipts", "execution_runs", "execution_previews", "execution_repositories"):
+        db.execute("ALTER TABLE planning_approvals DROP COLUMN scope_version")
+        for table in ("external_reviews", "external_results", "task_handoffs", "plan_receipts", "plan_decisions",
+                      "plan_selection", "plan_alternatives", "plan_snapshots", "trace_reviews",
+                      "planning_message_sources", "writing_draft_receipts", "writing_drafts", "execution_receipts",
+                      "execution_runs", "execution_previews", "execution_repositories"):
             db.execute("DROP TABLE " + table)
         db.execute("DELETE FROM schema_migrations WHERE version>=6")
     return dict(store=store, project=project, proposal=proposal, diagram=diagram, summary=summary,

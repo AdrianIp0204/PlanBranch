@@ -21,8 +21,11 @@ named alternatives, and per-task external return review.
 
 Baseline commands (logs under ignored `output/`):
 
-- `python -m pytest -q`: running; `roadmap-baseline-pytest.log`.
-- `npm test --prefix frontend`: running; `roadmap-baseline-frontend.log`.
+- Backend, immutable `3ad3eaf` source: **654 passed, 18 skipped**;
+  `roadmap-baseline-backend-clean.log`. The first attempt hit permissions on the
+  former sandbox account's temporary directory; a fresh owned test directory
+  resolved this without changing those permissions.
+- `npm test --prefix frontend`: **299 passed**; `roadmap-baseline-frontend.log`.
 - `npm run build --prefix frontend`: passed; existing bundle-size advisory.
 - GitHub authentication: existing repository administrator access. No published
   releases returned by `gh release list`; main branch-protection query says none.
@@ -65,6 +68,47 @@ Baseline commands (logs under ignored `output/`):
 
 ## Progress and remaining gates
 
-Implementation underway. Parallel owners: workflow/evidence; repository consent;
-checkpoints/handoff. Primary owner: onboarding, integration, documentation,
-validation and release. Update this section at each tested milestone.
+All six feature slices are implemented; integration and release validation are in
+progress. New code extends the existing foundations rather than replacing them:
+
+| Workstream | Implemented behavior | Focused verification |
+| --- | --- | --- |
+| Installation/onboarding | Isolated guided sample, capability diagnostics, startup error log, version 0.3.0 notes and release workflow | Offline guide and restart browser checks; startup/setup unit tests |
+| Task workflow | Versioned task approval scope, next actions, prerequisite evidence checks, explicit rejection and cumulative usage display | Two dependent tasks through run, review, apply and user commit; progress and semantic drift tests |
+| Traceability | Stable requirement/criterion identities, candidate source snapshots, structured check outcomes, human file/check mappings and export | Source drift, forged provenance, no-tests/skips/failure, human review and browser result review |
+| Repository planning | Bounded selected file/symbol preview, exact provider request and single-use consent, metadata-only receipts | Exclusions/path aliases, frozen bytes, cancellation, expiry, source-free history after restart, browser consent flow |
+| Checkpoints/alternatives | Named immutable snapshots, semantic compare, deliberate select, recovery-first restore with authority revocation | Restart, rollback, active-operation guards, narrow browser flow |
+| External handoff | One-task manifest/export, local commit return, external report quarantine, human review, explicit local-run preflight | Real Git round trip, unsafe/mismatched inputs, production browser export/import/review/run |
+
+Database migrations **11–12** are additive. Migration 11 retains legacy approval
+scope as version 0 and missing candidate identities as unknown. Migration 12 stores
+plan snapshots, selections/epochs, decisions and handoff/review records. Restoring
+a snapshot revokes authority and never clones running operations. Existing content
+schema and exports remain compatible. Historical migration fixtures now reconstruct
+the actual old schema rather than keeping new columns under an old ledger.
+
+The first evidence slice treats the brief's requirements paragraph as one stable
+record and uses revision-bound files rather than claiming symbol certainty.
+External returns require a commit already present locally; patch conversion/fetch
+remain deliberate Git operations outside PlanBranch. Source preview consent is
+ephemeral; accepted proposal references retain only identities and locations.
+
+Validation record (logs under ignored `output/`):
+
+- Frontend: **312 passed**, `roadmap-frontend-final.log`.
+- Migration/progress regressions: **27 passed**, `roadmap-migration-fix.log`.
+- New handoff production browser round trip: **1 passed**, `roadmap-browser-handoff.log`.
+- Full backend/browser suites: running; discovered regressions are fixed and
+  rerun before the release commit is certified.
+- The local Docker Linux daemon is unavailable. Live container checks are not
+  claimed; command/runtime regressions use deterministic fixtures without model
+  calls. Ordinary release CI and standalone Windows packaging remain required.
+
+Remaining release gates: clean committed source; full backend, frontend and
+installed-wheel browser checks on Ubuntu and Windows; standalone Windows portable
+smoke (including spaces/Unicode paths); final artifact hashes and source receipt.
+Existing generated directories owned by the former sandbox account are left
+untouched; local packaging uses a clean archive of the final commit and the normal
+builder. The release workflow accepts only a successful same-repository push or
+dispatch check run for the exact SHA, creates its tag atomically and refuses to
+replace an existing tag or release. No public release is claimed by this record.

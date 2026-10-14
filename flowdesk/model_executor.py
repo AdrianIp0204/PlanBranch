@@ -167,6 +167,12 @@ class ModelExecutor:
                 raise WorkspaceError("The frozen coding instruction identity is invalid.")
             policy = harness_policy(generation.get("harnessPolicy"))
             identity = fingerprint({key: context[key] for key in ("task", "brief", "linkedNodes", "sourceCommit", "generation")})
+            if state is not None and (not isinstance(state, dict) or type(state.get("version")) is not int or state["version"] != 1
+                    or type(state.get("turns")) is not int or state["turns"] < 0
+                    or not isinstance(state.get("calls"), list) or not isinstance(state.get("messages"), list)
+                    or any(not isinstance(call, dict) or call.get("state") not in {"pending", "done", "waiting"}
+                           or not isinstance(call.get("id"), str) for call in state.get("calls", []))):
+                raise WorkspaceError("The saved coding journal is invalid or unsupported. Retained work was not replayed.")
             if state is None:
                 state = {"version": 1, "identity": identity, "state": "running", "calls": [], "messages": [], "turns": 0, "invocation": 1,
                          "elapsedSeconds": 0}

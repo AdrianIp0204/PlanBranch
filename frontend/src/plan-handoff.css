@@ -1,0 +1,14 @@
+.plan-library-modal { width: min(1000px, calc(100vw - 32px)); }
+.plan-library, .task-handoff { padding: 16px; min-width: 0; }
+.plan-library p, .task-handoff p { max-width: 85ch; }
+.plan-library pre, .task-handoff pre { white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; max-height: 420px; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+.plan-handoff-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 12px; }
+.plan-records { list-style: none; padding: 0; }
+.plan-records > li, .external-result { padding: 12px; border: 1px solid var(--line); border-radius: 8px; margin-block: 10px; }
+.plan-records small { display: block; margin-top: 4px; }
+.plan-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.plan-library details, .task-handoff details { margin-block: 12px; }
+.plan-library summary, .task-handoff summary { cursor: pointer; font-weight: 600; }
+.handoff-return { min-height: 220px; font-family: monospace; }
+.revision-line { overflow-wrap: anywhere; font-family: monospace; }
+@media (max-width: 700px) { .plan-comparison { grid-template-columns: 1fr; } .plan-library, .task-handoff { padding: 8px; } }

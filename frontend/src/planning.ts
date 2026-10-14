@@ -145,6 +145,7 @@ export type QuestionDraft = {
   text: string;
 };
 export type QuestionSet = {
+  requiresSourcePreview?: boolean;
   id: string;
   requestId: string;
   messageId: string;
@@ -201,6 +202,7 @@ export type ProposedChange = {
 };
 export type ProposalSection = "diagram" | "brief" | "buildTasks";
 export type PlanProposal = {
+  sourceContext?: SourceContextReceipt;
   editableSections?: ProposalSection[];
   id: string;
   title: string;
@@ -229,6 +231,7 @@ export type ProposalRevision = {
   nonce: string;
 };
 export type PlanningState = {
+  sourceHistory?: boolean;
   agent: { available: boolean; label: string; reason?: string };
   messages: PlanningMessage[];
   questionSets?: QuestionSet[];
@@ -244,6 +247,7 @@ export type PlanningState = {
     snapshot: Content;
   };
   request: null | {
+    sourceContext?: SourceContextReceipt;
     id: string;
     status: "running" | "failed" | "succeeded";
     error?: string;
@@ -256,6 +260,11 @@ export type PlanningState = {
   };
 };
 export type PlanningPrompt = {
+  repositoryConsent?: {
+    previewId: string;
+    packageHash: string;
+    confirmed: true;
+  };
   mutationId: string;
   text: string;
   diagramId: string;
@@ -265,6 +274,25 @@ export type PlanningPrompt = {
   proposalDiagram?: Diagram;
   proposalBrief?: ProjectBrief;
   proposalBuildTasks?: BuildTask[];
+};
+export type SourceContextReceipt = {
+  schemaVersion: number;
+  requestId?: string;
+  previewId: string;
+  packageHash: string;
+  requestBytes: number;
+  provider: ProviderId;
+  model: string;
+  revision: string;
+  files: Array<{
+    path: string;
+    fileHash: string;
+    startLine: number;
+    endLine: number;
+    symbol: { name: string; scope: string } | null;
+    redactedLines: number[];
+    stale?: boolean;
+  }>;
 };
 export const reviewFieldLabel = (field: string) =>
   (

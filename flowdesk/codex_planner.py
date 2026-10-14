@@ -123,7 +123,7 @@ CONFIG_OVERRIDES = (
 )
 INSTRUCTION_VERSION = "planner-v5"
 PROTOCOL_VERSION = 4
-INSTRUCTION_PROTOCOLS = {"planner-v1": 1, "planner-v2": 2, "planner-v3": 2, "planner-v4": 3, "planner-v5": 4}
+INSTRUCTION_PROTOCOLS = {"planner-v1": 1, "planner-v2": 2, "planner-v3": 2, "planner-v4": 3, "planner-v5": 4, "planner-v6": 4}
 
 
 def instruction_resource(version=None):
@@ -406,9 +406,8 @@ class CodexPlanner:
         generation = validate_generation(context.get("generation"))
         try:
             # Only these explicit manual-context fields cross the provider boundary.
-            fields = ("content", "activeDiagramId", "nodeId", "messages", "comments",
-                      "omittedMessageCount", "omittedResolvedCommentCount", "questionSets", "reviewProposal")
-            payload = {key: context[key] for key in fields if key in context}
+            from .repository_context import planning_payload
+            payload = planning_payload(context)
             encoded = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
         except (TypeError, ValueError, RecursionError):
             raise CodexPlannerError("The planning context is not valid JSON.") from None

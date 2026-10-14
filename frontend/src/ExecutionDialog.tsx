@@ -13,6 +13,7 @@ import {
   type QuestionAnswer,
 } from "./planning";
 import ExecutionQuestions from "./ExecutionQuestions";
+import TracePanel, { verificationLabel } from "./TracePanel";
 import {
   executionActive,
   executionSelectionLabel,
@@ -97,6 +98,11 @@ export default function ExecutionDialog({
       if (
         pending.kind === "accept" &&
         next.acceptedDigest === pending.body.digest
+      )
+        setReceipt(null);
+      if (
+        pending.kind === "reject" &&
+        next.rejectedDigest === pending.body.digest
       )
         setReceipt(null);
       if (
@@ -326,7 +332,7 @@ export default function ExecutionDialog({
           : undefined;
       const original = retry ?? durableApply;
       const digest = original?.body.digest ?? run?.artifact?.digest;
-      if (["accept", "complete", "apply"].includes(action) && !digest)
+      if (["accept", "reject", "complete", "apply"].includes(action) && !digest)
         throw new Error("Refresh the run results before continuing.");
       if (
         !retry &&
@@ -343,7 +349,7 @@ export default function ExecutionDialog({
             runId: target,
             body: {
               mutationId: uid(),
-              ...(["accept", "complete", "apply"].includes(action)
+              ...(["accept", "reject", "complete", "apply"].includes(action)
                 ? { digest, confirmed: true as const }
                 : {}),
               ...(action === "complete" ? { baseRevision } : {}),
@@ -373,7 +379,7 @@ export default function ExecutionDialog({
         if (alive.current)
           setAnnouncement(
             action === "complete"
-              ? "Completion recorded. Approve the updated plan before another run."
+              ? "Task progress recorded. Apply and commit its accepted changes before running dependent work."
               : `${actionLabel(action)} finished.`,
           );
       } catch (reason) {
@@ -666,6 +672,12 @@ export default function ExecutionDialog({
           <>
             <section className="execution-run-heading">
               <h2>{run.taskTitle || "Untitled task"}</h2>
+              {run.workflow && (
+                <div className="task-workflow">
+                  <strong>{run.workflow.stage}</strong>
+                  <p>{run.workflow.nextAction}</p>
+                </div>
+              )}
               <span className={`execution-state ${run.state}`}>
                 {runStateLabel(run.state)}
               </span>
@@ -683,6 +695,47 @@ export default function ExecutionDialog({
                 </p>
               )}
               {run.error && <p className="execution-error">{run.error}</p>}
+              {run.budget && (
+                <details className="execution-section">
+                  <summary>Execution limits and cumulative usage</summary>
+                  {run.budget.available &&
+                  run.budget.used &&
+                  run.budget.limits &&
+                  run.budget.remaining ? (
+                    <dl>
+                      {(
+                        [
+                          ["turns", "Provider turns"],
+                          ["toolCalls", "Tool calls"],
+                          ["activeSeconds", "Active execution seconds"],
+                        ] as const
+                      ).map(([key, label]) => (
+                        <div key={key}>
+                          <dt>{label}</dt>
+                          <dd>
+                            {Math.round(run.budget!.used![key] * 10) / 10}{" "}
+                            consumed ·{" "}
+                            {Math.round(run.budget!.remaining![key] * 10) / 10}{" "}
+                            remaining · limit {run.budget!.limits![key]}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  ) : (
+                    <p>
+                      {run.budget.reason ||
+                        "Usage unavailable; missing measurements are not zero."}
+                    </p>
+                  )}
+                  <p className="muted">
+                    Persisted harness measurements, cumulative across answers
+                    and resumptions.{" "}
+                    {run.budget.timeIsLowerBound
+                      ? "Active time is a saved lower bound while this invocation is running."
+                      : "Waiting for your answer does not consume active time."}
+                  </p>
+                </details>
+              )}
               <div className="execution-actions">
                 {(active || !!run.question) && (
                   <button
@@ -711,7 +764,7 @@ export default function ExecutionDialog({
                       original answers and settings.
                     </p>
                     <button
-                      disabled={!!busy || !!receipt}
+                      disabled={!!busy || !!receipt || run.candidateStale}
                       onClick={() =>
                         answerRun(run.question!.answerRequest!.answers)
                       }
@@ -723,7 +776,7 @@ export default function ExecutionDialog({
                   <ExecutionQuestions
                     key={`${run.id}:${run.question.id}`}
                     run={run}
-                    busy={!!busy || !!receipt}
+                    busy={!!busy || !!receipt || !!run.candidateStale}
                     onSubmit={answerRun}
                   />
                 )}
@@ -808,7 +861,7 @@ export default function ExecutionDialog({
               className="execution-section"
               aria-label="Observed commands"
             >
-              <h3>Observed commands</h3>
+              <h3>Command evidence</h3>
               {run.commands.length ? (
                 run.commands.map((command) => (
                   <details className="execution-command" key={command.id}>
@@ -820,6 +873,46 @@ export default function ExecutionDialog({
                           : `Exit ${command.exitCode}`}
                       </span>
                     </summary>
+                    <p>
+                      {verificationLabel(
+                        command.verificationState ?? "external_result_reported",
+                      )}
+                    </p>
+                    <p className="muted">
+                      {command.evidence?.provenance === "host_observed"
+                        ? "Host-observed isolated command"
+                        : "Executor-reported command; checked candidate was not recorded"}
+                      . Process success alone does not establish test coverage.
+                    </p>
+                    {command.evidence && (
+                      <>
+                        <p>
+                          Checked candidate:{" "}
+                          <code>{command.evidence.candidateBefore}</code>
+                        </p>
+                        <p>
+                          Runtime: {command.evidence.runtime} · working
+                          directory: {command.evidence.workingDirectory}
+                        </p>
+                        <p>
+                          {command.evidence.startedAt} →{" "}
+                          {command.evidence.endedAt ?? "in progress"}
+                        </p>
+                        {command.evidence.testResult && (
+                          <p>
+                            Test artifact:{" "}
+                            {command.evidence.testResult.state.replaceAll(
+                              "_",
+                              " ",
+                            )}{" "}
+                            {command.evidence.testResult.counts &&
+                              JSON.stringify(
+                                command.evidence.testResult.counts,
+                              )}
+                          </p>
+                        )}
+                      </>
+                    )}
                     <pre>{command.output || "No output recorded."}</pre>
                   </details>
                 ))
@@ -827,6 +920,7 @@ export default function ExecutionDialog({
                 <p className="muted">No command results recorded.</p>
               )}
             </section>
+            <TracePanel taskId={run.taskId} runId={run.id} />
             <section className="execution-section" aria-label="Changed files">
               <div className="execution-section-heading">
                 <h3>Changed files</h3>
@@ -890,8 +984,18 @@ export default function ExecutionDialog({
                 </p>
               )}
             </section>
-            {(run.planStale || run.sourceStale || run.applyPlanStale) && (
+            {(run.planStale ||
+              run.sourceStale ||
+              run.applyPlanStale ||
+              run.candidateStale) && (
               <div className="execution-notice">
+                {run.candidateStale && (
+                  <p>
+                    The candidate source changed or has not been captured.
+                    Refresh results and review the current candidate before
+                    accepting, completing, or applying it.
+                  </p>
+                )}
                 {run.sourceStale && (
                   <p>
                     The repository baseline changed. These results cannot be
@@ -900,9 +1004,8 @@ export default function ExecutionDialog({
                 )}
                 {run.planStale && (
                   <p>
-                    {run.completedCursor
-                      ? "Completion changed the plan. Approve the updated plan before another run."
-                      : "The approved plan changed. Review and approve it before accepting or completing this run."}
+                    The task intent or selected plan changed. Review its scope
+                    and approval before accepting or completing this run.
                   </p>
                 )}
                 {run.applyPlanStale && (
@@ -933,6 +1036,29 @@ export default function ExecutionDialog({
                     !!busy ||
                     !!receipt ||
                     !run.artifact ||
+                    run.candidateStale ||
+                    run.applied ||
+                    !!run.completedCursor ||
+                    run.rejectedDigest === run.artifact?.digest
+                  }
+                  onClick={() => mutateRun("reject")}
+                >
+                  {run.rejectedDigest &&
+                  run.rejectedDigest === run.artifact?.digest
+                    ? "Result rejected"
+                    : "Reject result"}
+                </button>
+                <p>Retain the diff without accepting or applying it.</p>
+              </div>
+              <div>
+                <button
+                  disabled={
+                    active ||
+                    !!run.question ||
+                    !!busy ||
+                    !!receipt ||
+                    !run.artifact ||
+                    run.candidateStale ||
                     run.planStale ||
                     run.sourceStale ||
                     accepted
@@ -951,6 +1077,7 @@ export default function ExecutionDialog({
                     !!busy ||
                     !!receipt ||
                     !accepted ||
+                    run.candidateStale ||
                     !!run.completedCursor ||
                     run.planStale ||
                     run.sourceStale
@@ -971,6 +1098,7 @@ export default function ExecutionDialog({
                     !!busy ||
                     !!receipt ||
                     !accepted ||
+                    run.candidateStale ||
                     run.applied ||
                     run.sourceStale ||
                     run.applyPlanStale
@@ -1070,6 +1198,7 @@ function actionLabel(action: ExecutionAction | "answer") {
     cancel: "Cancel run",
     refresh: "Refresh results",
     accept: "Accept changes",
+    reject: "Reject result",
     complete: "Complete task",
     apply: "Apply to checkout",
   }[action];

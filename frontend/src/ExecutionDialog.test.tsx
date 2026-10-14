@@ -541,7 +541,7 @@ describe("execution review and explicit actions", () => {
       acceptedDigest: "result-digest",
     };
     fireEvent.click(screen.getByRole("button", { name: "Check run status" }));
-    await screen.findByText(/approved plan changed/);
+    await screen.findByText(/task intent or selected plan changed/);
     expect(
       (
         screen.getByRole("button", {
@@ -556,6 +556,39 @@ describe("execution review and explicit actions", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
+  });
+  it("blocks candidate review actions when ignored source drift leaves the diff unchanged", async () => {
+    run.candidateStale = true;
+    state.runs = [run];
+    await open(true);
+    await screen.findByText(
+      /candidate source changed or has not been captured/,
+    );
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Accept changes",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    run.acceptedDigest = "result-digest";
+    fireEvent.click(screen.getByRole("button", { name: "Check run status" }));
+    await screen.findByRole("button", { name: "Changes accepted" });
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Complete task",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Apply to checkout",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(post).not.toHaveBeenCalled();
   });
 });
 

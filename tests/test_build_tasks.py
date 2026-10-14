@@ -251,6 +251,9 @@ def test_build_only_approval_and_independent_task_edit_freshness(workspace):
     approval = service.approve(project["id"], {"mutationId": str(uuid4()), "baseRevision": project["revision"]})["approval"]
     assert approval["current"]
     content = deepcopy(project["content"]); content["buildTasks"][0]["status"] = "done"
+    project = save(store, project, content)
+    assert service.state(project["id"])["approval"]["current"]
+    content = deepcopy(project["content"]); content["buildTasks"][0]["deliverable"] = "A changed implementation scope"
     save(store, project, content)
     assert not service.state(project["id"])["approval"]["current"]
 

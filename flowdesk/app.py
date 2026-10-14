@@ -36,6 +36,8 @@ def create_app(data_dir=None, *, testing=False, planner=None, executor=None, exe
     execution = ExecutionService(store, planning, executor, execution_git, registry=registry)
     writing = WritingDrafts(store)
     app.extensions.update(flowdesk_store=store, flowdesk_scans=scans, flowdesk_planning=planning, flowdesk_execution=execution)
+    from .onboarding import register_onboarding
+    register_onboarding(app, store, registry)
 
     @app.before_request
     def protect_local_api():
@@ -139,7 +141,7 @@ def create_app(data_dir=None, *, testing=False, planner=None, executor=None, exe
         data = body()
         if data.get("sample") is True:
             from .sample import sample_content
-            return jsonify(store.create_project(content=sample_content())), 201
+            return jsonify(store.create_project(content=sample_content(guided=data.get("guided") is True))), 201
         if "content" in data:
             # Copies carry evidence only as historical facts, never source permission.
             from .exports import remap_project, portable_symbols
@@ -188,6 +190,18 @@ def create_app(data_dir=None, *, testing=False, planner=None, executor=None, exe
         if fields is not None and not any(field in data for field in fields) and len(raw) > 65536:
             raise ValidationError("Planning requests must be smaller than 64 KB.")
         return data
+
+    from .repository_context_routes import register_repository_context
+    register_repository_context(app, planning, planning_body)
+    from .plan_branches import PlanBranches, register_plan_routes
+    from .task_handoff import TaskHandoffs, register_handoff_routes
+    plans = PlanBranches(store, planning)
+    handoffs = TaskHandoffs(store, planning, execution)
+    register_plan_routes(app, plans)
+    register_handoff_routes(app, handoffs)
+    app.extensions.update(flowdesk_plans=plans, flowdesk_handoffs=handoffs)
+    from .traceability import register_traceability
+    register_traceability(app, store, planning, execution)
 
     @app.get("/api/planning/capabilities")
     def planning_capabilities():
@@ -333,7 +347,7 @@ def create_app(data_dir=None, *, testing=False, planner=None, executor=None, exe
 
     @app.post("/api/projects/<project_id>/execution/runs/<run_id>/<action>")
     def execution_action(project_id, run_id, action):
-        actions = {"cancel": execution.cancel, "refresh": execution.refresh, "accept": execution.accept,
+        actions = {"cancel": execution.cancel, "refresh": execution.refresh, "accept": execution.accept, "reject": execution.reject,
                    "complete": execution.complete, "apply": execution.apply, "answer": execution.answer}
         if action not in actions:
             raise NotFoundError("Unknown execution action.")

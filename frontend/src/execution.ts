@@ -38,6 +38,7 @@ export type ExecutionRunSummary = {
   acceptedDigest: string | null;
   completedCursor: string | null;
   applied: boolean;
+  rejectedDigest?: string | null;
 };
 export type ExecutionArtifact = {
   digest: string;
@@ -61,6 +62,24 @@ export type ExecutionContext = {
   generation: GenerationDetails | null;
 };
 export type ExecutionRun = ExecutionRunSummary & {
+  workflow?: { stage: string; nextAction: string };
+  candidate?: {
+    sha256: string;
+    fileCount: number;
+    files: { path: string; sha256: string; bytes: number }[];
+    exclusions: string[];
+  } | null;
+  candidateError?: string;
+  candidateStale?: boolean;
+  capturedCandidate?: { sha256: string } | null;
+  budget?: {
+    available: boolean;
+    reason?: string;
+    timeIsLowerBound?: boolean;
+    used?: Record<string, number>;
+    limits?: Record<string, number>;
+    remaining?: Record<string, number>;
+  };
   question?: {
     id: string;
     questions: PlanningQuestion[];
@@ -76,6 +95,24 @@ export type ExecutionRun = ExecutionRunSummary & {
     status: string;
     exitCode: number | null;
     output: string;
+    verificationState?: string;
+    evidence?: {
+      schemaVersion: number;
+      provenance: string;
+      workingDirectory: string;
+      runtime: string;
+      imageId?: string;
+      startedAt: string;
+      endedAt: string | null;
+      candidateBefore: string;
+      candidateAfter: string | null;
+      sourceChanged: boolean | null;
+      testResult?: {
+        state: string;
+        counts?: Record<string, number>;
+        artifact: { path: string; sha256: string };
+      } | null;
+    };
   }[];
   events: {
     type: string;
@@ -126,7 +163,7 @@ export type ExecutionAnswerBody = {
   confirmed: true;
 };
 export type ExecutionAction =
-  "cancel" | "refresh" | "accept" | "complete" | "apply";
+  "cancel" | "refresh" | "accept" | "reject" | "complete" | "apply";
 export type ExecutionActionBody = {
   mutationId: string;
   digest?: string;
@@ -214,14 +251,14 @@ export function readExecutionReceipt(
       };
     }
     if (
-      !["cancel", "refresh", "accept", "complete", "apply"].includes(
+      !["cancel", "refresh", "accept", "reject", "complete", "apply"].includes(
         item.kind,
       ) ||
       typeof item.runId !== "string"
     )
       return null;
     if (
-      ["accept", "complete", "apply"].includes(item.kind) &&
+      ["accept", "reject", "complete", "apply"].includes(item.kind) &&
       (typeof item.body.digest !== "string" || item.body.confirmed !== true)
     )
       return null;

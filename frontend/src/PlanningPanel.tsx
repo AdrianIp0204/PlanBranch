@@ -13,6 +13,9 @@ import ModelControls, {
   useModelSelection,
 } from "./ModelControls";
 import QuestionCard from "./QuestionCard";
+import RepositoryContextDialog, {
+  RepositoryReferences,
+} from "./RepositoryContextDialog";
 import { api } from "./api";
 import { useProject } from "./store";
 import { uid } from "./types";
@@ -139,6 +142,9 @@ export default function PlanningPanel({
   const modelSettings = useModelSelection(active);
   const writing = useWritingDrafts(session.id, onDraftGuard);
   const [state, setState] = useState<PlanningState | null>(null);
+  const [includeRepository, setIncludeRepository] = useState(false);
+  const [repositoryPrompt, setRepositoryPrompt] =
+    useState<PlanningPrompt | null>(null);
   const selectedAgent =
     modelSettings.provider === "codex" ? state?.agent : modelSettings.agent;
   const agentAvailable = !!selectedAgent?.available;
@@ -521,7 +527,11 @@ export default function PlanningPanel({
       setLoadingError("");
     }
   }
-  async function send(prompt?: PlanningPrompt, forceNew = false) {
+  async function send(
+    prompt?: PlanningPrompt,
+    forceNew = false,
+    sourceConfirmed = false,
+  ) {
     if (!writing.ready) return;
     const captured: PlanningPrompt = prompt ?? {
       mutationId: uid(),
@@ -556,7 +566,7 @@ export default function PlanningPanel({
     };
     if (!captured.text) return;
     // An uncertain delivery is retried with its original identifier and payload.
-    const body =
+    let body =
       !prompt &&
       !forceNew &&
       failedPrompt &&
@@ -579,6 +589,20 @@ export default function PlanningPanel({
         ? failedPrompt
         : captured;
     if (
+      body.repositoryConsent &&
+      !sourceConfirmed &&
+      state?.request?.status === "failed"
+    ) {
+      const { repositoryConsent: _oldConsent, ...fresh } = body;
+      body = { ...fresh, mutationId: uid() };
+      setIncludeRepository(true);
+      await work("Preparing context", async () => {
+        await saved();
+        setRepositoryPrompt(body);
+      });
+      return;
+    }
+    if (
       selectionProvider(body.selection) === "codex" &&
       modelSettings.serverIncompatible
     ) {
@@ -597,17 +621,31 @@ export default function PlanningPanel({
       );
       return;
     }
+    if (
+      (includeRepository || (body.proposalId && state?.sourceHistory)) &&
+      !body.repositoryConsent
+    ) {
+      body = { ...body, mutationId: uid() };
+      await work("Preparing context", async () => {
+        await saved();
+        setRepositoryPrompt(body);
+      });
+      return;
+    }
     const interaction = focusInteraction.current;
-    const submittedVersion = prompt
+    const clearMessage =
+      !prompt || (sourceConfirmed && body.text === draft.trim());
+    const submittedVersion = !clearMessage
       ? undefined
       : writing.captureVersion("message");
     await work("Sending", async () => {
       // Capture send intent now; scrolling while durable writes await must win.
       followConversation.current = true;
       await saved();
-      await writing.stage("message", body, !prompt, submittedVersion);
+      await writing.stage("message", body, clearMessage, submittedVersion);
       await mutate("/messages", body);
       writing.retire("message", body.mutationId);
+      if (sourceConfirmed) setIncludeRepository(false);
       setFailedAnswer(null);
       setAnnouncement("Message sent. The agent is preparing a reply.");
       restoreComposerFocus(interaction);
@@ -727,6 +765,32 @@ export default function PlanningPanel({
           ? "The plan changed. Ask again using this plan."
           : modelSettings.problem,
       );
+      return;
+    }
+    if (set.requiresSourcePreview && !replay) {
+      await work("Preparing context", async () => {
+        await saved();
+        const text =
+          "Follow-up answers to selected-source planning questions:\n" +
+          answers
+            .map((answer) => {
+              const question = set.questions.find(
+                (item) => item.id === answer.questionId,
+              );
+              const option = question?.options.find(
+                (item) => item.id === answer.optionId,
+              );
+              return `${question?.prompt ?? answer.questionId}\n${answer.text ?? option?.label ?? ""}`;
+            })
+            .join("\n\n");
+        setRepositoryPrompt({
+          mutationId: uid(),
+          text,
+          diagramId: set.diagramId,
+          nodeId: set.nodeId,
+          selection: modelSettings.selection,
+        });
+      });
       return;
     }
     const interaction = focusInteraction.current;
@@ -857,6 +921,14 @@ export default function PlanningPanel({
 
   return (
     <aside className="planning-panel" aria-label="Planning conversation">
+      {repositoryPrompt && (
+        <RepositoryContextDialog
+          projectId={session.id}
+          prompt={repositoryPrompt}
+          onSend={(prompt) => send(prompt, false, true)}
+          onClose={() => setRepositoryPrompt(null)}
+        />
+      )}
       <header className="planning-heading">
         <h2>Planning chat</h2>
         <button
@@ -1422,9 +1494,25 @@ export default function PlanningPanel({
           )}
           <span id="planning-sharing-summary" className="sr-only">
             Shares the manual plan and discussion with the selected provider.
-            Attached source files are excluded. Control or Command plus Enter
-            sends.
+            Source files are excluded unless you select and confirm a repository
+            context preview. Control or Command plus Enter sends.
           </span>
+          <label className="planning-source-choice">
+            <input
+              type="checkbox"
+              checked={includeRepository}
+              disabled={Boolean(busy || running)}
+              onChange={(event) => setIncludeRepository(event.target.checked)}
+            />
+            Include selected repository context in this request
+          </label>
+          {state?.sourceHistory && (
+            <small>
+              Earlier conversation and generated questions are omitted from
+              later requests after source sharing. Add relevant decisions to the
+              brief.
+            </small>
+          )}
           <div className="planning-compose-actions message-actions">
             <ModelControls
               selection={modelSettings.selection}
@@ -1687,6 +1775,12 @@ export default function PlanningPanel({
                 </div>
                 <h3>{proposal.title}</h3>
                 <p className="planning-prose">{proposal.summary}</p>
+                {proposal.sourceContext && (
+                  <RepositoryReferences
+                    projectId={session.id}
+                    source={proposal.sourceContext}
+                  />
+                )}
                 <p className="planning-proposal-context">
                   {session.content.diagrams.find(
                     (item) => item.id === proposal.diagramId,
@@ -1928,7 +2022,8 @@ export default function PlanningPanel({
               <h3>Sharing and shortcuts</h3>
               <p>
                 Send shares the manual plan, conversation, and node comments
-                with the selected provider. Attached source files, detected
+                with the selected provider. Selected source requires a fresh
+                preview and confirmation. Other attached source files, detected
                 evidence, and source permissions stay local.
               </p>
               <p>
@@ -1953,7 +2048,8 @@ export default function PlanningPanel({
             <>
               <p>
                 Send shares the manual plan, conversation, and node comments
-                with the selected provider. Attached source files, detected
+                with the selected provider. Selected source requires a fresh
+                preview and confirmation. Other attached source files, detected
                 evidence, and source permissions are not included.
               </p>
               <p>

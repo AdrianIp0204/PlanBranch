@@ -27,8 +27,8 @@ async function keyboardProjectMenu(p) {
   await trigger.press("Enter");
   assert.equal(await projectMenu(p).evaluate(el => el.open), true);
   const actions = projectMenu(p).getByRole("button");
-  assert.equal(await actions.count(), 9, "All existing project actions remain available");
-  for (const name of ["Project brief", "Save", "Scan Python", "Project JSON", "Full diagram PNG", "Implementation brief", /Import JSON$/, /Load example$/, "Back up database"])
+  assert.equal(await actions.count(), 12, "All project actions remain available");
+  for (const name of ["Project brief", "Checkpoints and alternatives", "Save", "Scan Python", "Project JSON", "Full diagram PNG", "Implementation brief", "Setup capabilities", "Guided offline example", /Import JSON$/, /Load example$/, "Back up database"])
     assert.equal(await projectMenu(p).getByRole("button", { name, exact: true }).count(), 1);
   for (let index = 0; index < await actions.count(); index++) {
     await p.keyboard.press("Tab");
@@ -96,6 +96,8 @@ test("grouped project and node actions stay readable, keyboard reachable, and pr
   // A dialog opened from a closed-on-activation menu returns to its visible trigger.
   await projectTrigger(p).focus();
   await p.keyboard.press("Enter");
+  await p.keyboard.press("Tab");
+  await focused(projectMenu(p).getByRole("button", { name: "Checkpoints and alternatives", exact: true }));
   await p.keyboard.press("Tab");
   await focused(projectMenu(p).getByRole("button", { name: "Project brief", exact: true }));
   await p.keyboard.press("Enter");

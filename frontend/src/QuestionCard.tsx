@@ -268,7 +268,11 @@ export default function QuestionCard({
             }
             onClick={continueAnswer}
           >
-            {page === set.questions.length - 1 ? "Continue" : "Next"}
+            {page === set.questions.length - 1
+              ? set.requiresSourcePreview
+                ? "Preview source and answers"
+                : "Continue"
+              : "Next"}
           </button>
         </div>
       )}

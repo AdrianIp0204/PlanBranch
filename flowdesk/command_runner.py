@@ -15,6 +15,8 @@ from uuid import uuid4
 from .execution_git import WorkspaceError, _atomic_json, _checked, _relative, MAX_FILES, MAX_FILE_BYTES, MAX_TREE_BYTES
 from .executor_process import run_supervised
 from .workspace_tools import snapshot, atomic_write, digest
+from .check_evidence import source_identity, junit_observation
+from .storage import now
 
 POLICY_VERSION = "docker-tmpfs-v1"
 ARCHIVE_LIMIT = MAX_TREE_BYTES + 12_000_000
@@ -163,7 +165,11 @@ class DockerCommandRunner:
         if not re.fullmatch(r"[0-9a-f]{64}", container): raise WorkspaceError("Docker returned an invalid container identity.")
         _atomic_json(directory / "container.json", {"container": container, "token": token, "endpoint": endpoint})
         watchdog, after = None, None
-        record = {"id": call_id, "command": command, "status": "in_progress", "exitCode": None, "output": ""}
+        record = {"id": call_id, "command": command, "status": "in_progress", "exitCode": None, "output": "",
+                  "evidence": {"schemaVersion": 1, "provenance": "host_observed", "workingDirectory": ".",
+                    "runtime": POLICY_VERSION, "imageId": policy["imageId"], "startedAt": now(), "endedAt": None,
+                    "candidateBefore": source_identity(before, before_modes)["sha256"], "candidateAfter": None,
+                    "sourceChanged": None, "testResult": None}}
         try:
             watchdog = subprocess.Popen([sys.executable, "-I", str(Path(__file__).with_name("command_watchdog.py"))], stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=environment(), creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, start_new_session=os.name != "nt")
@@ -183,7 +189,14 @@ class DockerCommandRunner:
             if outcome["reason"] == "exited": record.update(exitCode=outcome["returncode"], status="completed" if outcome["returncode"] == 0 else "failed")
             else: record["status"] = "cancelled" if cancel.is_set() else "interrupted"
             after, modes = self._archive(executable, endpoint, container)
+            record["evidence"].update(candidateAfter=source_identity(after, modes)["sha256"],
+                sourceChanged=source_identity(before, before_modes)["sha256"] != source_identity(after, modes)["sha256"],
+                testResult=junit_observation(after))
+            if (record["evidence"]["testResult"] and
+                    before.get(".planbranch-results/junit.xml") == after.get(".planbranch-results/junit.xml")):
+                record["evidence"]["testResult"]["state"] = "unchanged_report"
         finally:
+            record["evidence"]["endedAt"] = now()
             if watchdog:
                 try: watchdog.stdin.close()
                 except BrokenPipeError: pass
@@ -192,6 +205,8 @@ class DockerCommandRunner:
             else: self._call(executable, endpoint, ["rm", "--force", container])
             on_event({"type": "command", "command": dict(record)})
         if snapshot(root) != before or any((Path(root) / name).stat().st_mode & 0o777 != mode for name, mode in before_modes.items()):
+            record["evidence"]["sourceChanged"] = True
+            on_event({"type": "command", "command": dict(record)})
             raise WorkspaceError("The worktree changed during the command; sandbox changes were not copied back.")
         for name in set(before) | set(after): _checked(Path(root), name)
         for name in sorted(set(before) | set(after)):

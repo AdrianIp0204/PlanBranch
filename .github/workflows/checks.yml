@@ -26,7 +26,7 @@ jobs:
       - run: npm run build
         working-directory: frontend
       - run: python scripts/build_release.py
-      - run: python -m pip install --no-deps --no-index --target output/wheel-ci dist/flowdesk-0.2.0-py3-none-any.whl
+      - run: python -m pip install --no-deps --no-index --target output/wheel-ci dist/flowdesk-0.3.0-py3-none-any.whl
       - run: npx playwright install --with-deps chromium
         working-directory: frontend
       - run: npm run test:e2e
@@ -39,7 +39,7 @@ jobs:
         run: python scripts/build_windows_portable.py
       - name: Verify standalone Windows portable package
         if: runner.os == 'Windows'
-        run: python scripts/smoke_windows_portable.py dist/PlanBranch-0.2.0-windows-x64.zip --output-dir output/portable-smoke
+        run: python scripts/smoke_windows_portable.py dist/PlanBranch-0.3.0-windows-x64.zip --output-dir output/portable-smoke
       - uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.os }}
