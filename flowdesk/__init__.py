@@ -1,6 +1,6 @@
 """PlanBranch: local planning, with scanner evidence kept separate from intent."""
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 
 def create_app(*args, **kwargs):

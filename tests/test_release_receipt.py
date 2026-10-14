@@ -6,7 +6,7 @@ import zipfile
 
 import pytest
 
-from scripts.release_receipt import receipt
+from scripts.release_receipt import receipt, release_metadata, seal_bundle, verify_bundle
 
 
 def write_zip(path, files):
@@ -28,6 +28,7 @@ def release(tmp_path):
                "flowdesk/migrations/011_workflow_evidence.sql": "SELECT 1;\n",
                "flowdesk/prompts/planner-v6.md": "Planning policy.\n"}
     for name, data in {**sources, "pyproject.toml": '[project]\nversion = "0.3.0"\n',
+                       "docs/Release_0.3.0.md": "# PlanBranch 0.3.0 — fixture\n\nTest notes.\n",
                        ".gitignore": "dist/\nfrontend/dist/\n"}.items():
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -65,7 +66,7 @@ def test_release_receipt_audits_commit_frontend_and_portable_bytes(release):
         assert item["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-@pytest.mark.parametrize("change", ["stale_source", "missing_resource", "extra_source", "stale_frontend"])
+@pytest.mark.parametrize("change", ["stale_source", "missing_resource", "extra_source", "stale_frontend", "mixed_metadata"])
 def test_stale_or_incomplete_wheel_cannot_receive_current_commit_receipt(release, change):
     root, wheel, _, _ = release
     files = read_zip(wheel)
@@ -75,8 +76,10 @@ def test_stale_or_incomplete_wheel_cannot_receive_current_commit_receipt(release
         del files["flowdesk/migrations/011_workflow_evidence.sql"]
     elif change == "extra_source":
         files["flowdesk/unexpected.py"] = b"uncommitted source"
-    else:
+    elif change == "stale_frontend":
         files["flowdesk/static/index.html"] = b"old build"
+    else:
+        files["flowdesk-0.3.0.dist-info/METADATA"] = b"Name: flowdesk\nVersion: 0.3.1\n"
     write_zip(wheel, files)
     with pytest.raises(ValueError, match="Wheel"):
         receipt(root)
@@ -111,3 +114,40 @@ def test_dirty_release_source_cannot_be_certified(release):
     with pytest.raises(ValueError, match="Commit the release source"):
         receipt(root)
     assert not (root / "dist/SHA256SUMS.txt").exists()
+
+
+def test_seal_requires_exact_unchanged_candidate_and_records_required_gates(release):
+    root, wheel, _, _ = release
+    manifest = receipt(root, "123", attempt="2", repository="owner/repo")
+    args = dict(commit=manifest["commit"], checks_run="123", attempt="2", repository="owner/repo")
+    with pytest.raises(ValueError, match="fully tested"):
+        verify_bundle(root / "dist", **args, tested=True)
+    sealed = seal_bundle(root / "dist", **args, candidate_artifact_id="987")
+    assert sealed["candidateArtifactId"] == "987" and len(sealed["gates"]) == 4
+    assert verify_bundle(root / "dist", **args, tested=True) == sealed
+    wheel.write_bytes(wheel.read_bytes() + b"rebuilt after tests")
+    with pytest.raises(ValueError, match="bytes changed"):
+        verify_bundle(root / "dist", **args, tested=True)
+
+
+@pytest.mark.parametrize("field,value", [("commit", "f" * 40), ("checks_run", "124"), ("attempt", "1"), ("repository", "other/repo")])
+def test_seal_refuses_another_commit_run_attempt_or_repository(release, field, value):
+    root, *_ = release
+    manifest = receipt(root, "123", attempt="2", repository="owner/repo")
+    args = dict(commit=manifest["commit"], checks_run="123", attempt="2", repository="owner/repo")
+    args[field] = value
+    with pytest.raises(ValueError, match="does not match"):
+        seal_bundle(root / "dist", **args, candidate_artifact_id="987")
+
+
+@pytest.mark.parametrize("change", ["module", "missing_notes", "notes_heading", "empty_notes"])
+def test_release_metadata_rejects_mixed_versions(release, change):
+    root, *_ = release
+    if change == "module":
+        (root / "flowdesk/__init__.py").write_text('__version__ = "0.3.1"\n')
+    elif change == "missing_notes":
+        (root / "docs/Release_0.3.0.md").unlink()
+    else:
+        (root / "docs/Release_0.3.0.md").write_text("" if change == "empty_notes" else "# PlanBranch 0.3.1 — wrong\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="version|heading"):
+        release_metadata(root)

@@ -1,22 +1,85 @@
 name: PlanBranch checks
 on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
 jobs:
+  build:
+    runs-on: windows-latest
+    outputs:
+      candidate: ${{ steps.candidate.outputs.artifact-id }}
+      wheel: ${{ steps.version.outputs.wheel }}
+      portable: ${{ steps.version.outputs.portable }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: python -m pip install -r requirements.lock
+      - run: npm ci --prefix frontend
+      - run: npm run build --prefix frontend
+      - run: python scripts/build_release.py
+      - run: python scripts/build_windows_portable.py
+      - id: version
+        run: python scripts/release_receipt.py metadata --github-output $env:GITHUB_OUTPUT
+      - name: Freeze the only release candidate
+        env:
+          CHECKS_RUN: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          REPOSITORY: ${{ github.repository }}
+          WHEEL: ${{ steps.version.outputs.wheel }}
+          PORTABLE: ${{ steps.version.outputs.portable }}
+        run: |
+          python scripts/release_receipt.py build --checks-run $env:CHECKS_RUN --attempt $env:RUN_ATTEMPT --repository $env:REPOSITORY
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Path output/release-candidate | Out-Null
+          Copy-Item -LiteralPath "dist/$env:WHEEL", "dist/$env:PORTABLE", dist/SHA256SUMS.txt, dist/release-manifest.json -Destination output/release-candidate
+      - uses: actions/upload-artifact@v4
+        id: candidate
+        with:
+          name: PlanBranch-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: output/release-candidate/*
+          if-no-files-found: error
+          compression-level: 0
+
   test:
+    needs: build
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CHECKS_RUN: ${{ github.run_id }}
+      RUN_ATTEMPT: ${{ github.run_attempt }}
+      REPOSITORY: ${{ github.repository }}
+      SOURCE_COMMIT: ${{ github.sha }}
+      WHEEL: ${{ needs.build.outputs.wheel }}
+      PORTABLE: ${{ needs.build.outputs.portable }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.14'
+          python-version: "3.14"
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.build.outputs.candidate }}
+          path: output/release-candidate
+          merge-multiple: true
+      - name: Verify immutable candidate before testing
+        run: python scripts/release_receipt.py verify --directory output/release-candidate --commit "$SOURCE_COMMIT" --checks-run "$CHECKS_RUN" --attempt "$RUN_ATTEMPT" --repository "$REPOSITORY"
       - run: python -m pip install -r requirements.lock
       - run: python -m pytest -q
       - run: npm ci
@@ -25,8 +88,7 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
-      - run: python scripts/build_release.py
-      - run: python -m pip install --no-deps --no-index --target output/wheel-ci dist/flowdesk-0.3.0-py3-none-any.whl
+      - run: python -m pip install --no-deps --no-index --target output/wheel-ci "output/release-candidate/$WHEEL"
       - run: npx playwright install --with-deps chromium
         working-directory: frontend
       - run: npm run test:e2e
@@ -34,28 +96,76 @@ jobs:
         env:
           FLOWDESK_PYTHON: python
           FLOWDESK_APP_ROOT: ${{ github.workspace }}/output/wheel-ci
-      - name: Build Windows portable package
+      - name: Verify standalone Windows portable candidate
         if: runner.os == 'Windows'
-        run: python scripts/build_windows_portable.py
-      - name: Verify standalone Windows portable package
-        if: runner.os == 'Windows'
-        run: python scripts/smoke_windows_portable.py dist/PlanBranch-0.3.0-windows-x64.zip --output-dir output/portable-smoke
-      - uses: actions/upload-artifact@v4
-        with:
-          name: wheel-${{ matrix.os }}
-          path: dist/*.whl
-      - uses: actions/upload-artifact@v4
-        if: runner.os == 'Windows'
-        with:
-          name: PlanBranch-windows-x64
-          path: |
-            dist/PlanBranch-*-windows-x64.zip
-            dist/PlanBranch-*-windows-x64.zip.json
-            output/portable-smoke/
+        run: python scripts/smoke_windows_portable.py "output/release-candidate/$PORTABLE" --output-dir output/portable-smoke
+      - name: Verify the tested bytes have not changed
+        run: python scripts/release_receipt.py verify --directory output/release-candidate --commit "$SOURCE_COMMIT" --checks-run "$CHECKS_RUN" --attempt "$RUN_ATTEMPT" --repository "$REPOSITORY"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: browser-failure-${{ matrix.os }}
+          name: failure-evidence-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             output/playwright/
             output/portable-smoke/
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: python -m pip install -r requirements.lock
+      - name: Explicitly provision the CI-only local test image
+        run: |
+          docker build --tag planbranch-ci-execution:local - <<'DOCKERFILE'
+          FROM python:3.14-slim
+          RUN apt-get update && apt-get install -y --no-install-recommends nodejs && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+      - name: Require real Docker isolation and immutable verification
+        env:
+          PLANBRANCH_TEST_DOCKER: "1"
+          PLANBRANCH_EXECUTION_IMAGE: planbranch-ci-execution:local
+        run: |
+          python -m pytest -q tests/test_command_runner_live.py tests/test_immutable_verification_live.py --junitxml=output/docker-gate.xml
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          suites = list(ET.parse('output/docker-gate.xml').getroot().iter('testsuite'))
+          assert suites and sum(int(s.get('tests', '0')) for s in suites) > 0, 'Docker gate collected no tests'
+          assert all(int(s.get(k, '0')) == 0 for s in suites for k in ('skipped', 'failures', 'errors')), 'Docker gate must run without skips'
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: docker-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: output/docker-gate.xml
+          if-no-files-found: error
+
+  seal:
+    needs: [build, test, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.build.outputs.candidate }}
+          path: output/release-candidate
+          merge-multiple: true
+      - name: Seal the same candidate after all required gates
+        env:
+          CHECKS_RUN: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          CANDIDATE: ${{ needs.build.outputs.candidate }}
+        run: python scripts/release_receipt.py seal --directory output/release-candidate --commit "$SOURCE_COMMIT" --checks-run "$CHECKS_RUN" --attempt "$RUN_ATTEMPT" --repository "$REPOSITORY" --candidate-artifact-id "$CANDIDATE"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PlanBranch-tested-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: output/release-candidate/*
+          if-no-files-found: error
+          compression-level: 0

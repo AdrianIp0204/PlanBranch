@@ -6,86 +6,48 @@ on:
         description: Full commit SHA tested by PlanBranch checks
         required: true
       checks_run:
-        description: Successful PlanBranch checks workflow run ID for exactly that commit
+        description: Successful push/dispatch checks run for that exact commit
         required: true
       publish:
-        description: Publish after verifying checks and standalone Windows smoke (otherwise draft)
+        description: Explicitly promote the matching complete draft after validation
         type: boolean
         default: false
 permissions:
   contents: read
   actions: read
+# Serialize preparation and promotion. API conflicts are also reconciled by the
+# publisher, including retries after a lost acknowledgement or partial upload.
+concurrency:
+  group: planbranch-release-${{ github.repository }}
+  cancel-in-progress: false
 jobs:
   release:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     permissions:
       contents: write
       actions: read
     steps:
-      - name: Validate exact-commit check receipt
-        shell: pwsh
+      - name: Validate dispatch input syntax
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_COMMIT: ${{ inputs.commit }}
+          SOURCE_COMMIT: ${{ inputs.commit }}
           CHECKS_RUN: ${{ inputs.checks_run }}
         run: |
-          if ($env:RELEASE_COMMIT -notmatch '^[a-f0-9]{40}$' -or $env:CHECKS_RUN -notmatch '^\d+$') { throw 'Invalid commit or checks run ID' }
-          $receipt = gh api "repos/$env:GH_REPO/actions/runs/$env:CHECKS_RUN" | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0 -or $receipt.head_sha -ne $env:RELEASE_COMMIT -or $receipt.conclusion -ne 'success' -or $receipt.status -ne 'completed' -or $receipt.path -ne '.github/workflows/checks.yml' -or $receipt.head_repository.full_name -ne $env:GH_REPO) { throw 'Both-platform checks must pass on the exact repository commit' }
-          if ($receipt.event -notin @('push','workflow_dispatch')) { throw 'PR merge-ref checks cannot certify the exact release commit; use a push or dispatch check run' }
+          [[ "$SOURCE_COMMIT" =~ ^[a-f0-9]{40}$ && "$CHECKS_RUN" =~ ^[1-9][0-9]*$ ]] || exit 1
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.commit }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.14'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - run: python -m pip install -r requirements.lock
-      - run: npm ci --prefix frontend
-      - run: npm run build --prefix frontend
-      - run: python scripts/build_release.py
-      - run: python scripts/build_windows_portable.py
-      - run: python scripts/smoke_windows_portable.py dist/PlanBranch-0.3.0-windows-x64.zip --output-dir output/release-smoke
-      - name: Record artifact identities
-        shell: pwsh
-        env:
-          CHECKS_RUN: ${{ inputs.checks_run }}
-        run: python scripts/release_receipt.py --checks-run $env:CHECKS_RUN
-      - uses: actions/upload-artifact@v4
-        with:
-          name: PlanBranch-tested-release
-          path: |
-            dist/*.whl
-            dist/PlanBranch-*-windows-x64.zip
-            dist/SHA256SUMS.txt
-            dist/release-manifest.json
-            output/release-smoke/
-      - name: Create release without replacing existing tags or assets
-        shell: pwsh
+          python-version: "3.14"
+      - name: Reconcile the owned draft using exact CI-tested assets
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_COMMIT: ${{ inputs.commit }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_COMMIT: ${{ inputs.commit }}
+          CHECKS_RUN: ${{ inputs.checks_run }}
           PUBLISH: ${{ inputs.publish }}
         run: |
-          $manifest = Get-Content -LiteralPath dist/release-manifest.json -Raw | ConvertFrom-Json
-          $tag = "v$($manifest.version)"
-          gh release view $tag --json tagName 2>$null
-          if ($LASTEXITCODE -eq 0) { throw 'Release already exists; no assets or tags were replaced' }
-          gh api "repos/$env:GH_REPO/git/ref/tags/$tag" 2>$null
-          if ($LASTEXITCODE -eq 0) { throw 'Tag already exists; refuse to attach artifacts to an independently created tag' }
-          # Atomic creation refuses a tag that appears between the check and this
-          # request. No force-update can bind assets to a different source commit.
-          gh api --method POST "repos/$env:GH_REPO/git/refs" -f "ref=refs/tags/$tag" -f "sha=$env:RELEASE_COMMIT"
-          if ($LASTEXITCODE -ne 0) { throw 'Could not create the exact tested tag; no release was created' }
-          $arguments = @('release','create',$tag,'--verify-tag','--title',"PlanBranch $($manifest.version)",'--notes-file','docs/Release_0.3.0.md')
-          if ($env:PUBLISH -ne 'true') { $arguments += '--draft' }
-          $arguments += @('dist/flowdesk-0.3.0-py3-none-any.whl','dist/PlanBranch-0.3.0-windows-x64.zip','dist/SHA256SUMS.txt','dist/release-manifest.json')
-          & gh @arguments
-          if ($LASTEXITCODE -ne 0) { throw 'Release creation failed' }
+          args=(--repository "$REPOSITORY" --commit "$SOURCE_COMMIT" --checks-run "$CHECKS_RUN")
+          if [[ "$PUBLISH" == true ]]; then args+=(--publish); fi
+          python scripts/publish_release.py "${args[@]}"
