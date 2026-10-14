@@ -38,7 +38,9 @@ test("selected source has exact preview consent, grounded proposal, freshness an
   });
   assert.equal(state.proposals[0].title, "Reuse inspected helper");
   assert.equal(state.request.sourceContext.files[0].path, "app.py");
-  await p.getByRole("tab", { name: "Changes", exact: true }).click();
+  // The backend receipt can arrive before the planning pane refresh. Wait for
+  // the expected proposal count instead of racing its accessible-name change.
+  await dock.getByRole("tab", { name: "Changes (1)", exact: true }).click();
   await dock.getByText(/Inspected source/).click();
   await dock.getByRole("button", { name: "Check source freshness" }).click();
   await dock.getByText("Source bytes and revision still match").waitFor();

@@ -118,6 +118,8 @@ Validation record (logs under ignored `output/`):
   claimed; command/runtime regressions use deterministic fixtures without model
   calls. Ordinary release CI and standalone Windows packaging remain required.
 
+## 0.3.1 correctness follow-up
+
 The 0.3.1 correctness follow-up is recorded in [Repair_0.3.1.md](Repair_0.3.1.md).
 It retains all six workflows while replacing the original evidence guarantee and
 release preparation mechanism described in this historical implementation record.
@@ -126,12 +128,15 @@ only a matching workflow-owned draft; it never overwrites published v0.3.0.
 
 Required final release gates: clean committed source; full backend, frontend and
 installed-wheel browser checks on Ubuntu and Windows; standalone Windows portable
-smoke (including spaces/Unicode paths); final artifact hashes and source receipt.
+smoke (including spaces/Unicode paths); real Linux Docker isolation and immutable
+verification with zero skipped cases; final artifact hashes and source receipt.
 Existing generated directories owned by the former sandbox account are left
-untouched; local packaging uses a clean archive of the final commit and the normal
-builder. The release workflow accepts only a successful same-repository push or
-dispatch check run for the exact SHA, creates its tag atomically and refuses to
-replace an existing tag or release. Final gate status belongs to the exact-commit
+untouched. CI builds the wheel and portable archive once, tests those frozen bytes
+and seals them only after all gates pass. The release workflow accepts only a
+successful same-repository push or dispatch check run for the exact SHA. It
+reconciles a matching workflow-owned draft and exact existing tag/assets, refuses
+published or ambiguous state, and requires explicit later publication. It never
+rebuilds a package under an earlier artifact's test receipt. Final gate status belongs to the exact-commit
 [PR checks](https://github.com/AdrianIp0204/PlanBranch/pull/1/checks), and the
 published artifact receipt records the SHA and successful push/dispatch run. This
 source document does not substitute earlier test results for that final receipt.

@@ -153,6 +153,21 @@ changes invalidate the corresponding task approval and produce readable fields.
 The second command confirms the actual filename-removal case (1 passed, 28
 deselected) after tightening that fixture.
 
+Two earlier full CI browser runs exposed readiness races in existing tests. The
+repository-context test asked for an exact `Changes` tab after the UI had correctly
+renamed it `Changes (1)`; it now awaits that expected proposal count in the planning
+pane. The settings test read reasoning effort while the independently loaded model
+catalogue still left that control disabled. A held catalogue response reproduced
+the empty value deterministically; the regression now verifies the saved preference
+survives loading and awaits the advertised, enabled option before retaining the
+exact `medium` assertion. Neither fix increases timeouts or changes production
+behavior. Failure screenshots and logs are retained under ignored `output/`.
+The failed runs did not receive sealed release artifacts, as required.
+The corrected repository-context browser case passed (1/1, 14.30 seconds), and
+`node --test tests/browser.qol.test.cjs` passed all six cases with zero skips
+(66.959 seconds). The deterministic settings baseline used
+`node --test --test-name-pattern="Settings preferences persist" tests/browser.qol.test.cjs`.
+
 Initial pushed repair commit `85d9e1a727f0b7d39b0de438d5fbbe8480cde04a`
 ran real Docker regressions in push run `38553478270` and PR run `38553485382`:
 **18 passed, zero skipped** in each. This is actual Linux container evidence, not
