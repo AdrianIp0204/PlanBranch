@@ -4,6 +4,7 @@ import { useProject } from "./store";
 import { ErrorMessage, Field } from "./ui";
 import { uid } from "./types";
 import type { ExecutionRun } from "./execution";
+import { useRunObservation } from "./useRunObservation";
 import "./plan-handoff.css";
 
 type Manifest = {
@@ -70,6 +71,7 @@ export default function TaskHandoffPanel({
       await api<HandoffState>(`${path}?taskId=${encodeURIComponent(taskId)}`),
     );
   useEffect(() => {
+    setState({ handoffs: [], results: [] });
     setPreview(null);
     setHandoffId("");
     setReturned("");
@@ -410,6 +412,7 @@ export default function TaskHandoffPanel({
             checks require a separate authorized run.
           </p>
           <ExternalVerification
+            key={`${session.id}/${taskId}/${result.id}/${result.contentHash}/${result.candidateCommit}`}
             projectId={session.id}
             result={result}
             onOpenRun={onRun}
@@ -464,7 +467,12 @@ function ExternalVerification({
     mutationId: string;
     confirmed: true;
   } | null>(null);
-  const [run, setRun] = useState<ExecutionRun | null>(null);
+  const {
+    run,
+    error: observationError,
+    observe,
+    refresh: refreshObservation,
+  } = useRunObservation(projectId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const alive = useRef(true);
@@ -479,27 +487,6 @@ function ExternalVerification({
     setPreview(null);
     setConfirmed(false);
   }, [result.contentHash, result.candidateCommit]);
-  useEffect(() => {
-    if (!run || !["queued", "running", "cancelling"].includes(run.state))
-      return;
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      void api<{ run: ExecutionRun }>(
-        `/projects/${projectId}/execution/runs/${run.id}`,
-        { signal: controller.signal },
-      )
-        .then((next) => {
-          if (!controller.signal.aborted) setRun(next.run);
-        })
-        .catch((cause: Error) => {
-          if (!controller.signal.aborted) setError(cause.message);
-        });
-    }, 1000);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [projectId, run]);
   function invalidate() {
     setPreview(null);
     setConfirmed(false);
@@ -514,6 +501,7 @@ function ExternalVerification({
         throw new Error(
           "Save or recover the plan before preparing local verification.",
         );
+      if (!alive.current) return;
       const next = await post<VerificationPreview>(`${base}/preview`, {
         contentHash: result.contentHash,
         command,
@@ -539,7 +527,7 @@ function ExternalVerification({
     try {
       const next = await post<{ run: ExecutionRun }>(`${base}/start`, body);
       if (alive.current) {
-        setRun(next.run);
+        observe(next.run);
         setPending(null);
         invalidate();
       }
@@ -576,7 +564,7 @@ function ExternalVerification({
         check out the returned commit with a clean working tree. PlanBranch will
         not change your checkout.
       </p>
-      <ErrorMessage message={error} />
+      <ErrorMessage message={error || observationError} />
       <Field
         label="Local verification command"
         hint="Commands in the imported report are never selected or run automatically."
@@ -671,7 +659,13 @@ function ExternalVerification({
       )}
       {run && (
         <section aria-label="Local verification result">
-          <h4>Local verification: {run.state}</h4>
+          <h4>
+            {observationError
+              ? `Last observed local verification: ${run.state}`
+              : run.state === "succeeded"
+                ? "Verification process completed"
+                : `Local verification: ${run.state}`}
+          </h4>
           <p>{run.summary || run.progress}</p>
           {run.error && <p role="alert">{run.error}</p>}
           {(run.planStale || run.candidateStale) && (
@@ -696,22 +690,7 @@ function ExternalVerification({
             Process success alone does not prove a requirement. Inspect the
             observation and record any criterion association separately.
           </p>
-          <button
-            onClick={() => {
-              void api<{ run: ExecutionRun }>(
-                `/projects/${projectId}/execution/runs/${run.id}`,
-              )
-                .then((next) => {
-                  if (alive.current) {
-                    setRun(next.run);
-                    setError("");
-                  }
-                })
-                .catch((cause: Error) => {
-                  if (alive.current) setError(cause.message);
-                });
-            }}
-          >
+          <button onClick={refreshObservation}>
             Refresh local observation
           </button>
           {onOpenRun && (

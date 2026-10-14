@@ -8,16 +8,20 @@ export class ApiError extends Error {
     super(message);
   }
 }
-export async function bootstrap() {
-  const response = await fetch("/api/bootstrap");
+export async function bootstrap(signal?: AbortSignal | null) {
+  signal?.throwIfAborted();
+  const response = await fetch("/api/bootstrap", { signal });
   if (!response.ok) throw new Error("The local server could not be reached.");
-  token = (await response.json()).token;
+  const nextToken = (await response.json()).token;
+  signal?.throwIfAborted();
+  token = nextToken;
 }
 export async function api<T>(
   path: string,
   options: RequestInit = {},
   reconnect = true,
 ): Promise<T> {
+  options.signal?.throwIfAborted();
   const response = await fetch(`/api${path}`, {
     ...options,
     headers: {
@@ -39,7 +43,7 @@ export async function api<T>(
     // Token rejection happens before any API operation. Reconnect once, keeping
     // the exact captured request (including its idempotency receipt and draft).
     if (reconnect && response.status === 403 && message === "Reload PlanBranch to reconnect to the local server.") {
-      await bootstrap();
+      await bootstrap(options.signal);
       return api<T>(path, options, false);
     }
     throw new ApiError(String(message), response.status, data);
