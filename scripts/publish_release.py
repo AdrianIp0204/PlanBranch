@@ -42,10 +42,11 @@ class GitHub:
         self.token = token
         self.opener = urllib.request.build_opener(NoRedirect())
 
-    def _request(self, method, path, *, data=None, binary=False, upload=False):
+    def _request(self, method, path, *, data=None, binary=False, upload=False,
+                 accept="application/vnd.github+json"):
         host = "https://uploads.github.com" if upload else "https://api.github.com"
         headers = {"Authorization": "Bearer " + self.token, "X-GitHub-Api-Version": "2022-11-28",
-                   "Accept": "application/octet-stream" if binary else "application/vnd.github+json"}
+                   "Accept": accept}
         if data is not None:
             if isinstance(data, bytes):
                 headers["Content-Type"] = "application/octet-stream"
@@ -73,8 +74,9 @@ class GitHub:
     def request(self, method, path, data=None):
         return self._request(method, path, data=data)
 
-    def download(self, path):
-        return self._request("GET", path, binary=True)
+    def download(self, path, *, accept):
+        # API content negotiation is independent of the downloaded byte payload.
+        return self._request("GET", path, binary=True, accept=accept)
 
     def upload(self, path, data):
         return self._request("POST", path, data=data, upload=True)
@@ -143,7 +145,8 @@ def _assets(api, base, release_id, files):
             raise ValueError(f"Existing asset is incomplete or mismatched: {name}. Inspect this draft asset manually; automatic replacement is forbidden.")
         digest = item.get("digest")
         if digest is None:
-            digest = "sha256:" + hashlib.sha256(api.download(f"{base}/releases/assets/{item['id']}")).hexdigest()
+            digest = "sha256:" + hashlib.sha256(api.download(
+                f"{base}/releases/assets/{item['id']}", accept="application/octet-stream")).hexdigest()
         if digest != "sha256:" + sha:
             raise ValueError(f"Existing asset hash mismatches: {name}; nothing was replaced.")
         found[name] = item
@@ -196,7 +199,7 @@ def prepare_release(api, root, repository, commit, checks_run, *, publish=False)
             or str(artifact.get("workflow_run", {}).get("id")) != str(checks_run)
             or not re.fullmatch(r"sha256:[a-f0-9]{64}", artifact.get("digest", ""))):
         raise ValueError("Immutable artifact metadata does not match the checks receipt.")
-    archive = api.download(f"{base}/actions/artifacts/{artifact['id']}/zip")
+    archive = api.download(f"{base}/actions/artifacts/{artifact['id']}/zip", accept="application/vnd.github+json")
     if "sha256:" + hashlib.sha256(archive).hexdigest() != artifact["digest"]:
         raise ValueError("Downloaded tested artifact digest mismatches GitHub's immutable artifact.")
     with tempfile.TemporaryDirectory(prefix="planbranch-release-") as temporary:
@@ -214,7 +217,7 @@ def prepare_release(api, root, repository, commit, checks_run, *, publish=False)
                 or str(candidate[0].get("workflow_run", {}).get("id")) != str(checks_run)):
             raise ValueError("Tested receipt does not refer to this run's immutable build candidate.")
         candidate = candidate[0]
-        candidate_archive = api.download(f"{base}/actions/artifacts/{candidate['id']}/zip")
+        candidate_archive = api.download(f"{base}/actions/artifacts/{candidate['id']}/zip", accept="application/vnd.github+json")
         if (not re.fullmatch(r"sha256:[a-f0-9]{64}", candidate.get("digest", ""))
                 or candidate["digest"] != "sha256:" + hashlib.sha256(candidate_archive).hexdigest()):
             raise ValueError("Immutable build candidate digest mismatches.")
