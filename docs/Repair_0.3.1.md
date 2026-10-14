@@ -168,6 +168,30 @@ The corrected repository-context browser case passed (1/1, 14.30 seconds), and
 (66.959 seconds). The deterministic settings baseline used
 `node --test --test-name-pattern="Settings preferences persist" tests/browser.qol.test.cjs`.
 
+A later Windows run exposed a real journal-read race: execution polling opened
+`agent-tools.json` while the worker atomically replaced it. Separate `ToolJournal`
+instances now share a lock for that canonical path, including question answer and
+cancellation updates. A deterministic concurrent-reader regression preserves the
+pending command and confirms that it is never replayed. Only a genuine missing
+file is treated as absent; permission errors remain errors. This is process-local
+serialization, not a claim of coordination between multiple application processes.
+The full focused executor/evidence files passed **59 tests**, with one local
+Windows symlink privilege skip, in 69.14 seconds; atomic-write cases passed **6**.
+
+```powershell
+.venv/Scripts/python.exe -m pytest -q tests/test_model_executor.py tests/test_immutable_evidence.py --basetemp output/journal-executor-regression -p no:cacheprovider
+.venv/Scripts/python.exe -m pytest -q tests/test_execution_git.py -k atomic_json --basetemp output/journal-atomic-regression -p no:cacheprovider
+```
+
+The remaining brief browser failure also came from waiting for the wrong view:
+restoring a brief-only proposal intentionally hides the ordinary diagram canvas.
+Its regression now awaits the restored proposal before opening the planning chat
+and retains the exact manual-content, history and apply/undo assertions.
+Awaiting restoration before the old helper reproduced its hidden-canvas timeout;
+`node --test tests/browser.brief.test.cjs` then passed **4 tests**, zero skipped,
+in 59.162 seconds. Baseline and corrected logs are retained under ignored
+`output/brief-restoration-baseline.log` and `output/brief-restoration-final.log`.
+
 Initial pushed repair commit `85d9e1a727f0b7d39b0de438d5fbbe8480cde04a`
 ran real Docker regressions in push run `38553478270` and PR run `38553485382`:
 **18 passed, zero skipped** in each. This is actual Linux container evidence, not

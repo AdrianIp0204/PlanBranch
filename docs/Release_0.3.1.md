@@ -9,6 +9,8 @@ The public 0.3.0 release and its tags and assets remain unchanged.
   distinction between agent reports, local observations and human review.
 - Source drift and changed task intent cannot silently reuse earlier approval or
   acceptance. Existing interrupted operations retain their original recovery bounds.
+- Concurrent execution polling and journal writes are serialized, preventing a
+  Windows file-sharing race while retaining pending commands and no-replay rules.
 - Handoffs prefer the explicitly selected execution repository, freeze its identity
   and preserve planning-only exports for ordinary scanner folders. A separate
   verify-without-editing action checks an exact imported candidate without a provider.

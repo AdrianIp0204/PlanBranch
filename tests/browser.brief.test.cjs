@@ -28,15 +28,14 @@ const fields = {
   assumptions: "Assumptions",
 };
 async function openChat(p) {
-  await p.getByTestId("diagram-canvas").waitFor();
+  const toggle = p.getByRole("button", { name: "Toggle planning chat", exact: true });
+  await toggle.waitFor();
   if (
     !(await p
       .getByRole("complementary", { name: "Planning conversation" })
       .isVisible())
   )
-    await p
-      .getByRole("button", { name: "Toggle planning chat", exact: true })
-      .click();
+    await toggle.click();
   await p.getByRole("tab", { name: "Chat", exact: true }).click();
   await p.getByLabel("Message Codex", { exact: true }).waitFor();
 }
@@ -261,7 +260,12 @@ test(
     await workspace(p).getByLabel("Goal", { exact: true }).fill(manual);
     await workspace(p).getByLabel("Goal", { exact: true }).press("Tab");
     await draftSaved(p);
-    await h.restart();
+    await h.restart({ reload: false });
+    await p.reload();
+    // Restoration can finish before chat is opened. A brief-only proposal
+    // intentionally replaces the ordinary diagram canvas while being reviewed.
+    await workspace(p).waitFor();
+    assert.equal(await p.getByTestId("diagram-canvas").isVisible(), false);
     await openChat(p);
     await workspace(p).waitFor();
     await selectBrief(p);
