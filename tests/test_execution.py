@@ -167,7 +167,8 @@ def test_accept_complete_and_checkout_apply_are_separate_retryable_actions(fixtu
     completed = service.complete(project["id"], run["id"], request)
     assert completed["project"]["content"]["buildTasks"][0]["status"] == "done"
     assert len(completed["project"]["history"]) == len(project["history"]) + 1
-    assert completed["run"]["planStale"] and not completed["run"]["applyPlanStale"]
+    assert not completed["run"]["planStale"] and not completed["run"]["applyPlanStale"]
+    assert planning.state(project["id"])["approval"]["current"]
     assert service.complete(project["id"], run["id"], request)["project"] == completed["project"]
     assert (source / "main.py").read_text() == "value = 1\n"
     apply_request = mutation(digest=digest, confirmed=True)
@@ -189,6 +190,34 @@ def test_failed_observed_command_remains_visible_without_trusting_agent_summary(
     assert run["commands"][0]["exitCode"] == 1
     assert "fixture failure" in run["commands"][0]["output"]
     assert not run["acceptedDigest"] and not run["completedCursor"]
+
+
+def test_two_dependent_tasks_keep_intent_approval_but_require_apply_and_commit(fixture):
+    source, store, project, planning, executor, service = fixture
+    content = deepcopy(project["content"])
+    first = content["buildTasks"][0]
+    second = task("Follow-up implementation", prerequisites=[first["id"]])
+    content["buildTasks"].append(second)
+    project = save(store, project, content)
+    preview = prepare(fixture)
+    run = finish(service, project["id"], service.start(project["id"], mutation(previewId=preview["id"], confirmed=True))["run"]["id"])
+    accept(fixture, run)
+    completed = service.complete(project["id"], run["id"], mutation(digest=run["artifact"]["digest"], baseRevision=project["revision"], confirmed=True))
+    assert planning.state(project["id"])["approval"]["current"]
+    blocked = service.preview(project["id"], {"taskId": second["id"]})
+    assert not blocked["ready"] and any("Apply" in issue for issue in blocked["issues"])
+    service.apply(project["id"], run["id"], mutation(digest=run["artifact"]["digest"], confirmed=True))
+    blocked = service.preview(project["id"], {"taskId": second["id"]})
+    assert not blocked["ready"] and any("Commit" in issue for issue in blocked["issues"])
+    git(source, "add", "main.py"); git(source, "commit", "-m", "User commits accepted prerequisite")
+    ready = service.preview(project["id"], {"taskId": second["id"]})
+    assert ready["ready"], ready["issues"]
+    next_run = finish(service, project["id"], service.start(project["id"], mutation(previewId=ready["preview"]["id"], confirmed=True))["run"]["id"])
+    assert next_run["sourceCommit"] != run["sourceCommit"]
+    service.accept(project["id"], next_run["id"], mutation(digest=next_run["artifact"]["digest"], confirmed=True))
+    service.complete(project["id"], next_run["id"], mutation(digest=next_run["artifact"]["digest"], baseRevision=completed["project"]["revision"], confirmed=True))
+    assert service.apply(project["id"], next_run["id"], mutation(digest=next_run["artifact"]["digest"], confirmed=True))["run"]["applied"]
+    assert planning.state(project["id"])["approval"]["current"]
 
 
 def test_cancellation_preserves_partial_work_and_blocks_concurrent_execution(fixture):
@@ -363,7 +392,7 @@ def test_readiness_checks_and_changed_source_never_launch_agent(fixture):
     planning.approve(project["id"], mutation(baseRevision=current["revision"]))
     unready = service.preview(project["id"], {"taskId": dependent["id"]})
     assert any("acceptance check" in issue for issue in unready["issues"])
-    assert any("prerequisites" in issue for issue in unready["issues"])
+    assert any(content["buildTasks"][0]["title"] in issue and "Complete" in issue for issue in unready["issues"])
     executor.available = False
     assert not service.preview(project["id"], {"taskId": content["buildTasks"][0]["id"]})["ready"]
     assert executor.contexts == []

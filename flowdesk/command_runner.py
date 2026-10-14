@@ -15,8 +15,10 @@ from uuid import uuid4
 from .execution_git import WorkspaceError, _atomic_json, _checked, _relative, MAX_FILES, MAX_FILE_BYTES, MAX_TREE_BYTES
 from .executor_process import run_supervised
 from .workspace_tools import snapshot, atomic_write, digest
+from .check_evidence import source_identity, junit_observation, seal_command
+from .storage import now
 
-POLICY_VERSION = "docker-tmpfs-v1"
+POLICY_VERSION = "docker-source-bound-v2"
 ARCHIVE_LIMIT = MAX_TREE_BYTES + 12_000_000
 CONTAINER_PATH = "/usr/local/bin:/usr/bin:/bin"
 
@@ -63,6 +65,7 @@ def output_mode(previous, current, returned):
 
 class DockerCommandRunner:
     def __init__(self, data_dir):
+        self.data_dir = Path(data_dir).resolve()
         self.directory = Path(data_dir).resolve() / "command-sandboxes"
         self.config = self.directory / "docker-config"
 
@@ -78,12 +81,17 @@ class DockerCommandRunner:
         return result.stdout.decode("utf-8")
 
     @staticmethod
-    def restrictions():
-        return ["--pull=never", "--network=none", "--read-only", "--cap-drop=ALL", "--cap-add=KILL",
+    def restrictions(verify=False):
+        limits = ["--pull=never", "--network=none", "--read-only", "--cap-drop=ALL", "--cap-add=KILL",
             "--security-opt=no-new-privileges=true", "--user=0:0", "--pids-limit=64", "--memory=512m",
             "--memory-swap=512m", "--cpus=1", "--ulimit", "nofile=256:256", "--init", "--no-healthcheck",
-            "--log-driver=none", "--stop-timeout=2", "--tmpfs", "/tmp:rw,noexec,nosuid,size=32m,mode=1777",
-            "--tmpfs", "/workspace:rw,nosuid,size=160m,mode=0777", "--workdir=/workspace"]
+            "--log-driver=none", "--stop-timeout=2", "--tmpfs", "/tmp:rw,noexec,nosuid,size=32m,mode=1777"]
+        if verify:
+            limits += ['--tmpfs', '/cache:rw,noexec,nosuid,size=32m,mode=1777',
+                       '--tmpfs', '/artifacts:rw,noexec,nosuid,size=16m,mode=1777']
+        else:
+            limits += ['--tmpfs', '/workspace:rw,nosuid,size=160m,mode=0777']
+        return limits + ['--workdir=/workspace']
 
     def configure(self):
         unavailable = {"version": POLICY_VERSION, "available": False, "reason": "Isolated commands are unavailable. Set PLANBRANCH_EXECUTION_IMAGE to an existing local Docker image; file editing remains available."}
@@ -114,9 +122,10 @@ class DockerCommandRunner:
         except (OSError, ValueError, KeyError, IndexError, subprocess.TimeoutExpired) as exc:
             return {**unavailable, "reason": str(exc) if isinstance(exc, WorkspaceError) else unavailable["reason"]}
 
-    def _archive(self, executable, endpoint, container):
+    def _archive(self, executable, endpoint, container, location='/workspace'):
+        if location not in {'/workspace', '/artifacts'}: raise WorkspaceError('Unsupported collection location.')
         command = self._args(executable, endpoint, ["exec", "--user=0:0", container, "/usr/bin/env", "-i", "PATH=" + CONTAINER_PATH,
-            "/bin/sh", "-c", "kill -STOP -1 || exit 91; exec tar -C /workspace -cf - ."])
+            "/bin/sh", "-c", "kill -STOP -1 || exit 91; exec tar -C " + location + " -cf - ."])
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=environment(),
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         chunks, failure = [], []
@@ -138,7 +147,10 @@ class DockerCommandRunner:
             if process.poll() is None: process.kill()
             process.wait(timeout=5); process.stdout.close()
 
-    def run(self, policy, root, arguments, call_id, cancel, on_event):
+    def verify(self, policy, root, arguments, call_id, cancel, on_event):
+        return self.run(policy, root, arguments, call_id, cancel, on_event, _verify=True)
+
+    def run(self, policy, root, arguments, call_id, cancel, on_event, *, _verify=False):
         command, seconds = arguments.get("command"), arguments.get("timeoutSeconds", 60)
         if not isinstance(command, str) or not 1 <= len(command) <= 8000 or "\0" in command: raise WorkspaceError("Commands require 1 to 8000 characters without NUL bytes.")
         if type(seconds) is not int or not 1 <= seconds <= 120: raise WorkspaceError("Command timeout must be between 1 and 120 seconds.")
@@ -149,21 +161,37 @@ class DockerCommandRunner:
         if info.get("ID") != policy["daemonId"] or info.get("OSType") != "linux" or not any("seccomp" in str(x) for x in info.get("SecurityOptions", [])): raise WorkspaceError("The reviewed Docker runtime changed. Preview a new Run step.")
         before = snapshot(root)
         before_modes = {name: (Path(root) / name).stat().st_mode & 0o777 for name in before}
+        candidate = source_identity(before, before_modes)
+        if _verify and policy.get('candidateHash') and policy['candidateHash'] != candidate['sha256']:
+            raise WorkspaceError('The selected candidate changed before verification. Review a new preview.')
         self.directory.mkdir(parents=True, exist_ok=True)
         directory = Path(tempfile.mkdtemp(prefix="command-", dir=self.directory))
         copied = directory / "input"; copied.mkdir()
         for name, data in before.items():
             target = _checked(copied, name); target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(data)
-            target.chmod(0o755 if (Path(root) / name).stat().st_mode & 0o111 else 0o644)
+            target.chmod(0o755 if before_modes[name] & 0o111 else 0o644)
+        if source_identity(snapshot(copied), {name: (copied / name).stat().st_mode for name in before})['sha256'] != candidate['sha256']:
+            raise WorkspaceError('The copied candidate identity changed before the command.')
         if "," in str(copied): raise WorkspaceError("The execution data directory cannot contain a comma for Docker mounts.")
         token = uuid4().hex
-        container = self._call(executable, endpoint, ["create", *self.restrictions(), "--mount", f"type=bind,source={copied},target=/input,readonly",
+        mount = '/workspace' if _verify else '/input'
+        container = self._call(executable, endpoint, ["create", *self.restrictions(_verify), "--mount", f"type=bind,source={copied},target={mount},readonly,bind-recursive=disabled",
             "--label", "planbranch.owner=" + token, "--entrypoint=/usr/bin/env", policy["imageId"], "-i", "PATH=" + CONTAINER_PATH,
             "/bin/sh", "-c", "exec sleep infinity"]).strip()
         if not re.fullmatch(r"[0-9a-f]{64}", container): raise WorkspaceError("Docker returned an invalid container identity.")
         _atomic_json(directory / "container.json", {"container": container, "token": token, "endpoint": endpoint})
         watchdog, after = None, None
-        record = {"id": call_id, "command": command, "status": "in_progress", "exitCode": None, "output": ""}
+        record = {"id": call_id, "command": command, "status": "in_progress", "exitCode": None, "output": "",
+                  "evidence": {"schemaVersion": 2, "provenance": "host_observed", "workingDirectory": ".",
+                    "executionMode": 'immutable_verification' if _verify else 'mutable_implementation',
+                    "runId": policy.get('evidenceRunId'), "daemonId": policy['daemonId'],
+                    "endpoint": endpoint, "timeoutSeconds": seconds,
+                    "candidateIdentity": candidate,
+                    "writableLocations": ['/tmp', '/cache', '/artifacts'] if _verify else ['/tmp', '/workspace'],
+                    "artifactDirectory": '/artifacts' if _verify else '.planbranch-results',
+                    "runtime": POLICY_VERSION, "imageId": policy["imageId"], "startedAt": now(), "endedAt": None,
+                    "candidateBefore": source_identity(before, before_modes)["sha256"], "candidateAfter": None,
+                    "sourceChanged": None, "testResult": None}}
         try:
             watchdog = subprocess.Popen([sys.executable, "-I", str(Path(__file__).with_name("command_watchdog.py"))], stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=environment(), creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, start_new_session=os.name != "nt")
@@ -172,31 +200,69 @@ class DockerCommandRunner:
             if watchdog.stdout.readline(100).strip() != b"ready": raise WorkspaceError("Container lifetime protection did not start.")
             self._call(executable, endpoint, ["start", container])
             prefix = ["exec", "--user=65534:65534", "--workdir=/workspace", container, "/usr/bin/env", "-i", "PATH=" + CONTAINER_PATH, "HOME=/tmp", "TMPDIR=/tmp"]
-            self._call(executable, endpoint, [*prefix, "/bin/sh", "-c", "test \"$(sed -n 's/^CapEff:[[:space:]]*//p' /proc/self/status)\" = 0000000000000000 || exit 92; cp -R /input/. /workspace/ || exit 93; chmod -R u+rwX /workspace; test -w /workspace"])
-            on_event({"type": "command", "command": dict(record)})
+            cap_check = "test \"$(sed -n 's/^CapEff:[[:space:]]*//p' /proc/self/status)\" = 0000000000000000 || exit 92; "
+            if _verify:
+                inspected = json.loads(self._call(executable, endpoint, ['inspect', container]))[0]
+                mounts = [item for item in inspected['Mounts'] if item['Destination'] == '/workspace']
+                if (len(mounts) != 1 or mounts[0].get('RW') is not False or mounts[0].get('Type') != 'bind'
+                        or inspected.get('Image') != policy['imageId'] or not inspected['HostConfig'].get('ReadonlyRootfs')):
+                    raise WorkspaceError('The immutable candidate mount or image identity could not be established.')
+                record['evidence']['mountReadOnly'] = True
+                prefix += ['XDG_CACHE_HOME=/cache', 'PYTHONPYCACHEPREFIX=/cache/python', 'PLANBRANCH_ARTIFACTS=/artifacts']
+                self._call(executable, endpoint, [*prefix, '/bin/sh', '-c', cap_check + 'test -r /workspace'])
+            else:
+                self._call(executable, endpoint, [*prefix, "/bin/sh", "-c", cap_check + "cp -R /input/. /workspace/ || exit 93; chmod -R u+rwX /workspace; test -w /workspace"])
+            def emit():
+                on_event({'type': 'command', 'command': seal_command(self.data_dir, record)})
+            emit()
             def packet(value):
                 if value.get("type") in {"stdout", "stderr"}:
                     record["output"] = (record["output"] + value.get("text", ""))[-65536:]
-                    on_event({"type": "command", "command": dict(record)})
+                    emit()
             outcome = run_supervised(self._args(executable, endpoint, [*prefix, "/bin/sh", "-c", command]), cwd=directory,
                 env=environment(), prompt=b"", cancel=cancel, on_packet=packet, timeout=seconds, max_bytes=512000, max_line=65536)
             if outcome["reason"] == "exited": record.update(exitCode=outcome["returncode"], status="completed" if outcome["returncode"] == 0 else "failed")
             else: record["status"] = "cancelled" if cancel.is_set() else "interrupted"
-            after, modes = self._archive(executable, endpoint, container)
+            record['evidence']['outcomeReason'] = outcome['reason']
+            if _verify:
+                artifacts, _ = self._archive(executable, endpoint, container, '/artifacts')
+                after, modes = before, before_modes
+                report_files = {'.planbranch-results/' + name: data for name, data in artifacts.items()}
+                record['evidence']['artifacts'] = [dict(path='/artifacts/' + name, bytes=len(data), sha256=digest(data)) for name, data in sorted(artifacts.items())]
+            else:
+                after, modes = self._archive(executable, endpoint, container)
+                report_files = after
+            record["evidence"].update(candidateAfter=source_identity(after, modes)["sha256"],
+                sourceChanged=source_identity(before, before_modes)["sha256"] != source_identity(after, modes)["sha256"],
+                testResult=junit_observation(report_files))
+            if _verify and record['evidence']['testResult']:
+                record['evidence']['testResult']['artifact']['path'] = '/artifacts/junit.xml'
+            if (not _verify and record["evidence"]["testResult"] and
+                    before.get(".planbranch-results/junit.xml") == after.get(".planbranch-results/junit.xml")):
+                record["evidence"]["testResult"]["state"] = "unchanged_report"
+            live = json.loads(self._call(executable, endpoint, ['info', '--format', '{{json .}}']))
+            if live.get('ID') != policy['daemonId']:
+                record['evidence']['sourceChanged'] = True
+                raise WorkspaceError('The reviewed Docker runtime changed during the command.')
         finally:
+            record["evidence"]["endedAt"] = now()
             if watchdog:
                 try: watchdog.stdin.close()
                 except BrokenPipeError: pass
                 watchdog.wait(timeout=25); watchdog.stdout.close()
                 if watchdog.returncode != 0: raise WorkspaceError("Container cleanup is uncertain; no copy-back was attempted.")
             else: self._call(executable, endpoint, ["rm", "--force", container])
-            on_event({"type": "command", "command": dict(record)})
+            on_event({"type": "command", "command": seal_command(self.data_dir, record)})
         if snapshot(root) != before or any((Path(root) / name).stat().st_mode & 0o777 != mode for name, mode in before_modes.items()):
+            record["evidence"]["sourceChanged"] = True
+            on_event({"type": "command", "command": seal_command(self.data_dir, record)})
             raise WorkspaceError("The worktree changed during the command; sandbox changes were not copied back.")
+        if _verify:
+            return {'executed': True, 'command': seal_command(self.data_dir, record), 'sandbox': POLICY_VERSION}
         for name in set(before) | set(after): _checked(Path(root), name)
         for name in sorted(set(before) | set(after)):
             if before.get(name) != after.get(name): atomic_write(root, name, after.get(name), digest(before[name]) if name in before else None)
             if name in after and os.name != "nt":
                 path = _checked(Path(root), name)
                 path.chmod(output_mode(before_modes.get(name), path.stat().st_mode, modes[name]))
-        return {"executed": True, "command": record, "sandbox": POLICY_VERSION}
+        return {"executed": True, "command": seal_command(self.data_dir, record), "sandbox": POLICY_VERSION}

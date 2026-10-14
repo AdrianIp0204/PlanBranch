@@ -1,8 +1,12 @@
 # PlanBranch
 
-**Visual planning for AI-assisted coding.**
+**A visual workspace for directing and reviewing coding agents.**
 
-Discuss a coding goal beside an editable diagram. Review the proposed changes, agree on the plan, then build one explicitly selected task in an isolated Git worktree.
+Connect what you intended → what you approved → what an agent changed → what was checked → what you applied. Discuss a coding goal beside an editable diagram, preserve alternative designs, and build one selected task in an isolated Git worktree or your existing editor.
+
+**[Downloads and release status](https://github.com/AdrianIp0204/PlanBranch/releases/latest)** · [Offline quick start](#try-it-offline) · [Current roadmap and validation gates](docs/Product_Roadmap.md)
+
+Published packages appear on the Releases page. A CI artifact or draft release is a prepared build, not a public release. Source installation remains available below.
 
 [![Checks](https://github.com/AdrianIp0204/PlanBranch/actions/workflows/checks.yml/badge.svg)](https://github.com/AdrianIp0204/PlanBranch/actions/workflows/checks.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -28,9 +32,18 @@ Discuss a coding goal beside an editable diagram. Review the proposed changes, a
 | Plan versus code | Human-authored variables kept separate from read-only Python evidence. Confirm links yourself; scans do not mark work complete. |
 | Local storage | Multiple projects and diagrams, autosave, restart-safe Undo/Redo, SQLite backups, JSON/Markdown sharing and full-diagram PNG. |
 
+## Try it offline
+
+1. Install a portable package or wheel using the instructions below and open **[127.0.0.1:4310](http://127.0.0.1:4310)**.
+2. Choose **Guided offline example**. Review a feature brief, select a proposed design, inspect criteria and a sample diff, and record a sample review. All check output is explicitly illustrative; no command runs.
+3. Choose **Open example project** to explore its real diagram and two dependent Build tasks. The example has no repository attachment, approval, execution grant or test results. **Reset walkthrough** only resets the walkthrough; loading an example always creates a separate project.
+4. Open **Setup capabilities** (also in the **Project** menu) when you want AI planning, code editing or isolated checks. Visual planning needs no account, API key or command runtime. Checks are retryable; nothing installs dependencies automatically.
+
+![The implemented offline walkthrough showing a labelled illustrative diff and evidence](docs/images/planbranch-offline-example.png)
+
 ## Windows portable package
 
-Extract a prepared **PlanBranch 0.2.0 Windows x64** ZIP to an ordinary folder and run `planbranch.cmd`. Open **[127.0.0.1:4310](http://127.0.0.1:4310)**. The package contains Python and the built interface; Node, a Python installation and a frontend build are unnecessary. `flowdesk.cmd` remains a compatible alias.
+Extract the **PlanBranch 0.3.1 Windows x64** ZIP from a published release (or a clearly identified CI artifact) to a new ordinary folder and run `planbranch.cmd`. Open **[127.0.0.1:4310](http://127.0.0.1:4310)**. The package contains Python and the built interface; Node, a Python installation and a frontend build are unnecessary. `flowdesk.cmd` remains a compatible alias. Release artifacts include SHA-256 checksums and their source commit.
 
 The first screen shows the selected provider’s connection status. **New project** and **Load example** remain usable without a model connection. Cloud connections require an explicit metadata check; key presence alone is not a verified connection. Reopen the check through **Layout → Provider connection**. Setup links do not install anything automatically.
 
@@ -77,11 +90,17 @@ npm run build --prefix frontend
 
 </details>
 
-For an already-built wheel, install `flowdesk-0.2.0-py3-none-any.whl` in a Python 3.14 environment, then run `planbranch`, `flowdesk` or `python -m flowdesk`. Node and the source checkout are unnecessary. The distribution and module retain the `flowdesk` name for compatibility.
+For an already-built wheel, run `python -m pip install flowdesk-0.3.1-py3-none-any.whl` in a Python 3.14 environment, then run `planbranch`, `flowdesk` or `python -m flowdesk`. Pip needs the declared dependencies locally or permission to download them. Node and the source checkout are unnecessary. The distribution and module retain the `flowdesk` name for compatibility.
 
 The editor, scanner and exports work offline. Dependency downloads and optional cloud requests need internet access. The Python launcher serves both the interface and API; a separate frontend server is unnecessary.
 
 ## Make the workspace yours
+
+For a real project, write its brief and tasks, then approve the design. **Build** shows each task's next action, approval freshness and blockers. Intent approval, Run authorization, result acceptance, task completion, checkout Apply and your Git commit remain separate. Completing a prerequisite or moving a diagram node does not invalidate unchanged intent; changed scope, criteria or relevant diagram meaning does. Source and runtime policies are checked again at execution and application boundaries.
+
+Expand **Requirement, code and acceptance evidence** in a task or its linked diagram node to inspect candidate-bound files, checks and human review. The brief's requirements paragraph is one stable requirement record; acceptance criteria retain their IDs when edited, but changed meaning makes old review stale. Process success alone is not proof that tests ran or that a whole requirement is satisfied. See [workflow and evidence](docs/WORKFLOW_EVIDENCE.md) and [repository-context consent](docs/Repository_Context.md).
+
+Use **Project → Checkpoints and alternatives** to preserve, duplicate, compare, select and restore designs. Alternatives are logical plans, separate from Git branches. Restore saves a recovery point and requires fresh approval. To implement elsewhere, expand **Use an external coding agent** in a Build task, preview/copy its brief and later import its local commit reference for review. See [checkpoint and handoff workflows](docs/CHECKPOINTS_AND_HANDOFF.md).
 
 The compact header keeps Diagram/Build, panel toggles, search and settings together. **Project** groups the brief, save, scan, export and backup tools; **Add node** is the single canvas creation menu.
 
@@ -100,7 +119,7 @@ Quiet notices report planning, scan and coding results for the open project. Opt
 ## Your data and your decisions
 
 - **Saved locally.** The default data folder remains `%LOCALAPPDATA%\FlowDesk` on Windows, or `$XDG_DATA_HOME/flowdesk` / `~/.local/share/flowdesk` on Linux. Use `--data-dir` and `--port` to override defaults. The server binds to loopback only.
-- **Planning context is explicit.** Chat sends the manual plan, brief and discussion, including the visible candidate when requesting revisions. Scanner observations and attached source files are excluded from planning chat. Execution separately gives the selected provider the task context and permitted workspace data.
+- **Planning context is explicit.** Source stays local by default. Attach a repository for read-only scanning, then explicitly select files or symbol excerpts in Chat's repository-context action. Choose a model, inspect the concrete outgoing request and confirm that package. Attachment is not transmission consent. Source-bearing requests omit old conversation history; later restricted requests cannot silently resend it. Frozen previews expire or are consumed; provider responses may quote source and remain in local conversation history. Execution has its own authorization.
 - **Edits require review.** Draft saving, applying a plan, approving a plan, starting code execution, accepting a diff, completing a task and applying code are distinct actions. Failed or uncertain operations preserve recovery state.
 - **The checkout is preserved.** Runs use isolated worktrees from committed source. Apply checks for conflicting file/index changes, preserves unrelated edits, and records partial progress for deliberate recovery. It does not stage or commit.
 - **Evidence stays evidence.** Python scanning is static, read-only and explicitly authorized. It neither imports the scanned code nor proves correctness. Agent summaries are shown separately from observed command output and exit codes.
@@ -130,7 +149,7 @@ python scripts/build_release.py
 
 Browser tests use disposable data, repositories and deterministic agents; external browser requests are blocked. Install Playwright Chromium once, then run `npm run test:e2e --prefix frontend`. Set `FLOWDESK_PYTHON` and `FLOWDESK_APP_ROOT` to test an installed package. See [VALIDATION.md](VALIDATION.md) for results, platform gaps and release receipts.
 
-After the wheel build, `python scripts/build_windows_portable.py` prepares the portable archive using pinned, hash-checked runtime inputs. The build supports a verified cache for offline reuse. `scripts/smoke_windows_portable.py` checks the extracted application outside the source checkout. CI retains Linux source/wheel checks and generates Windows portable artifacts without publishing a release.
+After the wheel build, `python scripts/build_windows_portable.py` prepares the portable archive using pinned, hash-checked runtime inputs. The build supports a verified cache for offline reuse. `scripts/smoke_windows_portable.py` checks the extracted application outside the source checkout. CI tests one frozen wheel/portable candidate on Ubuntu and Windows and seals it only after all gates pass. Publication uses the existing release workflow with the successful checks run for the actual merged main commit; it reuses those tested bytes without rebuilding. Local builds and draft releases are not published releases.
 
 Focused bug reports and pull requests are welcome. Include reproduction steps and your platform; use sample projects when sharing data or screenshots.
 

@@ -8,8 +8,10 @@ import json
 import math
 from pathlib import Path
 import re
+import threading
 import time
 from uuid import UUID, uuid4
+from weakref import WeakValueDictionary
 
 from .command_runner import DockerCommandRunner
 from .execution_git import _atomic_json, _plain, WorkspaceError
@@ -17,8 +19,21 @@ from .planning_questions import validate_answers, validate_questions
 from .workspace_tools import WorkspaceTools
 from .storage import now
 
-VERSION = "model-executor-v1"
+VERSION = "model-executor-v2"
 MAX_TURNS, MAX_CALLS, MAX_SECONDS, MAX_CONTEXT = 24, 80, 1200, 1_500_000
+_JOURNAL_LOCKS = WeakValueDictionary()
+_JOURNAL_LOCKS_GUARD = threading.Lock()
+
+
+def _journal_lock(path):
+    # Workers and HTTP readers create separate ToolJournal objects. Share the
+    # lock by canonical path so Windows never opens our journal during replace.
+    with _JOURNAL_LOCKS_GUARD:
+        lock = _JOURNAL_LOCKS.get(path)
+        if lock is None:
+            lock = threading.RLock()
+            _JOURNAL_LOCKS[path] = lock
+        return lock
 
 
 def harness_policy(value):
@@ -54,6 +69,7 @@ TOOLS = [
     {"name": "write_file", "description": "Write text with a matching read hash; null hash creates, null content removes.", "parameters": schema({"path": {"type": "string"}, "content": {"type": ["string", "null"]}, "expectedSha256": {"type": ["string", "null"]}}, ["path", "content", "expectedSha256"])},
     {"name": "diff", "description": "Review changes since this invocation began.", "parameters": schema({"path": {"type": "string"}})},
     {"name": "run_command", "description": "Run a bounded command only in the reviewed isolated command runtime. No host fallback.", "parameters": schema({"command": {"type": "string"}, "timeoutSeconds": {"type": "integer"}}, ["command"])},
+    {"name": "verify_without_editing", "description": "Check the current candidate on an OS read-only mount. Write caches to /cache, temporary files to /tmp and JUnit to /artifacts/junit.xml. Exit status alone does not prove a requirement.", "parameters": schema({"command": {"type": "string"}, "timeoutSeconds": {"type": "integer"}}, ["command"])},
     {"name": "ask_question", "description": "Pause for explicit choices or custom answers. Use this as the only call in a response.", "parameters": schema({"questions": {"type": "array", "minItems": 1, "maxItems": 3, "items": schema({
         "id": {"type": "string", "description": "UUID"}, "kind": {"type": "string", "enum": ["choice", "text"]}, "prompt": {"type": "string"},
         "options": {"type": "array", "items": schema({"id": {"type": "string", "description": "UUID"}, "label": {"type": "string"}, "description": {"type": "string"}}, ["id", "label", "description"])},
@@ -73,17 +89,23 @@ class ToolJournal:
         if any(not _plain(path) for path in (directory, directory.parent)):
             raise WorkspaceError("Coding records must not contain links.")
         self.path = directory / "agent-tools.json"
+        self._lock = _journal_lock(self.path)
 
     def load(self):
-        if not self.path.exists(): return None
-        if not _plain(self.path) or self.path.stat().st_size > 3_000_000:
-            raise WorkspaceError("The coding journal is not readable safely.")
-        return json.loads(self.path.read_text(encoding="utf-8"))
+        with self._lock:
+            try:
+                metadata = self.path.lstat()
+            except FileNotFoundError:
+                return None
+            if not _plain(self.path) or metadata.st_size > 3_000_000:
+                raise WorkspaceError("The coding journal is not readable safely.")
+            return json.loads(self.path.read_text(encoding="utf-8"))
 
     def save(self, value):
         if len(encoded(value).encode()) > 2_500_000:
             raise WorkspaceError("The coding journal limit was reached; work is retained.")
-        _atomic_json(self.path, value)
+        with self._lock:
+            _atomic_json(self.path, value)
 
     def public_question(self):
         journal = self.load()
@@ -93,24 +115,26 @@ class ToolJournal:
         return question
 
     def answer(self, request):
-        journal = self.load()
-        if not journal or journal.get("state") not in {"question", "answered"}:
-            raise WorkspaceError("This run is not waiting for an answer.")
-        if journal["question"]["id"] != request["questionId"]:
-            raise WorkspaceError("This question is no longer current.")
-        validate_answers(journal["question"]["questions"], request["answers"])
-        if journal.get("answerRequest"):
-            if journal["answerRequest"] != request:
-                raise WorkspaceError("Retry the original saved answer request before submitting another answer.")
-            return
-        journal.update(state="answered", answerRequest=deepcopy(request))
-        self.save(journal)
+        with self._lock:
+            journal = self.load()
+            if not journal or journal.get("state") not in {"question", "answered"}:
+                raise WorkspaceError("This run is not waiting for an answer.")
+            if journal["question"]["id"] != request["questionId"]:
+                raise WorkspaceError("This question is no longer current.")
+            validate_answers(journal["question"]["questions"], request["answers"])
+            if journal.get("answerRequest"):
+                if journal["answerRequest"] != request:
+                    raise WorkspaceError("Retry the original saved answer request before submitting another answer.")
+                return
+            journal.update(state="answered", answerRequest=deepcopy(request))
+            self.save(journal)
 
     def cancel_question(self):
-        journal = self.load()
-        if journal and journal.get("state") in {"question", "answered"}:
-            journal["state"] = "cancelled"
-            self.save(journal)
+        with self._lock:
+            journal = self.load()
+            if journal and journal.get("state") in {"question", "answered"}:
+                journal["state"] = "cancelled"
+                self.save(journal)
 
 
 class DeadlineCancel:
@@ -167,6 +191,12 @@ class ModelExecutor:
                 raise WorkspaceError("The frozen coding instruction identity is invalid.")
             policy = harness_policy(generation.get("harnessPolicy"))
             identity = fingerprint({key: context[key] for key in ("task", "brief", "linkedNodes", "sourceCommit", "generation")})
+            if state is not None and (not isinstance(state, dict) or type(state.get("version")) is not int or state["version"] != 1
+                    or type(state.get("turns")) is not int or state["turns"] < 0
+                    or not isinstance(state.get("calls"), list) or not isinstance(state.get("messages"), list)
+                    or any(not isinstance(call, dict) or call.get("state") not in {"pending", "done", "waiting"}
+                           or not isinstance(call.get("id"), str) for call in state.get("calls", []))):
+                raise WorkspaceError("The saved coding journal is invalid or unsupported. Retained work was not replayed.")
             if state is None:
                 state = {"version": 1, "identity": identity, "state": "running", "calls": [], "messages": [], "turns": 0, "invocation": 1,
                          "elapsedSeconds": 0}
@@ -273,13 +303,14 @@ class ModelExecutor:
                                 save_state()
                                 result.update(status="interrupted", error="Answer the execution question to continue this step.")
                                 return {**result, "commands": list(commands.values())}
-                            if name == "run_command":
-                                output = self.runner.run(generation["commandPolicy"], worktree, args, key, bounded_cancel, event)
+                            if name in {"run_command", "verify_without_editing"}:
+                                run_command = self.runner.verify if name == 'verify_without_editing' else self.runner.run
+                                output = run_command({**generation["commandPolicy"], 'evidenceRunId': context['runId']}, worktree, args, key, bounded_cancel, event)
                                 if output.get("command"): commands[output["command"]["id"]] = output["command"]
                             else:
                                 output = getattr(tools, name)(args)
                         except (WorkspaceError, KeyError, TypeError, ValueError) as exc:
-                            if name == "run_command":
+                            if name in {"run_command", "verify_without_editing"}:
                                 raise  # an uncertain command intent must never be retried by the model
                             output = {"error": str(exc)[:2000]}
                         record.update(state="done", result=deepcopy(output))

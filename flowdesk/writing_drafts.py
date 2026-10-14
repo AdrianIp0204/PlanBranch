@@ -151,8 +151,14 @@ def validate_writing(raw):
         if value is not None:
             if not isinstance(value, dict):
                 raise ValidationError("Uncertain request must be an object.")
-            allowed = {"mutationId", "diagramId", "nodeId", "text"} if field == "failedComment" else ({"mutationId", "setId", "baseRevision", "answers", "selection"} if field == "failedAnswer" else {"mutationId", "diagramId", "nodeId", "text", "selection", "proposalId", "proposalDiagram", "proposalBrief", "proposalBuildTasks"})
+            allowed = {"mutationId", "diagramId", "nodeId", "text"} if field == "failedComment" else ({"mutationId", "setId", "baseRevision", "answers", "selection"} if field == "failedAnswer" else {"mutationId", "diagramId", "nodeId", "text", "selection", "proposalId", "proposalDiagram", "proposalBrief", "proposalBuildTasks", "repositoryConsent"})
             obj(value, allowed, "uncertain request")
+            if "repositoryConsent" in value:
+                consent = obj(value["repositoryConsent"], {"previewId", "packageHash", "confirmed"}, "source consent receipt")
+                identifier(consent.get("previewId"), "Preview ID")
+                string(consent.get("packageHash"), "Package hash", 64, True)
+                if consent.get("confirmed") is not True:
+                    raise ValidationError("Source consent must be explicitly confirmed.")
             identifier(value.get("mutationId"), "Request ID")
             if "selection" in value:
                 _selection(value["selection"])

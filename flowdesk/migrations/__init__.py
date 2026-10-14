@@ -11,7 +11,7 @@ from typing import Callable
 from ..validation import ValidationError, validate_checkpoint
 
 
-DATABASE_VERSION = 10
+DATABASE_VERSION = 12
 
 
 @dataclass(frozen=True)
@@ -95,6 +95,14 @@ def provider_messages(connection, store):
     apply_sql(connection, "010_provider_messages.sql")
 
 
+def workflow_evidence(connection, store):
+    apply_sql(connection, "011_workflow_evidence.sql")
+
+
+def plans_handoff(connection, store):
+    apply_sql(connection, "012_plans_handoff.sql")
+
+
 MIGRATIONS = (
     Migration(1, "Initial project storage", False, initial_schema),
     Migration(2, "Managed scanner schema and canonical snapshots", True, managed_scanner_and_snapshots),
@@ -106,6 +114,8 @@ MIGRATIONS = (
     Migration(8, "Explicit execution grants, frozen previews and recoverable runs", False, execution_workspace),
     Migration(9, "Durable unsent planning writing", False, writing_drafts),
     Migration(10, "Planning provider attribution", False, provider_messages),
+    Migration(11, "Scoped approval intent and traceability review", False, workflow_evidence),
+    Migration(12, "Named plans, checkpoints and external handoffs", False, plans_handoff),
 )
 
 

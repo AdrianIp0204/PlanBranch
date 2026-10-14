@@ -1,4 +1,5 @@
 from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor
 import io
 import json
 import os
@@ -72,6 +73,89 @@ def test_uncertain_command_stays_pending_and_never_replays(tmp_path):
     assert ToolJournal(executor.data_dir,context['runId']).load()['calls'][0]['state'] == 'pending'
     again = executor.run(context,root,threading.Event(),lambda _:None)
     assert 'not replayed' in again['error'] and len(registry.seen) == 1
+
+
+def test_journal_readers_wait_for_replacement_and_keep_pending_work_without_replay(tmp_path, monkeypatch):
+    import flowdesk.model_executor as module
+    root, executor, context, registry = setup(tmp_path, [reply('run_command', {'command': 'check'})])
+    launches = []
+    def interrupted(*args):
+        launches.append(args[3])
+        raise WorkspaceError('Command transport interrupted')
+    executor.runner.run = interrupted
+    executor.run(context, root, threading.Event(), lambda _: None)
+    writer = ToolJournal(executor.data_dir, context['runId'])
+    reader = ToolJournal(executor.data_dir / '.', context['runId'])
+    retained = writer.load()
+    retained['elapsedSeconds'] += 1
+    replacing, release, reader_waiting = threading.Event(), threading.Event(), threading.Event()
+    atomic_json, read_text = module._atomic_json, Path.read_text
+
+    class ReaderBarrier:
+        """Expose actual lock contention without relying on scheduling sleeps."""
+        def __init__(self, lock): self.lock, self.first = lock, True
+        def __enter__(self):
+            if self.first:
+                self.first = False
+                acquired = self.lock.acquire(blocking=False)
+                if acquired:
+                    self.lock.release()
+                    pytest.fail('A different ToolJournal instance must wait for the writer')
+                reader_waiting.set()
+            self.lock.acquire()
+        def __exit__(self, *_): self.lock.release()
+
+    def held_replace(path, value):
+        replacing.set()
+        try:
+            assert release.wait(5), 'Reader did not reach the journal boundary'
+            atomic_json(path, value)
+        finally:
+            replacing.clear()
+
+    def windows_open(path, *args, **kwargs):
+        if path == reader.path and replacing.is_set():
+            raise PermissionError(13, 'Simulated Windows replacement sharing denial', str(path))
+        return read_text(path, *args, **kwargs)
+
+    reader._lock = ReaderBarrier(reader._lock)
+    with monkeypatch.context() as patch:
+        patch.setattr(module, '_atomic_json', held_replace)
+        patch.setattr(Path, 'read_text', windows_open)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            saved = pool.submit(writer.save, retained)
+            try:
+                assert replacing.wait(5)
+                observed = pool.submit(lambda: (reader.public_question(), reader.load()))
+                assert reader_waiting.wait(5)
+            finally:
+                release.set()
+            saved.result(timeout=5)
+            assert observed.result(timeout=5) == (None, retained)
+    assert retained['calls'][0]['state'] == 'pending'
+    again = executor.run(context, root, threading.Event(), lambda _: None)
+    assert 'not replayed' in again['error']
+    assert writer.load() == retained and len(registry.seen) == 1 and len(launches) == 1
+    assert (root / 'main.txt').read_text() == 'before'
+
+
+@pytest.mark.parametrize('operation', ['lstat', 'read_text'])
+def test_journal_permission_failures_never_become_an_empty_record(tmp_path, monkeypatch, operation):
+    journal = ToolJournal(tmp_path, str(uuid4()))
+    value = {'state': 'running', 'calls': [{'id': '1:check', 'state': 'pending'}], 'elapsedSeconds': 17}
+    journal.save(value)
+    before = journal.path.read_bytes()
+    original = getattr(Path, operation)
+    error = PermissionError(13, 'Fixture persistent access denial', str(journal.path))
+    def denied(path, *args, **kwargs):
+        if path == journal.path: raise error
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, operation, denied)
+    for read in (journal.load, journal.public_question):
+        with pytest.raises(PermissionError) as raised:
+            read()
+        assert raised.value is error
+    assert journal.path.read_bytes() == before
 
 
 def test_missing_runtime_does_not_invent_test_results(tmp_path):

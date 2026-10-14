@@ -126,10 +126,35 @@ test("Settings preferences persist without editing the plan or approval and resp
   await p.keyboard.press("Escape");
   const chat = p.getByRole("complementary", { name: "Planning conversation" });
   if (!(await chat.isVisible())) await p.getByRole("button", { name: "Toggle planning chat", exact: true }).click();
+  // A saved-model placeholder exists before the independently loaded catalogue.
+  // Hold that response across reload so the loading state is exercised reliably.
+  let releaseCatalogue;
+  const catalogueGate = new Promise(resolve => { releaseCatalogue = resolve; });
+  let catalogueRequested = false;
+  const catalogueUrl = `${h.base}/api/planning/capabilities`;
+  const holdCatalogue = async route => {
+    catalogueRequested = true;
+    await catalogueGate;
+    await route.continue();
+  };
+  await p.route(catalogueUrl, holdCatalogue);
   const chatModel = chat.getByRole("combobox", { name: "Model", exact: true });
-  await until(async () => await chatModel.locator('option[value="fixture-fast"]').count() === 1);
-  assert.equal(await chatModel.inputValue(), "fixture-fast");
-  assert.equal(await chat.getByRole("combobox", { name: "Reasoning effort", exact: true }).inputValue(), "medium");
+  const chatEffort = chat.getByRole("combobox", { name: "Reasoning effort", exact: true });
+  try {
+    await p.reload();
+    await chat.waitFor();
+    await until(() => catalogueRequested);
+    await until(async () => await chatModel.locator('option[value="fixture-fast"]').count() === 1);
+    assert.equal(await chatModel.inputValue(), "fixture-fast");
+    assert.equal(await chatEffort.isDisabled(), true, "Effort stays unavailable until the catalogue verifies it");
+    assert.equal(await p.evaluate(() => JSON.parse(localStorage.getItem("planbranch.preferences.v1")).planningAgent.selections.codex.reasoningEffort), "medium",
+      "Loading the catalogue preserves the saved effort");
+  } finally {
+    releaseCatalogue();
+  }
+  await until(async () => await chatEffort.isEnabled() && await chatEffort.locator('option[value="medium"]').count() === 1);
+  assert.equal(await chatEffort.inputValue(), "medium");
+  await p.unroute(catalogueUrl, holdCatalogue);
   await chatModel.selectOption("fixture-deep");
   await chat.getByRole("combobox", { name: "Reasoning effort", exact: true }).selectOption("high");
   dialog = await settings(p);

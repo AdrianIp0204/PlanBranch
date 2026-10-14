@@ -16,6 +16,7 @@ from .storage import ConflictError, NotFoundError, encode, now
 from .validation import MAX_HISTORY, ValidationError, identifier, integer, obj, string, validate_brief, validate_content
 from .content_versions import BRIEF_FIELDS, SUPPORTED_CONTENT_VERSIONS, manual_identity, upgrade_content
 from .planning_questions import answer_summary, validate_answers, validate_envelope
+from .semantic_intent import SCOPE_VERSION, semantic_fingerprint, task_fingerprint
 
 
 def fingerprint(value):
@@ -182,6 +183,8 @@ class PlanningService:
             planner = ProviderRegistry(store.db_path.parent)
         self.store = store
         self.planner = planner
+        from .repository_context import RepositoryContext
+        self.repository_context = RepositoryContext(self)
         from .proposal_drafts import ProposalDrafts
         self.drafts = ProposalDrafts(self)
         self._threads = {}
@@ -209,6 +212,11 @@ class PlanningService:
         project = self._current(db, project_id)
         content_hash = manual_fingerprint(project["content"])
         messages = []
+        source_receipts = []
+        for saved_request in db.execute("SELECT id,context FROM planning_requests WHERE project_id=? AND context LIKE '%repositoryContextReceipt%'", (project_id,)):
+            receipt = json.loads(saved_request["context"]).get("repositoryContextReceipt")
+            if receipt:
+                source_receipts.append({**receipt, "requestId": saved_request["id"]})
         for row in db.execute("SELECT m.*,s.provider,s.model FROM planning_messages m LEFT JOIN planning_message_sources s ON s.message_id=m.id WHERE m.project_id=? ORDER BY m.created_at,m.id", (project_id,)):
             message = {"id": row["id"], "role": row["role"], "text": row["text"], "createdAt": row["created_at"]}
             if row["provider"] is not None:
@@ -229,10 +237,25 @@ class PlanningService:
                               "baseRevision": row["base_revision"], "baseCursor": row["base_cursor"], "baseHash": row["base_hash"],
                               "state": state, "createdAt": row["created_at"], "changes": json.loads(row["changes"]),
                               "editableSections": editable_sections(row)})
+            source = next((item for item in source_receipts if item.get("proposalId") == row["id"]), None)
+            if source:
+                proposals[-1]["sourceContext"] = source
         row = db.execute("SELECT * FROM planning_approvals WHERE project_id=? ORDER BY created_at DESC,id DESC LIMIT 1", (project_id,)).fetchone()
         approval = None if row is None else {"id": row["id"], "revision": row["revision"], "cursor": row["cursor"],
                    "contentHash": row["content_hash"], "snapshot": upgrade_content(json.loads(row["content"])), "createdAt": row["created_at"],
                    "current": not bool(row["revoked"]) and row["content_hash"] == content_hash}
+        if approval is not None:
+            approval["scopeVersion"] = row["scope_version"]
+            if row["scope_version"] not in (0, SCOPE_VERSION):
+                approval["current"] = False
+            if row["scope_version"] == SCOPE_VERSION:
+                approval["current"] = not bool(row["revoked"]) and row["content_hash"] == semantic_fingerprint(project["content"])
+                approved_tasks = {task["id"] for task in approval["snapshot"].get("buildTasks", [])}
+                approval["taskScopes"] = {task["id"]: {
+                    "contentHash": task_fingerprint(approval["snapshot"], task["id"]),
+                    "current": not bool(row["revoked"]) and task["id"] in approved_tasks and
+                        task_fingerprint(approval["snapshot"], task["id"]) == task_fingerprint(project["content"], task["id"])
+                } for task in project["content"].get("buildTasks", [])}
         row = db.execute("SELECT * FROM planning_requests WHERE project_id=? ORDER BY updated_at DESC,id DESC LIMIT 1", (project_id,)).fetchone()
         request = None
         if row is not None:
@@ -240,6 +263,9 @@ class PlanningService:
             request = {"id": row["id"], "status": row["status"], "text": payload["text"], "diagramId": payload["diagramId"],
                        "payload": payload, "selection": payload.get("selection", {"mode": "default"})}
             generation = json.loads(row["context"]).get("generation")
+            source = json.loads(row["context"]).get("repositoryContextReceipt")
+            if source:
+                request["sourceContext"] = source
             if generation is not None:
                 request["generation"] = {key: generation.get(key) for key in (
                     "selection", "cliVersion", "instructionVersion", "instructionHash", "protocolVersion")}
@@ -264,12 +290,16 @@ class PlanningService:
                 original = db.execute("SELECT context FROM planning_requests WHERE project_id=? AND id=?",
                                       (project_id, row["request_id"])).fetchone()
                 item["baseSnapshot"] = upgrade_content(json.loads(original[0])["content"])
+                item["requiresSourcePreview"] = bool(json.loads(original[0]).get("repositoryContextReceipt"))
             question_sets.append(item)
         if approval is not None:
-            approval["current"] = approval["current"] and not any(not c["resolved"] for c in comments) and not any(
+            review_clear = not any(not c["resolved"] for c in comments) and not any(
                 p["state"] == "pending" for p in proposals) and not (request and request["status"] == "running") and not any(
                 q["state"] == "open" for q in question_sets)
-        return {"messages": messages, "comments": comments, "proposals": proposals, "approval": approval,
+            approval["current"] = approval["current"] and review_clear
+            for scope in approval.get("taskScopes", {}).values():
+                scope["current"] = scope["current"] and review_clear
+        return {"messages": messages, "comments": comments, "proposals": proposals, "approval": approval, "sourceHistory": bool(source_receipts),
                 "request": request, "questionSets": question_sets}
 
     def state(self, project_id):
@@ -358,7 +388,35 @@ class PlanningService:
                                     for item in state["questionSets"]]}
         if generation is not None:
             context["generation"] = generation
+        # A generated reply can quote source. Once source was shared, never
+        # replay historical conversation or generated questions implicitly.
+        if state.get("sourceHistory"):
+            context["messages"] = state["messages"][-1:]
+            context["omittedMessageCount"] = max(0, len(state["messages"]) - 1)
+            context["questionSets"] = []
         return context
+
+    def context_preview(self, project_id, payload, generation):
+        obj(payload, {"mutationId", "text", "diagramId", "nodeId", "selection", "proposalId", "proposalDiagram", "proposalBrief", "proposalBuildTasks"}, "planning preview message")
+        identifier(payload.get("mutationId"), "Mutation ID")
+        string(payload.get("text"), "Message", 12000, True)
+        with closing(self.store.connect()) as db:
+            db.execute("BEGIN")
+            project = self._current(db, project_id)
+            diagram = diagram_in(project["content"], payload.get("diagramId"))
+            node = node_in(diagram, payload["nodeId"]) if payload.get("nodeId") else None
+            state = self._state(db, project_id)
+            if state["request"] and state["request"]["status"] == "running":
+                raise ValidationError("Wait for the current planning reply before preparing context.")
+            message = {"id": str(uuid4()), "role": "user", "text": payload["text"], "createdAt": now(), "diagramId": diagram["id"]}
+            if node:
+                message.update(nodeId=node["id"], nodeTitle=node["title"])
+            state["messages"].append(message)
+            state["sourceHistory"] = True
+            context = self._context(project, state, diagram["id"], payload.get("nodeId"), generation)
+            if "proposalId" in payload:
+                context["reviewProposal"] = self._review_context(db, project_id, project, payload)
+            return context, project["revision"], manual_fingerprint(project["content"]), message
 
     def _start(self, project_id, request_id, attempt_id):
         thread = threading.Thread(target=self._generate, args=(project_id, request_id, attempt_id), daemon=True, name="flowdesk-planning")
@@ -414,7 +472,7 @@ class PlanningService:
         return self.state(project_id)
 
     def send_message(self, project_id, payload):
-        obj(payload, {"mutationId", "text", "diagramId", "nodeId", "selection", "proposalId", "proposalDiagram", "proposalBrief", "proposalBuildTasks"}, "planning message")
+        obj(payload, {"mutationId", "text", "diagramId", "nodeId", "selection", "proposalId", "proposalDiagram", "proposalBrief", "proposalBuildTasks", "repositoryConsent"}, "planning message")
         identifier(payload.get("mutationId"), "Mutation ID")
         string(payload.get("text"), "Message", 12000, True)
         diagram_id = identifier(payload.get("diagramId"), "Diagram ID")
@@ -432,9 +490,10 @@ class PlanningService:
         with closing(self.store.connect()) as db:
             self.store._row(db, project_id)
             known = db.execute("SELECT 1 FROM planning_requests WHERE project_id=? AND id=?", (project_id, request_id)).fetchone()
-        generation = None if known else self._configuration(selection)
+        generation = None if known or "repositoryConsent" in payload else self._configuration(selection)
         attempt_id = str(uuid4())
         should_start = False
+        frozen = None
         with closing(self.store.connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             project = self._current(db, project_id)
@@ -452,26 +511,47 @@ class PlanningService:
                 raise RuntimeError("Wait for the current planning reply before sending another message.")
             timestamp = now()
             if previous:
+                if json.loads(previous["context"]).get("repositoryContextReceipt") and previous["status"] == "failed":
+                    raise ValidationError("Source-bearing requests need a new message and a fresh preview after failure or restart.")
                 db.execute("UPDATE planning_requests SET status='running',attempt_id=?,error=NULL,updated_at=? WHERE project_id=? AND id=?", (attempt_id, timestamp, project_id, request_id))
             else:
                 diagram = diagram_in(project["content"], diagram_id)
                 review = self._review_context(db, project_id, project, payload) if "proposalId" in payload else None
                 node = node_in(diagram, payload["nodeId"]) if payload.get("nodeId") is not None else None
                 db.execute("UPDATE planning_question_sets SET state='superseded' WHERE project_id=? AND state='open'", (project_id,))
+                frozen = self.repository_context.claim(project_id, payload, project) if "repositoryConsent" in payload else None
+                if review is not None and not frozen and self._state(db, project_id).get("sourceHistory"):
+                    raise ValidationError("After sharing source, proposal revisions require a new context preview to prevent resending source-bearing history.")
                 db.execute("INSERT INTO planning_messages VALUES(?,?,?,?,?,?,?,?,NULL)",
-                           (str(uuid4()), project_id, "user", payload["text"], timestamp, diagram_id,
+                           (frozen["message"]["id"] if frozen else str(uuid4()), project_id, "user", payload["text"], frozen["message"]["createdAt"] if frozen else timestamp, diagram_id,
                             node["id"] if node else None, node["title"] if node else None))
                 state = self._state(db, project_id)
                 context = self._context(project, state, diagram_id, payload.get("nodeId"), generation)
                 if review is not None:
                     context["reviewProposal"] = review
+                if frozen:
+                    context = {key: value for key, value in frozen["context"].items() if key != "repositoryContext"}
+                    context["repositoryContextReceipt"] = frozen["receipt"]
                 db.execute("INSERT INTO planning_requests VALUES(?,?,?,?,?,?,?,?,?,'running',NULL,?,?)",
                            (request_id, project_id, fingerprint(payload), encode(payload), encode(context),
                             project["revision"], project["cursor"], manual_fingerprint(project["content"]), attempt_id, timestamp, timestamp))
             self._revoke(db, project_id)
             should_start = True
         if should_start:
-            self._start(project_id, request_id, attempt_id)
+            if frozen:
+                self.repository_context.queue(project_id, request_id, frozen["context"])
+            try:
+                self._start(project_id, request_id, attempt_id)
+            except Exception:
+                with self.repository_context.lock:
+                    self.repository_context.outgoing.pop((project_id, request_id), None)
+                with self._thread_lock:
+                    self._threads.pop((project_id, request_id), None)
+                    self._cancels.pop((project_id, request_id, attempt_id), None)
+                with closing(self.store.connect()) as db, db:
+                    db.execute("UPDATE planning_requests SET status='failed',error=?,updated_at=? WHERE project_id=? AND id=? AND attempt_id=?",
+                               ("Planning could not start. Create a new request; selected source requires a fresh preview.", now(), project_id, request_id, attempt_id))
+                raise
         return self.state(project_id)
 
     def answer_questions(self, project_id, set_id, payload):
@@ -524,6 +604,8 @@ class PlanningService:
                 context = self._context(project, self._state(db, project_id), diagram["id"], question["node_id"], generation)
                 original = db.execute("SELECT context FROM planning_requests WHERE project_id=? AND id=?",
                                       (project_id, question["request_id"])).fetchone()
+                if json.loads(original["context"]).get("repositoryContextReceipt"):
+                    raise ValidationError("These questions came from shared source. Put your answer in a new message and preview selected context again.")
                 review = json.loads(original["context"]).get("reviewProposal")
                 if review is not None:
                     context["reviewProposal"] = review
@@ -600,15 +682,16 @@ class PlanningService:
                 if request is None or request["status"] != "running" or request["attempt_id"] != attempt_id:
                     return
                 context = json.loads(request["context"])
+            outgoing = self.repository_context.take(project_id, request_id) if context.get("repositoryContextReceipt") else provider_context_for(context)
             # Authored planning text is allowed. Scanner evidence, confirmed
             # symbol relationships, source-root grants and filesystem data are not.
             from .providers import ProviderRegistry
             if isinstance(self.planner, ProviderRegistry):
                 with self._thread_lock:
                     cancel = self._cancels.get((project_id, request_id, attempt_id))
-                generated = self.planner.generate(provider_context_for(context), cancel=cancel)
+                generated = self.planner.generate(outgoing, cancel=cancel)
             else:
-                generated = self.planner.generate(provider_context_for(context))
+                generated = self.planner.generate(outgoing)
             response = validate_envelope(generated, context.get("generation", {}).get("protocolVersion", 1))
             proposed = response.get("proposal")
             proposal_id = None
@@ -688,6 +771,9 @@ class PlanningService:
                                (str(uuid4()), project_id, request_id, message_id, source["diagramId"], source.get("nodeId"),
                                 request["base_hash"], encode(response["questions"]), now()))
                     self._revoke(db, project_id)
+                if context.get("repositoryContextReceipt"):
+                    context["repositoryContextReceipt"]["proposalId"] = proposal_id
+                    db.execute("UPDATE planning_requests SET context=? WHERE project_id=? AND id=?", (encode(context), project_id, request_id))
                 db.execute("UPDATE planning_requests SET status='succeeded',error=NULL,updated_at=? WHERE project_id=? AND id=?", (now(), project_id, request_id))
         except Exception as exc:
             # Connector errors and validation messages are deliberately user-safe.
@@ -696,6 +782,8 @@ class PlanningService:
                 db.execute("UPDATE planning_requests SET status='failed',error=?,updated_at=? WHERE project_id=? AND id=? AND attempt_id=? AND status='running'",
                            (error[:2000], now(), project_id, request_id, attempt_id))
         finally:
+            with self.repository_context.lock:
+                self.repository_context.outgoing.pop((project_id, request_id), None)
             with self._thread_lock:
                 self._cancels.pop((project_id, request_id, attempt_id), None)
                 if self._threads.get((project_id, request_id)) is threading.current_thread():
@@ -789,8 +877,8 @@ class PlanningService:
                 if any(q["state"] == "open" for q in state["questionSets"]):
                     raise RuntimeError("Answer the open planning questions or change direction before approving.")
                 self._revoke(db, project_id)
-                db.execute("INSERT INTO planning_approvals VALUES(?,?,?,?,?,?,?,0)",
-                           (str(uuid4()), project_id, project["revision"], project["cursor"], manual_fingerprint(project["content"]), encode(project["content"]), now()))
+                db.execute("INSERT INTO planning_approvals(id,project_id,revision,cursor,content_hash,content,created_at,revoked,scope_version) VALUES(?,?,?,?,?,?,?,0,?)",
+                           (str(uuid4()), project_id, project["revision"], project["cursor"], semantic_fingerprint(project["content"]), encode(project["content"]), now(), SCOPE_VERSION))
         return self.state(project_id)
 
     def reopen(self, project_id, payload):

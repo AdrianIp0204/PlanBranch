@@ -541,7 +541,7 @@ describe("execution review and explicit actions", () => {
       acceptedDigest: "result-digest",
     };
     fireEvent.click(screen.getByRole("button", { name: "Check run status" }));
-    await screen.findByText(/approved plan changed/);
+    await screen.findByText(/task intent or selected plan changed/);
     expect(
       (
         screen.getByRole("button", {
@@ -556,6 +556,39 @@ describe("execution review and explicit actions", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
+  });
+  it("blocks candidate review actions when ignored source drift leaves the diff unchanged", async () => {
+    run.candidateStale = true;
+    state.runs = [run];
+    await open(true);
+    await screen.findByText(
+      /candidate source changed or has not been captured/,
+    );
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Accept changes",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    run.acceptedDigest = "result-digest";
+    fireEvent.click(screen.getByRole("button", { name: "Check run status" }));
+    await screen.findByRole("button", { name: "Changes accepted" });
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Complete task",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Apply to checkout",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(post).not.toHaveBeenCalled();
   });
 });
 
@@ -683,47 +716,54 @@ describe("uncertain execution recovery", () => {
       confirm.mockRestore();
     },
   );
-  it("recovers Apply's server receipt after browser storage loss, with deliberate confirmation", async () => {
-    run.acceptedDigest = "result-digest";
-    run.applyState = {
-      state: "applying",
-      digest: "result-digest",
-      updatedAt: timestamp,
-      completed: [],
-      fileCount: 1,
-    };
-    run.applyRequest = {
-      mutationId: "durable-apply",
-      digest: "result-digest",
-      confirmed: true,
-    };
-    state.runs = [run];
-    write = async () => ({
-      run: {
-        ...run,
-        applied: true,
-        applyState: { ...run.applyState!, state: "applied" },
-      },
-    });
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    await open(true);
-    expect(post).not.toHaveBeenCalled();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Retry apply to checkout" }),
-    );
-    await settle();
-    expect(post).not.toHaveBeenCalled();
-    confirm.mockReturnValue(true);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Retry apply to checkout" }),
-    );
-    await screen.findByRole("button", { name: "Applied to checkout" });
-    expect(post).toHaveBeenCalledExactlyOnceWith(
-      `${base}/runs/run/apply`,
-      run.applyRequest,
-    );
-    confirm.mockRestore();
-  });
+  it.each([false, true])(
+    "recovers Apply's server receipt after browser storage loss, with deliberate confirmation (legacy candidate: %s)",
+    async (legacy) => {
+      run.acceptedDigest = "result-digest";
+      if (legacy) {
+        run.candidateStale = true;
+        run.capturedCandidate = null;
+      }
+      run.applyState = {
+        state: "applying",
+        digest: "result-digest",
+        updatedAt: timestamp,
+        completed: [],
+        fileCount: 1,
+      };
+      run.applyRequest = {
+        mutationId: "durable-apply",
+        digest: "result-digest",
+        confirmed: true,
+      };
+      state.runs = [run];
+      write = async () => ({
+        run: {
+          ...run,
+          applied: true,
+          applyState: { ...run.applyState!, state: "applied" },
+        },
+      });
+      const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+      await open(true);
+      expect(post).not.toHaveBeenCalled();
+      fireEvent.click(
+        screen.getByRole("button", { name: "Retry apply to checkout" }),
+      );
+      await settle();
+      expect(post).not.toHaveBeenCalled();
+      confirm.mockReturnValue(true);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Retry apply to checkout" }),
+      );
+      await screen.findByRole("button", { name: "Applied to checkout" });
+      expect(post).toHaveBeenCalledExactlyOnceWith(
+        `${base}/runs/run/apply`,
+        run.applyRequest,
+      );
+      confirm.mockRestore();
+    },
+  );
 });
 
 describe("Build execution entry points", () => {

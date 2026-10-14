@@ -1,0 +1,53 @@
+name: Prepare tested release
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Full commit SHA tested by PlanBranch checks
+        required: true
+      checks_run:
+        description: Successful push/dispatch checks run for that exact commit
+        required: true
+      publish:
+        description: Explicitly promote the matching complete draft after validation
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  actions: read
+# Serialize preparation and promotion. API conflicts are also reconciled by the
+# publisher, including retries after a lost acknowledgement or partial upload.
+concurrency:
+  group: planbranch-release-${{ github.repository }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Validate dispatch input syntax
+        env:
+          SOURCE_COMMIT: ${{ inputs.commit }}
+          CHECKS_RUN: ${{ inputs.checks_run }}
+        run: |
+          [[ "$SOURCE_COMMIT" =~ ^[a-f0-9]{40}$ && "$CHECKS_RUN" =~ ^[1-9][0-9]*$ ]] || exit 1
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Reconcile the owned draft using exact CI-tested assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_COMMIT: ${{ inputs.commit }}
+          CHECKS_RUN: ${{ inputs.checks_run }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          args=(--repository "$REPOSITORY" --commit "$SOURCE_COMMIT" --checks-run "$CHECKS_RUN")
+          if [[ "$PUBLISH" == true ]]; then args+=(--publish); fi
+          python scripts/publish_release.py "${args[@]}"

@@ -16,6 +16,8 @@ import CommandPalette from "./CommandPalette";
 import type { CommandResult } from "./commandSearch";
 import { useQuickJumpShortcut } from "./useQuickJumpShortcut";
 import SettingsDialog from "./SettingsDialog";
+import { GuidedExample, SetupDialog } from "./Onboarding";
+import PlanLibrary from "./PlanLibrary";
 import WorkspaceIcon from "./WorkspaceIcon";
 import ExecutionDialog from "./ExecutionDialog";
 import ActivityNotices from "./ActivityNotices";
@@ -94,6 +96,8 @@ function preserveDisclosureKeys(event: ReactKeyboardEvent<HTMLDivElement>) {
 
 export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   const [welcomeSearch, setWelcomeSearch] = useState(false);
   const afterWelcomeSearch = useRef<(() => void) | null>(null);
   const pendingProjectFocus = useRef(false);
@@ -255,7 +259,7 @@ export default function App() {
               projects={projects}
               onOpen={open}
               onNew={() => setCreating(true)}
-              onExample={() => create({ sample: true })}
+              onExample={() => create({ sample: true, guided: true })}
               onImport={() => fileRef.current?.click()}
               onCopy={(content) => create({ content })}
               onDeleted={async () => {
@@ -296,6 +300,7 @@ export default function App() {
               together.
             </p>
             <div className="welcome-actions">
+              <button onClick={() => setGuideOpen(true)}>Guided offline example</button>
               <button className="primary" onClick={() => setCreating(true)}>
                 New project
               </button>
@@ -328,6 +333,7 @@ export default function App() {
               </nav>
             )}
             <CodexConnection />
+            <button onClick={() => setSetupOpen(true)}>Setup capabilities</button>
             <div className="welcome-flow" aria-hidden="true">
               <span>Start</span>
               <i>→</i>
@@ -376,6 +382,8 @@ export default function App() {
       {settingsOpen && (
         <SettingsDialog onClose={() => setSettingsOpen(false)} />
       )}
+      {setupOpen && <SetupDialog onClose={() => setSetupOpen(false)} />}
+      {guideOpen && <GuidedExample onClose={() => setGuideOpen(false)} onLoadExample={() => create({ sample: true, guided: true })} />}
       {newDialog}
       {error && (
         <Dialog title="Something needs attention" onClose={() => setError("")}>
@@ -547,6 +555,9 @@ function Workbench({
     reviews: [],
   });
   const [scanDialog, setScanDialog] = useState(false);
+  const [plansOpen, setPlansOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   const [scan, setScan] = useState<Scan | null>(null);
   const [notificationScan, setNotificationScan] = useState<Scan | null>(null);
   const displayedScan = notificationScan ?? scan;
@@ -1402,6 +1413,7 @@ function Workbench({
             }}
           >
             <span className="menu-section-label">Project</span>
+            <button disabled={Boolean(proposalPreview)} onClick={() => { commit(); setPlansOpen(true); }}>Checkpoints and alternatives</button>
             <button
               className="quiet project-brief-toggle"
               aria-label="Project brief"
@@ -1437,6 +1449,8 @@ function Workbench({
               Implementation brief
             </button>
             <span className="menu-section-label">Local data</span>
+            <button onClick={() => setSetupOpen(true)}>Setup capabilities</button>
+            <button onClick={() => setGuideOpen(true)}>Guided offline example</button>
             <button
               className="quiet"
               disabled={Boolean(proposalPreview)}
@@ -2113,6 +2127,12 @@ function Workbench({
                     symbols={symbols}
                     onSelect={select}
                     onDiscuss={() => openPlanning(true)}
+                    onBuildTask={(id) => {
+                      setSelectedBuildTask(id);
+                      setWorkspaceView("build");
+                      setFocusPane("canvas");
+                      focusAfterLayout("build-title");
+                    }}
                     onVariable={(id) => {
                       setVariables(true);
                       setFocusPane("canvas");
@@ -2299,6 +2319,29 @@ function Workbench({
         />
       )}
       {briefOpen && <ProjectBriefDialog onClose={() => setBriefOpen(false)} />}
+      {plansOpen && <PlanLibrary onClose={() => setPlansOpen(false)} onNavigate={(target) => {
+        commit();
+        if (proposalPreviewRef.current) closeProposal();
+        setFilter("all");
+        setNarrowNavigationOpen(false);
+        setFocusPane("canvas");
+        if (target.kind === "task") {
+          setWorkspaceView("build");
+          setSelectedBuildTask(target.id);
+          focusAfterLayout("build-title");
+        } else if (target.kind === "node") {
+          reveal(target.id);
+          focusAfterLayout("canvas-title");
+        } else {
+          setWorkspaceView("diagram");
+          setActive(target.diagramId);
+          setSelected(target.kind === "edge" ? target.id : null);
+          if (target.kind === "edge") setInspector(true);
+          focusAfterLayout("canvas-title");
+        }
+      }} />}
+      {setupOpen && <SetupDialog projectId={session.id} onClose={() => setSetupOpen(false)} />}
+      {guideOpen && <GuidedExample onClose={() => setGuideOpen(false)} onLoadExample={() => perform(onExample)} />}
       {quickJump && (
         <CommandPalette
           projects={projects}

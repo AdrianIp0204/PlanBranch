@@ -355,6 +355,14 @@ class GitWorkspace:
             raise WorkspaceError("Git returned extra source data.")
         return blobs
 
+    def candidate_identity(self, repository, source_commit):
+        """Identify the raw committed files that create() will materialize."""
+        from .check_evidence import source_identity
+        tree = self._tree(Path(repository['path']), source_commit)
+        blobs = self._blobs(Path(repository['path']), list(tree.values()))
+        return source_identity({name: blobs[entry['oid']] for name, entry in tree.items()},
+            {name: 0o755 if os.name != 'nt' and entry['mode'] == '100755' else 0o644 for name, entry in tree.items()})
+
     def create(self, repository, source_commit, run_id):
         source = self.inspect_repository(repository["path"])
         if any(source[key] != repository[key] for key in ("path", "gitDir", "commonDir")) or source["head"] != source_commit:
@@ -485,6 +493,25 @@ class GitWorkspace:
         artifact = self._artifact(run_id, digest)
         return {"digest": digest, "sourceCommit": artifact["sourceCommit"],
                 "files": [{key: value for key, value in file.items() if key not in {"before", "after"}} for file in artifact["files"]]}
+
+    def contains_artifact(self, repository, run_id, digest):
+        """Read committed raw objects without hooks or filters for prerequisites."""
+        current = self.repository_identity(repository["path"])
+        artifact = self._artifact(run_id, digest)
+        workspace = self.load(run_id)
+        if workspace is None or any(current[key] != workspace["repository"][key] for key in ("path", "gitDir", "commonDir")):
+            return False
+        root = Path(current["path"])
+        tree = self._tree(root, current["head"])
+        entries = [tree[file["path"]] for file in artifact["files"] if file["path"] in tree]
+        blobs = self._blobs(root, entries)
+        for file in artifact["files"]:
+            entry = tree.get(file["path"])
+            if file["after"] is None:
+                if entry is not None: return False
+            elif entry is None or blobs[entry["oid"]] != _un64(file["after"]) or entry["mode"] != file.get("newMode"):
+                return False
+        return True
 
     def inspect_apply(self, workspace, digest):
         if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):

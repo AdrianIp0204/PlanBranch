@@ -1203,6 +1203,64 @@ it("submits clarification exactly once without editing the graph or approving it
   expect(posts("/approve")).toHaveLength(0);
   expect(session.content).toEqual(original);
 });
+
+it("source-derived answers open a fresh local preview without sending history or clearing unrelated writing", async () => {
+  const prototype = HTMLDialogElement.prototype;
+  const show = Object.getOwnPropertyDescriptor(prototype, "showModal");
+  const close = Object.getOwnPropertyDescriptor(prototype, "close");
+  Object.defineProperty(prototype, "showModal", {
+    configurable: true,
+    value() {
+      this.open = true;
+    },
+  });
+  Object.defineProperty(prototype, "close", {
+    configurable: true,
+    value() {
+      this.open = false;
+    },
+  });
+  try {
+    state.questionSets = [{ ...openQuestions(), requiresSourcePreview: true }];
+    state.sourceHistory = true;
+    withModels((path) =>
+      path.endsWith("/context/files")
+        ? {
+            files: ["app.py"],
+            symbols: [],
+            revision: "a".repeat(40),
+            partial: false,
+            exclusions: "Secrets excluded",
+          }
+        : copy(state),
+    );
+    render(<PlanningPanel {...props()} />);
+    await screen.findByRole("radio", { name: /SQLite/ });
+    fireEvent.change(screen.getByLabelText("Message Codex"), {
+      target: { value: "Keep this unrelated draft" },
+    });
+    fireEvent.click(screen.getByRole("radio", { name: /SQLite/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Preview source and answers" }),
+    );
+    await screen.findByRole("dialog", {
+      name: "Include selected repository context",
+    });
+    expect(posts("/answers")).toHaveLength(0);
+    expect(posts("/messages")).toHaveLength(0);
+    expect(
+      (screen.getByLabelText("Message Codex") as HTMLTextAreaElement).value,
+    ).toBe("Keep this unrelated draft");
+    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  } finally {
+    cleanup();
+    if (show) Object.defineProperty(prototype, "showModal", show);
+    else Reflect.deleteProperty(prototype, "showModal");
+    if (close) Object.defineProperty(prototype, "close", close);
+    else Reflect.deleteProperty(prototype, "close");
+  }
+});
 it("preserves answer drafts across reload and repeats lost acknowledgements with the exact body", async () => {
   let attempts = 0;
   withModels((path, options) => {

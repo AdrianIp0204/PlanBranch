@@ -5,7 +5,7 @@ from .storage import empty_content
 from .validation import validate_content
 
 
-def sample_content():
+def sample_content(*, guided=False):
     content = empty_content("Batch importer · example")
     content["notes"] = (
         "A small plan for importing records safely. Start with a valid row, then test malformed input and retries. "
@@ -57,5 +57,28 @@ def sample_content():
     content["nodeLinks"] = [
         {"id": str(uuid4()), "nodeId": ids[node], "variableId": ids[variable], "origin": "planned", "relationship": relationship}
         for node, variable, relationship in [("save", "count", "writes"), ("check", "record", "reads"), ("load", "record", "creates")]
+    ]
+    if not guided:
+        return validate_content(content)
+    content["brief"].update(
+        goal="Import valid records, skip malformed rows, and report how many were saved.",
+        audience="People importing a small local data batch.",
+        requirements="Validate each identifier before writing. Skip invalid rows and continue. Count only successful saves.",
+        constraints="Offline example. No repository, credentials or command runtime is needed to explore this plan.",
+        outOfScope="Retry-safe storage and concurrent imports.",
+        decisions="Keep validation separate from storage; review rejected-row handling before implementation.",
+        assumptions="Each record is a dictionary; storage errors need a separate decision.",
+    )
+    task_id = str(uuid4())
+    content["buildTasks"] = [
+        {"id": task_id, "title": "Validate records before saving", "deliverable": "Skip rows without an identifier before storage is called.",
+         "nodeLinks": [{"nodeId": ids["check"], "diagramId": diagram["id"], "title": "Record valid?", "missing": False}],
+         "prerequisiteIds": [], "expectedFiles": ["importer.py", "tests/test_importer.py"],
+         "acceptanceChecks": [{"id": str(uuid4()), "text": "A valid record reaches storage once."},
+                              {"id": str(uuid4()), "text": "A row without an identifier never reaches storage."}], "status": "not_started"},
+        {"id": str(uuid4()), "title": "Report successful imports", "deliverable": "Return a count incremented only after a successful save.",
+         "nodeLinks": [{"nodeId": ids["save"], "diagramId": diagram["id"], "title": "Save & count", "missing": False}],
+         "prerequisiteIds": [task_id], "expectedFiles": ["importer.py"],
+         "acceptanceChecks": [{"id": str(uuid4()), "text": "The count excludes malformed and unsaved records."}], "status": "not_started"},
     ]
     return validate_content(content)
