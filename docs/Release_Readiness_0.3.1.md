@@ -96,3 +96,46 @@ database migration or authority grant. Old evidence is not upgraded, and the
 documented paused-v1-run/unbound-handoff recovery rules remain. The brief has one
 stable requirement paragraph, file references remain revision-bound, and handoff
 returns still refer to already-local commits. Any non-blocking polish is deferred.
+
+## Observed release transport repair
+
+PR #1 merged after final-head and integration gates passed. Its actual main commit,
+`7bd8d5ea3ec9803883853e44024ceb6e5e41fc27`, independently passed checks run
+`38571554348`, attempt 1, including both platform suites, 105 installed-wheel
+browser cases per platform, portable smoke and 19 real Docker cases with zero
+skips. Draft preparation run `38574521156` then failed before any tag or release
+was created: GitHub returned HTTP 415 for the Actions artifact archive request.
+
+The transport had coupled binary response handling to an `application/octet-stream`
+Accept header. The Actions archive endpoint negotiates its redirect with
+`application/vnd.github+json`; release assets use `application/octet-stream`.
+The focused publisher correction separates those endpoint contracts while retaining
+binary payload handling, bounded downloads, HTTPS redirects without credentials,
+and all exact-source/artifact/ownership checks. Transport regressions cover the
+distinction; the recorded live preparation failure is separate from fake-API tests.
+
+A read-only live probe using the repaired HTTP adapter downloaded the earlier
+candidate archive `11897828164`, sealed archive `11898771881` and public 0.3.0
+wheel asset `639933747`. All three complete payloads matched the API sizes and
+SHA-256 digests. It performed GET requests only; no release was prepared or
+published by that probe. This validates real content negotiation, not new-source
+release certification.
+
+The original publisher tests passed 46 cases; the added preparation regression
+then failed against the original transport with the same HTTP 415. After repair,
+the publisher and receipt suites passed all 74 cases on local CPython 3.14.3:
+
+```powershell
+.venv/Scripts/python -m pytest -q tests/test_publish_release.py tests/test_release_receipt.py --basetemp output/pytest-publisher-accept-full-20261014 -p no:cacheprovider
+```
+
+The added coverage exercises first preparation and matching retry through the real
+HTTP adapter with a fake server, release-asset fallback without an API digest,
+credential-free redirects, rejection of HTTP redirects and bounded direct/redirected
+payloads. Existing identity, interruption and publication refusal assertions remain.
+
+This change requires its own reviewed head, integration gates and fresh merged-main
+candidate. The successful earlier main run and its sealed artifact `11898771881`
+remain historical evidence and cannot certify the changed source or release notes.
+The final PR/release receipt records the subsequent source, checks and publication
+outcome; version 0.3.1 remains available only while unpublished.

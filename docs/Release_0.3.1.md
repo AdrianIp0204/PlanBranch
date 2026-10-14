@@ -27,6 +27,9 @@ The public 0.3.0 release and its tags and assets remain unchanged.
 - Preparation can resume an owned draft and matching partial uploads. It refuses
   different tags or asset bytes, unrelated drafts, public releases and API errors.
   Publishing is a separate explicit workflow choice after every asset is verified.
+- Actions artifact downloads use the API's archive negotiation media type;
+  release-asset downloads retain binary negotiation. Both preserve exact digest
+  checks and keep credentials out of redirected storage requests.
 
 ## Installation and upgrade
 

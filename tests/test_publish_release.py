@@ -95,11 +95,13 @@ class FakeGitHub:
                 return copy.deepcopy(list(self.assets.values()))
             raise AssertionError((method, path, data))
 
-    def download(self, path):
+    def download(self, path, *, accept):
         with self.lock:
             self.calls.append(("DOWNLOAD", path, None))
             if "/actions/artifacts/" in path:
+                assert accept == "application/vnd.github+json"
                 return self.archives[int(path.split("/")[-2])]
+            assert accept == "application/octet-stream"
             return self.payloads[int(path.split("/")[-1])]
 
     def upload(self, path, data):
@@ -367,10 +369,72 @@ def test_http_adapter_distinguishes_404_from_other_failures(status):
         assert error.value.status == status and "sentinel-credential" not in str(error.value)
 
 
-def test_artifact_redirect_never_forwards_github_credential(monkeypatch):
+def test_preparation_negotiates_actions_archives_and_release_asset_bytes(release, monkeypatch):
+    root, state, files = release
+    api = GitHub("sentinel-credential")
+    downloads = []
+
+    class Opener:
+        def open(self, request, timeout):
+            parsed = urlsplit(request.full_url)
+            path = parsed.path + ("?" + parsed.query if parsed.query else "")
+            assert request.get_header("Authorization") == "Bearer sentinel-credential"
+            if "/actions/artifacts/" in path:
+                downloads.append((path, request.get_header("Accept")))
+                if request.get_header("Accept") != "application/vnd.github+json":
+                    raise urllib.error.HTTPError(request.full_url, 415, "Unsupported Media Type", {}, None)
+                artifact_id = int(parsed.path.split("/")[-2])
+                raise urllib.error.HTTPError(request.full_url, 302, "Found",
+                                             {"Location": f"https://storage.example.invalid/{artifact_id}"}, None)
+            if "/releases/assets/" in path:
+                downloads.append((path, request.get_header("Accept")))
+                assert request.get_header("Accept") == "application/octet-stream"
+                return io.BytesIO(state.payloads[int(parsed.path.split("/")[-1])])
+            assert request.get_header("Accept") == "application/vnd.github+json"
+            if parsed.netloc == "uploads.github.com":
+                result = state.upload(path, request.data)
+            else:
+                data = json.loads(request.data) if request.data is not None else None
+                result = state.request(request.get_method(), path, data)
+            return io.BytesIO(json.dumps(result).encode())
+
+    def signed_download(request, *, timeout):
+        # A bare signed URL carries none of the original authenticated headers.
+        assert isinstance(request, str) and request.startswith("https://storage.example.invalid/")
+        assert timeout == 120
+        return io.BytesIO(state.archives[int(urlsplit(request).path.removeprefix("/"))])
+
+    api.opener = Opener()
+    monkeypatch.setattr("urllib.request.urlopen", signed_download)
+    result = prepare_release(api, root, "owner/repo", state.commit, "123")
+    assert result["draft"] is True
+    assert {name: state.payloads[item["id"]] for name, item in state.assets.items()} == files
+    assert downloads == [
+        ("/repos/owner/repo/actions/artifacts/11/zip", "application/vnd.github+json"),
+        ("/repos/owner/repo/actions/artifacts/10/zip", "application/vnd.github+json"),
+    ]
+
+    first = next(iter(state.assets.values()))
+    del first["digest"]
+    state.calls.clear()
+    assert prepare_release(api, root, "owner/repo", state.commit, "123") == result
+    assert not writes(state)
+    assert (f"/repos/owner/repo/releases/assets/{first['id']}", "application/octet-stream") in downloads
+
+
+DOWNLOAD_ROUTES = [
+    ("/repos/owner/repo/actions/artifacts/11/zip", "application/vnd.github+json"),
+    ("/repos/owner/repo/releases/assets/100", "application/octet-stream"),
+]
+
+
+@pytest.mark.parametrize("path,accept", DOWNLOAD_ROUTES)
+def test_download_redirect_never_forwards_github_credential(monkeypatch, path, accept):
     api = GitHub("sentinel-credential")
     class Opener:
         def open(self, request, timeout):
+            assert request.get_header("Accept") == accept
+            assert request.get_header("Authorization") == "Bearer sentinel-credential"
             raise urllib.error.HTTPError(request.full_url, 302, "Found", {"Location": "https://storage.example.invalid/signed"}, None)
     api.opener = Opener()
     calls = []
@@ -378,5 +442,36 @@ def test_artifact_redirect_never_forwards_github_credential(monkeypatch):
         calls.append((request, kwargs))
         return io.BytesIO(b"immutable artifact archive")
     monkeypatch.setattr("urllib.request.urlopen", download)
-    assert api.download("/repos/owner/repo/actions/artifacts/11/zip") == b"immutable artifact archive"
+    assert api.download(path, accept=accept) == b"immutable artifact archive"
     assert calls == [("https://storage.example.invalid/signed", {"timeout": 120})]
+
+
+@pytest.mark.parametrize("path,accept", DOWNLOAD_ROUTES)
+def test_download_refuses_non_https_redirect(monkeypatch, path, accept):
+    api = GitHub("sentinel-credential")
+    class Opener:
+        def open(self, request, timeout):
+            raise urllib.error.HTTPError(request.full_url, 302, "Found",
+                                         {"Location": "http://storage.example.invalid/signed"}, None)
+    api.opener = Opener()
+    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: pytest.fail("Unsafe redirect was followed"))
+    with pytest.raises(ValueError, match="HTTPS"):
+        api.download(path, accept=accept)
+
+
+@pytest.mark.parametrize("path,accept", DOWNLOAD_ROUTES)
+@pytest.mark.parametrize("redirect", [False, True])
+def test_download_bounds_direct_and_redirected_payloads(monkeypatch, path, accept, redirect):
+    api = GitHub("sentinel-credential")
+    monkeypatch.setattr("scripts.publish_release.MAX_ARCHIVE", 16)
+    class Opener:
+        def open(self, request, timeout):
+            assert request.get_header("Accept") == accept
+            if redirect:
+                raise urllib.error.HTTPError(request.full_url, 302, "Found",
+                                             {"Location": "https://storage.example.invalid/signed"}, None)
+            return io.BytesIO(b"x" * 17)
+    api.opener = Opener()
+    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: io.BytesIO(b"x" * 17))
+    with pytest.raises(ValueError, match="size limit"):
+        api.download(path, accept=accept)
