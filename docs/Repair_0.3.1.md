@@ -224,3 +224,10 @@ An incomplete GitHub upload whose bytes cannot be proven is preserved for explic
 inspection rather than deleted or overwritten automatically. Real paid-provider
 integration is outside these gates; deterministic provider fixtures exercise the
 application workflow without external billing.
+
+## Subsequent release-readiness pass
+
+The preceding no-publication record describes the completed repair at `9acbee1`.
+Adrian subsequently authorized the focused polling repair, merge and publication
+after fresh exact-source gates. See [release readiness](Release_Readiness_0.3.1.md)
+for that separate pass; earlier test receipts still certify only their own commits.

@@ -4,7 +4,7 @@
 
 Connect what you intended → what you approved → what an agent changed → what was checked → what you applied. Discuss a coding goal beside an editable diagram, preserve alternative designs, and build one selected task in an isolated Git worktree or your existing editor.
 
-**[Downloads and release status](https://github.com/AdrianIp0204/PlanBranch/releases)** · [Offline quick start](#try-it-offline) · [Current roadmap and validation gates](docs/Product_Roadmap.md)
+**[Downloads and release status](https://github.com/AdrianIp0204/PlanBranch/releases/latest)** · [Offline quick start](#try-it-offline) · [Current roadmap and validation gates](docs/Product_Roadmap.md)
 
 Published packages appear on the Releases page. A CI artifact or draft release is a prepared build, not a public release. Source installation remains available below.
 
@@ -43,7 +43,7 @@ Published packages appear on the Releases page. A CI artifact or draft release i
 
 ## Windows portable package
 
-Extract the **PlanBranch 0.3.0 Windows x64** ZIP from a published release (or a clearly identified CI artifact) to a new ordinary folder and run `planbranch.cmd`. Open **[127.0.0.1:4310](http://127.0.0.1:4310)**. The package contains Python and the built interface; Node, a Python installation and a frontend build are unnecessary. `flowdesk.cmd` remains a compatible alias. Release artifacts include SHA-256 checksums and their source commit.
+Extract the **PlanBranch 0.3.1 Windows x64** ZIP from a published release (or a clearly identified CI artifact) to a new ordinary folder and run `planbranch.cmd`. Open **[127.0.0.1:4310](http://127.0.0.1:4310)**. The package contains Python and the built interface; Node, a Python installation and a frontend build are unnecessary. `flowdesk.cmd` remains a compatible alias. Release artifacts include SHA-256 checksums and their source commit.
 
 The first screen shows the selected provider’s connection status. **New project** and **Load example** remain usable without a model connection. Cloud connections require an explicit metadata check; key presence alone is not a verified connection. Reopen the check through **Layout → Provider connection**. Setup links do not install anything automatically.
 
@@ -90,7 +90,7 @@ npm run build --prefix frontend
 
 </details>
 
-For an already-built wheel, run `python -m pip install flowdesk-0.3.0-py3-none-any.whl` in a Python 3.14 environment, then run `planbranch`, `flowdesk` or `python -m flowdesk`. Pip needs the declared dependencies locally or permission to download them. Node and the source checkout are unnecessary. The distribution and module retain the `flowdesk` name for compatibility.
+For an already-built wheel, run `python -m pip install flowdesk-0.3.1-py3-none-any.whl` in a Python 3.14 environment, then run `planbranch`, `flowdesk` or `python -m flowdesk`. Pip needs the declared dependencies locally or permission to download them. Node and the source checkout are unnecessary. The distribution and module retain the `flowdesk` name for compatibility.
 
 The editor, scanner and exports work offline. Dependency downloads and optional cloud requests need internet access. The Python launcher serves both the interface and API; a separate frontend server is unnecessary.
 
@@ -149,7 +149,7 @@ python scripts/build_release.py
 
 Browser tests use disposable data, repositories and deterministic agents; external browser requests are blocked. Install Playwright Chromium once, then run `npm run test:e2e --prefix frontend`. Set `FLOWDESK_PYTHON` and `FLOWDESK_APP_ROOT` to test an installed package. See [VALIDATION.md](VALIDATION.md) for results, platform gaps and release receipts.
 
-After the wheel build, `python scripts/build_windows_portable.py` prepares the portable archive using pinned, hash-checked runtime inputs. The build supports a verified cache for offline reuse. `scripts/smoke_windows_portable.py` checks the extracted application outside the source checkout. CI retains Linux source/wheel checks and generates Windows portable artifacts without publishing a release.
+After the wheel build, `python scripts/build_windows_portable.py` prepares the portable archive using pinned, hash-checked runtime inputs. The build supports a verified cache for offline reuse. `scripts/smoke_windows_portable.py` checks the extracted application outside the source checkout. CI tests one frozen wheel/portable candidate on Ubuntu and Windows and seals it only after all gates pass. Publication uses the existing release workflow with the successful checks run for the actual merged main commit; it reuses those tested bytes without rebuilding. Local builds and draft releases are not published releases.
 
 Focused bug reports and pull requests are welcome. Include reproduction steps and your platform; use sample projects when sharing data or screenshots.
 

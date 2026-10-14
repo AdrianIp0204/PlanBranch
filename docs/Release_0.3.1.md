@@ -11,6 +11,10 @@ The public 0.3.0 release and its tags and assets remain unchanged.
   acceptance. Existing interrupted operations retain their original recovery bounds.
 - Concurrent execution polling and journal writes are serialized, preventing a
   Windows file-sharing race while retaining pending commands and no-replay rules.
+- External verification status refresh recovers automatically from transient
+  connection/server failures with bounded backoff. Manual refresh remains
+  available; obsolete requests are cancelled and cannot replace newer results.
+  Status recovery never restarts a check or changes its start request identity.
 - Handoffs prefer the explicitly selected execution repository, freeze its identity
   and preserve planning-only exports for ordinary scanner folders. A separate
   verify-without-editing action checks an exact imported candidate without a provider.
@@ -26,10 +30,15 @@ The public 0.3.0 release and its tags and assets remain unchanged.
 
 ## Installation and upgrade
 
-When this version is published, extract `PlanBranch-0.3.1-windows-x64.zip` into a new
+To install this version, extract `PlanBranch-0.3.1-windows-x64.zip` into a new
 folder and run `planbranch.cmd`, or install `flowdesk-0.3.1-py3-none-any.whl` with
 Python 3.14 or newer. Stop the existing application and back up its data directory,
 including execution worktrees, before upgrading. Do not overwrite a running install.
+
+No new database migration is introduced. Historical writable observations retain
+their original evidence label. Paused v1 native coding runs require a fresh preview;
+old unbound handoffs require re-export before new local verification. Existing
+checkpoints and retained work remain available.
 
 The receipt `release-manifest.json` records the source commit, checks run and attempt,
 immutable candidate identity, required gates and artifact hashes. Compare downloads
@@ -40,3 +49,5 @@ with `SHA256SUMS.txt`. Drafts and CI artifacts are prepared builds, not public r
 The release workflow refuses publication until the exact source commit has a
 successful push/dispatch checks run containing its tested artifact bundle. Patch
 preparation and regression tests do not by themselves establish public availability.
+Publication uses a fresh successful checks run and sealed bundle for the actual
+merged main commit. Earlier PR-head artifacts are never relabelled as merge evidence.

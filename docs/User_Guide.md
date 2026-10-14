@@ -217,7 +217,7 @@ After building the frontend, create a wheel containing the Python application an
 .\.venv\Scripts\python.exe scripts/build_release.py
 ```
 
-Install `dist/flowdesk-0.3.0-py3-none-any.whl` in a Python 3.14 environment with `python -m pip install path/to/flowdesk-0.3.0-py3-none-any.whl`, then run `python -m flowdesk`. Node and the source checkout are unnecessary for this installed application. Installing Python dependencies requires internet access unless you provide a local package cache; the editor, scanner, and exports work offline. Optional Codex chat still requires internet access.
+Install `dist/flowdesk-0.3.1-py3-none-any.whl` in a Python 3.14 environment with `python -m pip install path/to/flowdesk-0.3.1-py3-none-any.whl`, then run `python -m flowdesk`. Node and the source checkout are unnecessary for this installed application. Installing Python dependencies requires internet access unless you provide a local package cache; the editor, scanner, and exports work offline. Optional Codex chat still requires internet access.
 
 Dependency versions are recorded in `requirements.lock`, `pyproject.toml`, and `frontend/package-lock.json`. Runtime/test results and platform limitations are recorded in [VALIDATION.md](../VALIDATION.md). The Windows/Linux CI workflow builds a wheel and runs the browser suites against that installed package.
 
@@ -287,7 +287,7 @@ Use `planbranch.cmd --port 4320 --data-dir "D:\PlanBranch data"` for a different
 
 `planbranch.cmd backup` backs up SQLite into the configured data folder. It does not copy execution worktrees. For complete recovery, stop the server and copy the entire data directory and relevant repositories. Removing the extracted app folder uninstalls the portable app but does not delete your data, Codex or Git. Retained coding worktrees may contain unaccepted work; do not delete them without reviewing it.
 
-Maintainers build the wheel with `python scripts/build_release.py`, then create the portable archive with `python scripts/build_windows_portable.py`. Runtime and dependency downloads are pinned and checked by hash; a verified local cache supports offline rebuilding. The package includes licenses and an input/file manifest. Run `scripts/smoke_windows_portable.py` against the artifact to verify it from a separate disposable directory. CI is configured to upload build artifacts; local builds do not publish releases.
+Maintainers build the wheel with `python scripts/build_release.py`, then create the portable archive with `python scripts/build_windows_portable.py`. Runtime and dependency downloads are pinned and checked by hash; a verified local cache supports offline rebuilding. The package includes licenses and an input/file manifest. Run `scripts/smoke_windows_portable.py` against the artifact to verify it from a separate disposable directory. CI tests and seals a frozen wheel/portable candidate. Release preparation and promotion reuse the bundle from a successful exact-SHA checks run on merged main; they do not rebuild tested assets. Local builds and drafts do not establish publication. Use the latest published release on GitHub for current downloads.
 
 
 ## Appearance, preferences and startup
