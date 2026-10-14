@@ -91,7 +91,28 @@ cases skipped** because this machine has no available Linux Docker daemon:
 
 The complete local frontend suite passed **329 tests across 37 files** using
 `npm test --prefix frontend` (90.69 seconds, log `output/repair-frontend-final.log`).
+An earlier full local integration attempt completed with 787 passed, 30 skipped
+and three failures while the repairs were changing. Those failures concerned the
+stricter included-output identity, a partial-service prerequisite fixture, and a
+test double incorrectly labelled as immutable evidence. After repair, an explicit
+rerun of all three passed (65.69 seconds):
+
+```powershell
+.venv/Scripts/python.exe -m pytest -q tests/test_authority_audit.py::test_ignored_source_drift_requires_fresh_candidate_review_for_all_actions tests/test_authority_audit.py::test_reapproved_scope_and_restored_plan_do_not_reactivate_applied_history tests/test_external_verification.py::test_external_verification_runs_one_selected_check_and_preserves_external_authority --basetemp=output/repair-final-previous-failures -p no:cacheprovider
+```
+
+The final complete suites run again on CI from a clean committed source tree.
 Release receipt/publisher regressions passed 60 cases plus six HTTP adapter cases.
+The exact local commands were:
+
+```powershell
+.venv/Scripts/python -m pytest -q tests/test_release_receipt.py tests/test_publish_release.py -p no:cacheprovider --basetemp=output/release-tests-final
+.venv/Scripts/python -m pytest -q tests/test_publish_release.py -k 'http_adapter or artifact_redirect' -p no:cacheprovider --basetemp=output/release-transport-final
+.venv/Scripts/python -m pytest -q tests/test_publish_release.py -k 'first_preparation or matching_retry or concurrent_matching or http_adapter or artifact_redirect' -p no:cacheprovider --basetemp=output/release-final-promotion
+```
+
+The last overlapping confirmation passed 11 cases; it is not counted as 11 new
+tests. The first run collected before the six transport cases were added.
 The scanner error-handling follow-up passed ten focused cases. The comparison
 navigation follow-up passed eight component tests, TypeScript and the production
 build. These commands exercised the current production UI without paid providers:
@@ -115,6 +136,22 @@ the later result to replace an earlier failure. Ingestion now preserves bounded
 full IDs and rejects invalid IDs instead of truncating them. The regression runs
 the actual native tool loop with signed streaming/final fixture events and keeps
 both observations, without claiming that its fixture is real Docker evidence.
+
+A final scenario audit added explicit coverage for two simultaneously selected
+valid repositories, rejected/interrupted prerequisite results, dependency list
+edits and task node/file-reference changes. The two-repository service regression
+passed and the complete readiness/semantic matrix passed **29 cases**. Its card
+checks also reject any provider status/configuration probe. Reordering unordered
+dependencies/references retains approval and comparison equivalence; meaning
+changes invalidate the corresponding task approval and produce readable fields.
+
+```powershell
+.venv/Scripts/python.exe -m pytest -q tests/test_readiness_semantics.py -p no:cacheprovider --basetemp output/pytest-readiness-explicit-final
+.venv/Scripts/python.exe -m pytest -q tests/test_readiness_semantics.py -k file_reference_removed -p no:cacheprovider --basetemp output/pytest-readiness-file-reference-final
+```
+
+The second command confirms the actual filename-removal case (1 passed, 28
+deselected) after tightening that fixture.
 
 Initial pushed repair commit `85d9e1a727f0b7d39b0de438d5fbbe8480cde04a`
 ran real Docker regressions in push run `38553478270` and PR run `38553485382`:

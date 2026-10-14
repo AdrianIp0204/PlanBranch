@@ -51,6 +51,74 @@ def test_execution_repository_takes_precedence_over_unrelated_scanner_attachment
     assert exported["manifest"]["repositorySelection"] == "execution"
 
 
+def test_two_valid_repositories_keep_export_return_and_local_verification_on_execution_selection(fixture, tmp_path):
+    from test_execution import finish
+    source, store, project, _, executor, execution = fixture
+    scanner = tmp_path / "different-valid-scanner-repository"
+    scanner.mkdir()
+    git(scanner, "init")
+    git(scanner, "config", "user.name", "PlanBranch fixture")
+    git(scanner, "config", "user.email", "fixture@example.invalid")
+    (scanner / "main.py").write_text("value = 9000\n")
+    git(scanner, "add", ".")
+    git(scanner, "commit", "-m", "Independent scanner baseline")
+    scanner_identity = execution.git.inspect_repository(scanner)
+    assert scanner_identity["dirty"] is False
+    attach_source(fixture, scanner)
+    service, exported = package(fixture)
+    manifest = exported["manifest"]
+    selected = execution.state(project["id"])["repository"]
+    assert manifest["repositorySelection"] == "execution"
+    assert manifest["baseCommit"] == git(source, "rev-parse", "HEAD").strip()
+    assert manifest["baseCommit"] != scanner_identity["head"]
+    with closing(store.connect()) as db:
+        saved = json.loads(db.execute("SELECT repository FROM task_handoffs WHERE id=?", (manifest["handoffId"],)).fetchone()[0])
+        assert saved["selection"] == {"kind": "execution", "id": selected["id"]}
+        assert all(saved[key] == selected[key] for key in ("path", "gitDir", "commonDir"))
+        assert db.execute("SELECT root FROM source_attachments WHERE project_id=?", (project["id"],)).fetchone()[0] == str(scanner.resolve())
+
+    payload = returned_commit(fixture, exported)
+    # The unrelated scanner remains a valid, clean repository at a new commit.
+    # Its drift must not influence import or compatibility of the execution repo.
+    (scanner / "main.py").write_text("value = 9001\n")
+    git(scanner, "add", ".")
+    git(scanner, "commit", "-m", "Unrelated scanner change")
+    scanner_after = execution.git.inspect_repository(scanner)
+    assert scanner_after["dirty"] is False and scanner_after["head"] != scanner_identity["head"]
+    result = service.import_result(project["id"], manifest["handoffId"], payload)
+    assert [file["path"] for file in result["files"]] == ["main.py"]
+    assert "+value = 2" in result["files"][0]["diff"] and "9001" not in result["files"][0]["diff"]
+    assert service.state(project["id"], manifest["taskId"])["results"][0]["compatibilityIssues"] == []
+    bound = execution.verification_binding(project["id"], result["id"])
+    assert bound["repository"]["path"] == str(source.resolve())
+    assert bound["candidateCommit"] == payload["candidateCommit"] != scanner_after["head"]
+
+    class RoutingProbe:
+        """Only exercises routing; it makes no Docker isolation/evidence claim."""
+        calls = []
+        def configure(self):
+            return {"version": "routing-test-double", "available": True, "imageLabel": "No Docker runtime exercised"}
+        def verify(self, policy, worktree, arguments, key, cancel, on_event):
+            self.calls.append(Path(worktree))
+            assert (Path(worktree) / "main.py").read_text() == "value = 2\n"
+            return {"executed": True, "command": {"id": key, "command": arguments["command"],
+                "status": "completed", "exitCode": 0, "output": "Routing fixture only"}}
+    runner = RoutingProbe()
+    execution._command_runner = runner
+    preview = service.preview_verification(project["id"], result["id"], {
+        "contentHash": result["contentHash"], "command": "explicit routing check", "timeoutSeconds": 30})
+    assert preview["ready"] and preview["preview"]["repository"]["path"] == str(source.resolve()), preview
+    assert preview["preview"]["sourceCommit"] == payload["candidateCommit"]
+    started = service.start_verification(project["id"], result["id"], mutation(previewId=preview["preview"]["id"], confirmed=True))["run"]
+    run = finish(execution, project["id"], started["id"])
+    assert run["state"] == "succeeded" and run["executionMode"] == "immutable_verification", run
+    assert run["repository"]["path"] == str(source.resolve()) and run["sourceCommit"] == payload["candidateCommit"]
+    assert len(runner.calls) == 1 and executor.contexts == [] and run["artifact"]["files"] == []
+    assert (source / "main.py").read_text() == "value = 2\n"
+    assert (scanner / "main.py").read_text() == "value = 9001\n"
+    assert git(scanner, "rev-parse", "HEAD").strip() == scanner_after["head"]
+
+
 @pytest.mark.parametrize("subdirectory", [False, True])
 def test_scanner_only_non_repository_exports_a_planning_package_without_expanding_root(fixture, tmp_path, subdirectory):
     source, store, project, planning, _, execution = fixture

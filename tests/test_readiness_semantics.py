@@ -72,6 +72,59 @@ def test_meaning_changes_always_have_readable_comparison_fields(plans):
         assert any(field["after"] == parent[path[-1]] for field in differences), path
 
 
+@pytest.mark.parametrize("change,field,meaning_changes", [
+    ("dependency_added", "prerequisiteIds", True),
+    ("dependency_removed", "prerequisiteIds", True),
+    ("dependencies_reordered", "prerequisiteIds", False),
+    ("node_reference_added", "nodeLinks", True),
+    ("node_reference_removed", "nodeLinks", True),
+    ("node_reference_replaced", "nodeLinks", True),
+    ("node_references_reordered", "nodeLinks", False),
+    ("file_reference_changed", "expectedFiles", True),
+    ("file_reference_added", "expectedFiles", True),
+    ("file_reference_removed", "expectedFiles", True),
+])
+def test_dependency_and_reference_comparison_matches_persisted_approval(plans, change, field, meaning_changes):
+    store, project, planning, service = plans
+    content = deepcopy(project["content"])
+    diagram = content["diagrams"][0]
+    prerequisite_a, prerequisite_b, prerequisite_c = [task(name) for name in ("Database", "Schema", "Migration")]
+    target = content["buildTasks"][0]
+    target["prerequisiteIds"] = [prerequisite_a["id"], prerequisite_b["id"]]
+    target["nodeLinks"] = [task(node=node, diagram=diagram)["nodeLinks"][0] for node in diagram["nodes"][:2]]
+    content["buildTasks"].extend([prerequisite_a, prerequisite_b, prerequisite_c])
+    baseline = save(store, project, content)
+    checkpoint = mutate(plans, "checkpoint", name="Approved dependencies and references")
+    planning.approve(project["id"], mutation(baseRevision=baseline["revision"]))
+    changed = deepcopy(baseline["content"])
+    changed_task = changed["buildTasks"][0]
+    if change == "dependency_added": changed_task["prerequisiteIds"].append(prerequisite_c["id"])
+    elif change == "dependency_removed": changed_task["prerequisiteIds"].pop()
+    elif change == "dependencies_reordered": changed_task["prerequisiteIds"].reverse()
+    elif change == "node_reference_added": changed_task["nodeLinks"].append(task(node=diagram["nodes"][2], diagram=diagram)["nodeLinks"][0])
+    elif change == "node_reference_removed": changed_task["nodeLinks"].pop()
+    elif change == "node_reference_replaced": changed_task["nodeLinks"][0] = task(node=diagram["nodes"][2], diagram=diagram)["nodeLinks"][0]
+    elif change == "node_references_reordered": changed_task["nodeLinks"].reverse()
+    elif change == "file_reference_changed": changed_task["expectedFiles"][0] = "src/importer.py"
+    elif change == "file_reference_added": changed_task["expectedFiles"].append("tests/test_importer.py")
+    elif change == "file_reference_removed": changed_task["expectedFiles"].pop(0)
+    current = save(store, baseline, changed)
+    approval = planning.state(project["id"])["approval"]
+    comparison = service.compare(project["id"], checkpoint["snapshotId"])
+    assert approval["current"] is not meaning_changes
+    assert approval["taskScopes"][target["id"]]["current"] is not meaning_changes
+    assert (semantic_fingerprint(baseline["content"]) != semantic_fingerprint(current["content"])) is meaning_changes
+    assert (comparison["beforeHash"] != comparison["afterHash"]) is meaning_changes
+    if not meaning_changes:
+        assert comparison["changes"] == []
+    else:
+        differences = [item for section in comparison["changes"] for item in section["fields"]]
+        selected = next(item for item in differences if item["path"] == f'/tasks/{target["id"]}/{field}')
+        assert selected["label"] and selected["before"] != selected["after"]
+        assert selected["kind"] == "changed"
+    assert comparison["historyChanges"] == []
+
+
 def test_verification_guidance_never_suggests_implementation_acceptance(fixture):
     _, store, project, planning, _, execution = fixture
     preview = prepare(fixture)
@@ -110,6 +163,8 @@ def test_workflow_does_not_call_manually_done_prerequisite_ready(fixture):
 @pytest.mark.parametrize("state,code,action", [
     ("incomplete", "prerequisite_incomplete", "open_task"),
     ("unaccepted", "prerequisite_review_required", "review_result"),
+    ("rejected", "prerequisite_review_required", "review_result"),
+    ("interrupted", "prerequisite_review_required", "review_result"),
     ("uncompleted", "prerequisite_completion_required", "finish_task"),
     ("unapplied", "prerequisite_apply_required", "apply_changes"),
     ("uncommitted", "prerequisite_commit_required", "commit_changes"),
@@ -135,9 +190,12 @@ def test_workflow_and_preview_share_prerequisite_codes_references_and_actions(fi
     if state == "changed_scope": snapshot["content"]["buildTasks"][0]["deliverable"] = "Earlier deliverable"
     run_id = str(uuid4())
     with closing(store.connect()) as db, db:
-        db.execute("INSERT INTO execution_runs(id,project_id,preview_id,state,snapshot,accepted_digest,completed_cursor,applied,created_at,updated_at) VALUES(?,?,?,'succeeded',?,?,?,?,?,?)",
-            (run_id, project["id"], str(uuid4()), encode(snapshot), None if state == "unaccepted" else "reviewed-artifact",
-             None if state == "uncompleted" else "completed-history", 0 if state == "unapplied" else 1, now(), now()))
+        db.execute("INSERT INTO execution_runs(id,project_id,preview_id,state,snapshot,artifact_digest,accepted_digest,rejected_digest,completed_cursor,applied,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            (run_id, project["id"], str(uuid4()), "interrupted" if state == "interrupted" else "succeeded", encode(snapshot), "reviewed-artifact",
+             None if state in {"unaccepted", "rejected", "interrupted"} else "reviewed-artifact",
+             "reviewed-artifact" if state == "rejected" else None,
+             None if state in {"uncompleted", "rejected", "interrupted"} else "completed-history",
+             0 if state in {"unapplied", "rejected", "interrupted"} else 1, now(), now()))
         if state == "missing_repository": db.execute("DELETE FROM execution_repositories WHERE project_id=?", (project["id"],))
         if state == "verification_after_ready":
             db.execute("INSERT INTO execution_runs(id,project_id,preview_id,state,snapshot,created_at,updated_at) VALUES(?,?,?,'succeeded',?,'9999','9999')",
@@ -149,7 +207,12 @@ def test_workflow_and_preview_share_prerequisite_codes_references_and_actions(fi
     monkeypatch.setattr(execution.git, "contains_artifact", contains)
     source_before = (source / "main.py").read_bytes()
     preview = execution.preview(project["id"], {"taskId": dependent["id"]})
-    workflow = TraceabilityService(store, planning, execution).workflow(project["id"], dependent["id"])
+    with monkeypatch.context() as guard:
+        def unexpected_probe(*args, **kwargs): pytest.fail("Task guidance must not probe or configure a provider")
+        for provider in (planning.planner, execution._executor):
+            guard.setattr(provider, "status", unexpected_probe)
+            guard.setattr(provider, "configure", unexpected_probe, raising=False)
+        workflow = TraceabilityService(store, planning, execution).workflow(project["id"], dependent["id"])
     assert workflow["prerequisiteIssues"] == preview["prerequisiteIssues"]
     issues = preview["prerequisiteIssues"]
     if code is None:
