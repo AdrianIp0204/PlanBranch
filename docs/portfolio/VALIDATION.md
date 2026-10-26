@@ -4,7 +4,7 @@ This audit uses Windows, Python 3.14.3, Node 24.14.0 and npm 11.9.0. The portabl
 
 Source identification: baseline `60fc36b4f8a0f0d14e2c5137b77f05e9f5d8d665` plus the feature-branch changes identified in [source-manifest.json](evidence/source-manifest.json). The fixture receipt separately fingerprints its inputs before and after execution. The local wheel and portable package are validation candidates with unchanged package version, not new release artifacts.
 
-## Results
+## Local results
 
 | Check | Recorded result | Scope |
 | --- | --- | --- |
@@ -17,11 +17,25 @@ Source identification: baseline `60fc36b4f8a0f0d14e2c5137b77f05e9f5d8d665` plus 
 | Genuine offline UI capture | **Passed** | One capture scenario, four screenshots; no model generation, repository or execution record. |
 | Final-source wheel and offline portable builds | **Passed** | Separate audit candidates; existing `dist/` untouched. |
 | Focused final installed-wheel browser checks | **5 passed**, 0 failed/skipped | 511.42 seconds; complete execution/review/application, cancellation/restart, failed checks/stale approval, offline walkthrough and alternatives. |
-| Local broad backend and installed-wheel browser suites | **Incomplete / not passing** | Storage exhaustion interrupted validation; the existing repository CI remains the broad final-source gate. |
+| Local broad backend and installed-wheel browser suites | **Incomplete / not passing** | Storage exhaustion interrupted validation; completed remote CI results are recorded separately below. |
 | Final portable smoke | **Passed** | Rebuilt candidate includes the polling repair; bundled imports, launch/restart, durable history, scanner, backup and worker cancellation checked. |
-| Live Docker isolation/immutable verification | **Not run** | Daemon probe timed out; execution image unset. |
+| Local live Docker isolation/immutable verification | **Not run** | Daemon probe timed out; execution image unset. |
 
 Logs are retained locally under ignored `output/portfolio-audit/`; sanitized [check results](evidence/validation.json), [source identity](evidence/source-manifest.json) and [artifact preservation](evidence/preservation.json) are public. No aggregate pass is inferred from an incomplete log or from a shell wrapper's exit status when its output could not be written.
+
+## Remote CI results
+
+The [completed push check run](https://github.com/AdrianIp0204/PlanBranch/actions/runs/40305680461) passed every job on commit `77a9678f89aec4232bb28af3025dfc8fd8cecd14`, Git tree `2ad66c571713cb7928b61bd2e7f2170d6e26499e`. The parallel PR integration commit `5caf5b8da2b263f4410ee757aee4aaa374737d72` has the same tree; this equality was checked directly. The [CI receipt](evidence/ci-validation.json) records job identities and actual outcomes separately from the local attempts. The final follow-up changes only portfolio documentation/evidence; application, tests, fixtures and build source remain those of the tested commit.
+
+| CI gate | Observed result |
+| --- | --- |
+| Build | Production frontend, wheel and Windows portable candidate built successfully. |
+| Linux | 889 backend tests passed, 22 skipped; 366 frontend tests passed; 105 installed-wheel browser tests passed with no failures or skips. Candidate integrity checked before and after testing. |
+| Live Docker | 19 passed, zero failures/skips, in 17.76 seconds. Actual container isolation and immutable-verification tests ran on Linux. |
+| Windows | 884 backend tests passed, 27 skipped; 366 frontend tests passed; 105 installed-wheel browser tests passed with no failures or skips. Standalone portable smoke and candidate integrity checks passed. |
+| Final candidate seal | Passed after build, both platform jobs and Docker completed. The tested candidate remains a CI artifact, not a published release. |
+
+Linux's 22 skips are consistent with the configured 19 opt-in Docker cases and three Windows-only cases. Windows's 27 skips include 19 Docker and five POSIX cases statically gated in source; the quiet CI log does not name the three additional environment-dependent skips individually. The Docker cases ran in the separate required job. Skips are reported, not counted as passes, and overlapping platform counts are not summed. These observations do not erase the earlier local failures, and no CI artifact was published as a release.
 
 ## Environment failures retained in the record
 
@@ -56,6 +70,6 @@ For portable checks, supply an explicit new output location to `scripts/build_wi
 
 No database schema, migration, import version, provider consent policy, sandbox policy, automatic execution mode or release workflow was changed. Existing user databases were not opened or migrated by the audit. Compatibility evidence concerns disposable historical-schema fixtures and package restart/backup checks; it does not claim to examine private saved projects.
 
-Live Docker isolation was unavailable: `docker info` timed out after 15 seconds and `PLANBRANCH_EXECUTION_IMAGE` was unset. The explicit Docker-gated cases therefore remain a required CI/platform gate; deterministic fixtures do not substitute for them. No real model execution, cloud billing, human review-time observation, multi-user study, Linux run or new accessibility certification is claimed here.
+Live Docker isolation was unavailable locally: `docker info` timed out after 15 seconds and `PLANBRANCH_EXECUTION_IMAGE` was unset. The separate remote CI job subsequently ran all 19 live cases successfully; deterministic fixtures do not substitute for them. No real model execution, paid model calls, human review-time observation, multi-user study or new accessibility certification is claimed here. Linux observations come from CI, not the local Windows host.
 
 The public v0.3.1 release and its asset digests are compared without publishing or editing a release. Readable pre-existing local `dist/` files are also hash-compared; unreadable historical files are outside byte-verification coverage. The package smoke and browser checks use newly built audit candidates only. See the [evidence register](EVIDENCE_REGISTER.md) for claim-level limits.

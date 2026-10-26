@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-10-26",
+  "repository": "AdrianIp0204/PlanBranch",
+  "pullRequest": "https://github.com/AdrianIp0204/PlanBranch/pull/3",
+  "testedCommit": "77a9678f89aec4232bb28af3025dfc8fd8cecd14",
+  "gitTree": "2ad66c571713cb7928b61bd2e7f2170d6e26499e",
+  "workflowRunId": 40305680461,
+  "workflowRunUrl": "https://github.com/AdrianIp0204/PlanBranch/actions/runs/40305680461",
+  "event": "push",
+  "attempt": 1,
+  "status": "passed",
+  "jobs": [
+    {
+      "id": 121514074728,
+      "name": "build",
+      "status": "passed",
+      "description": "Production frontend, wheel and Windows portable candidate; uploaded immutable candidate.",
+      "candidateArtifactId": 12643115460
+    },
+    {
+      "id": 121514074239,
+      "name": "docker",
+      "status": "passed",
+      "tests": 19,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 17.76,
+      "python": "3.14.8",
+      "evidenceArtifactId": 12643005231
+    },
+    {
+      "id": 121514461865,
+      "name": "test (ubuntu-latest)",
+      "status": "passed",
+      "backend": {
+        "passed": 889,
+        "skipped": 22,
+        "seconds": 74.61
+      },
+      "frontend": {
+        "passed": 366,
+        "files": 37,
+        "seconds": 18.42
+      },
+      "browser": {
+        "passed": 105,
+        "failed": 0,
+        "skipped": 0,
+        "seconds": 378.029716882
+      },
+      "candidateIntegrity": "verified before and after tests"
+    },
+    {
+      "id": 121514461822,
+      "name": "test (windows-latest)",
+      "status": "passed",
+      "python": "3.14.9",
+      "backend": {
+        "passed": 884,
+        "skipped": 27,
+        "seconds": 417.05
+      },
+      "frontend": {
+        "passed": 366,
+        "files": 37,
+        "seconds": 37.24
+      },
+      "browser": {
+        "passed": 105,
+        "failed": 0,
+        "skipped": 0,
+        "seconds": 467.5838816
+      },
+      "portableSmoke": "passed",
+      "candidateIntegrity": "verified before and after tests"
+    },
+    {
+      "id": 121522951749,
+      "name": "seal",
+      "status": "passed",
+      "testedArtifactId": 12642254429
+    }
+  ],
+  "skipAccounting": {
+    "linux": "22 skips match 19 explicitly gated Docker cases and three Windows-only cases in source. Docker cases ran separately with zero skips.",
+    "windows": "27 skips. Source statically gates 19 Docker cases and five POSIX cases; the quiet CI log does not individually name the three additional environment-dependent skips. Do not count them as passes.",
+    "overlap": "Platform suites overlap; do not sum their counts as independent coverage."
+  },
+  "candidateDigests": {
+    "wheelSha256": "96d0214a6182b596c0e8bd7629f011ca6bd3e64aa2146cbe63d1f418659dfd63",
+    "portableSha256": "aeba606ef25ae07895534fc8a684d0e1f94b124d93ba3725072dc040e00baea8"
+  },
+  "corroboratingPrSource": {
+    "workflowRunId": 40305723475,
+    "mergeCommit": "5caf5b8da2b263f4410ee757aee4aaa374737d72",
+    "treeMatchesTestedCommit": true
+  },
+  "notes": [
+    "Remote CI observations are distinct from incomplete local broad attempts.",
+    "The final follow-up changes only portfolio documentation/evidence; application, test, fixture and build source remain those of testedCommit.",
+    "The 279-file local source manifest was rechecked without differences before the documentation follow-up.",
+    "These are engineering tests, not model-performance or human-study observations.",
+    "CI builds are candidates and do not publish or replace public releases."
+  ]
+}

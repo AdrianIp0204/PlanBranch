@@ -5,6 +5,7 @@
   "python": "3.14.3",
   "node": "24.14.0",
   "portablePython": "3.14.7",
+  "remoteCiEvidence": "ci-validation.json",
   "sourceManifestSha256": "ad7ddf561fe230ba5055140f2a825df38ab2761fd754fd0f766f096d2f8a78cb",
   "checks": [
     {
@@ -109,7 +110,7 @@
   "limitations": [
     "Do not sum overlapping test counts.",
     "Working-tree byte fingerprints may differ after Git line-ending normalization.",
-    "Existing CI is required for broad final-source Windows/Linux and real Docker gates.",
+    "Remote Windows/Linux and real Docker CI observations are recorded separately in ci-validation.json.",
     "No user database was examined; compatibility observations use synthetic historical fixtures."
   ]
 }

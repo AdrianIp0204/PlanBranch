@@ -22,7 +22,7 @@ The central separation is implemented in backend services, not just button label
 
 **Locations:** [`DockerCommandRunner`](../../flowdesk/command_runner.py#L66), [`executor_process.py`](../../flowdesk/executor_process.py), [`test_command_runner_live.py`](../../tests/test_command_runner_live.py), [`test_immutable_verification_live.py`](../../tests/test_immutable_verification_live.py).
 
-Source configures no network, no image pull, read-only container root, bounded temporary mounts and resource limits. Immutable verification mounts candidate source read-only and writes artifacts separately; Docker executes model commands as user `65534:65534`. Mocked runner tests and connection discovery do not prove the installed OS/Docker/Codex runtime enforces those restrictions. Report live-runtime tests as passed only when they actually run; retain skipped/unavailable results. This audit did not install a runtime, pull an image or run a paid model.
+Source configures no network, no image pull, read-only container root, bounded temporary mounts and resource limits. Immutable verification mounts candidate source read-only and writes artifacts separately; Docker executes model commands as user `65534:65534`. Mocked runner tests and connection discovery do not prove the installed OS/Docker/Codex runtime enforces those restrictions. Report live-runtime tests as passed only when they actually run; retain skipped/unavailable results. No runtime was installed or image pulled on the user's machine. The existing remote CI workflow explicitly provisioned its test image and subsequently passed all 19 live cases with no skips; see [validation](VALIDATION.md). No paid model was run.
 
 ### BND-03 — Product limitation: evidence remains narrower than requirement correctness
 
