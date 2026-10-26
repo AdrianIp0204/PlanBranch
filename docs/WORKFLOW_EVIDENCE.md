@@ -6,6 +6,10 @@ review, rejection, acceptance without application, and application. The underlyi
 run's failed, interrupted, or cancelled state remains visible alongside the review
 action. Closing the dialog does not cancel a run.
 
+The dialog waits for each background status refresh to finish before starting
+another, so slow responses can still update the result. Older responses do not
+replace a newly selected run or an acknowledged cancellation.
+
 ## Decisions remain separate
 
 1. Approve the saved task intent in Planning.
@@ -36,8 +40,10 @@ for incomplete work, missing review, incomplete progress, unapplied changes,
 changes missing from committed HEAD, stale plan/scope, and unavailable evidence.
 Correction buttons open the relevant task or exact recorded result; they do not
 accept, apply, complete, commit or execute anything. Execution checks these facts
-again when a reviewed run is started. Verification-only runs never replace the
-latest implementation result used to establish prerequisite completion.
+again when a reviewed run is started, then rechecks task progress and prerequisites
+after preparing the worktree, before the agent starts. If readiness changed,
+resolve the blocker and review a new preview. Verification-only runs never replace
+the latest implementation result used to establish prerequisite completion.
 
 ## Approval scope version 1
 
