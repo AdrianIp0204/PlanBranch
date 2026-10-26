@@ -64,6 +64,7 @@ export function GuidedExample({ onClose, onLoadExample }: { onClose: () => void;
   const [loading, setLoading] = useState(false);
   useEffect(() => { api<Demo>("/onboarding/example").then(setDemo).catch(e => setError(e.message)); }, []);
   const task = demo?.content.buildTasks?.[0];
+  const dependents = demo?.content.buildTasks?.filter(item => task && item.prerequisiteIds.includes(task.id)) ?? [];
   return <Dialog title="Guided offline example" onClose={onClose} className="onboarding-dialog">
     <p className="demo-label"><strong>Demonstration data.</strong> {demo?.label ?? "No provider, repository or runtime is needed."}</p>
     <ErrorMessage message={error} />
@@ -86,6 +87,8 @@ export function GuidedExample({ onClose, onLoadExample }: { onClose: () => void;
         <h4>{task.title}</h4><p>{task.deliverable}</p><p>Relevant diagram element: {task.nodeLinks[0]?.title}</p>
         <h4>Acceptance criteria</h4><ul>{task.acceptanceChecks.map(c => <li key={c.id}>{c.text}</li>)}</ul>
         <p>Expected files: {task.expectedFiles.join(", ")}. A real Run would separately preview the repository revision, provider, permissions and limits.</p>
+        {dependents.length > 0 && <><h4>What depends on this task?</h4><ul>{dependents.map(item => <li key={item.id}><strong>{item.title}</strong> — {item.deliverable}</li>)}</ul>
+          <p>The sample change covers validation only. Reporting the saved count is a separate dependent task, so reviewing this result does not complete the whole request.</p></>}
       </>}
       {step === 3 && <>
         <h4>Sample change · {demo.change.file}</h4><pre tabIndex={0} aria-label="Example diff">{demo.change.diff}</pre>

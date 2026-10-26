@@ -35,7 +35,7 @@ Published packages appear on the Releases page. A CI artifact or draft release i
 ## Try it offline
 
 1. Install a portable package or wheel using the instructions below and open **[127.0.0.1:4310](http://127.0.0.1:4310)**.
-2. Choose **Guided offline example**. Review a feature brief, select a proposed design, inspect criteria and a sample diff, and record a sample review. All check output is explicitly illustrative; no command runs.
+2. Choose **Guided offline example**. Review a feature brief, select a proposed design, inspect criteria and a sample diff, and record a sample review. The sample diff illustrates validation only; counting saved records remains a separate dependent task. All check output is explicitly illustrative; no command runs.
 3. Choose **Open example project** to explore its real diagram and two dependent Build tasks. The example has no repository attachment, approval, execution grant or test results. **Reset walkthrough** only resets the walkthrough; loading an example always creates a separate project.
 4. Open **Setup capabilities** (also in the **Project** menu) when you want AI planning, code editing or isolated checks. Visual planning needs no account, API key or command runtime. Checks are retryable; nothing installs dependencies automatically.
 
