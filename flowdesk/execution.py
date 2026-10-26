@@ -514,8 +514,19 @@ class ExecutionService:
                     # Creating a worktree may take time. Recheck immediately
                     # before launching; a previous preview never grants later edits.
                     with closing(self.store.connect()) as db:
+                        db.execute("BEGIN")
                         if not self._plan_current(db, project_id, snapshot) or not self._grant_matches(db, project_id, snapshot):
                             raise RuntimeError("The approved plan or repository changed while preparing the worktree. The agent was not started.")
+                        # Progress is deliberately outside semantic approval. It
+                        # still gates execution, including continued question runs.
+                        current = self.planning._current(db, project_id)
+                        tasks = {task["id"]: task for task in current["content"]["buildTasks"]}
+                        task = tasks[snapshot["task"]["id"]]
+                        if task["status"] == "blocked" or (task["status"] == "done" and snapshot.get("executionMode") != "immutable_verification"):
+                            raise RuntimeError("The task became blocked or done while preparing the worktree. The agent was not started. Review its progress before authorizing a new run.")
+                        blockers = self._prerequisite_issues(db, project_id, task, tasks, snapshot["repository"])
+                        if blockers:
+                            raise RuntimeError("Prerequisite readiness changed while preparing the worktree. The agent was not started. " + " ".join(blockers))
                     if not self._source_current(snapshot):
                         raise RuntimeError("The source revision changed while preparing the worktree. The agent was not started.")
                     self._verification_current(project_id, snapshot)

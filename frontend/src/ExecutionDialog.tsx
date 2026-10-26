@@ -191,13 +191,19 @@ export default function ExecutionDialog({
   const hasActive = state?.runs.some(executionActive) || executionActive(run);
   useEffect(() => {
     if (!hasActive) return;
+    let polling = false;
     const timer = setInterval(() => {
-      if (busyRef.current) return;
+      // Slow reads must finish before another poll advances their request tickets.
+      // Selection changes and explicit actions still invalidate stale responses.
+      if (busyRef.current || polling) return;
+      polling = true;
       void (async () => {
         await loadState();
         if (selectedRun.current) await loadRun(selectedRun.current);
       })().catch((reason) => {
         if (alive.current) setError(message(reason));
+      }).finally(() => {
+        polling = false;
       });
     }, 2000);
     return () => clearInterval(timer);

@@ -4,7 +4,7 @@
 
 Connect what you intended → what you approved → what an agent changed → what was checked → what you applied. Discuss a coding goal beside an editable diagram, preserve alternative designs, and build one selected task in an isolated Git worktree or your existing editor.
 
-**[Downloads and release status](https://github.com/AdrianIp0204/PlanBranch/releases/latest)** · [Offline quick start](#try-it-offline) · [Current roadmap and validation gates](docs/Product_Roadmap.md)
+**[Downloads and release status](https://github.com/AdrianIp0204/PlanBranch/releases/latest)** · [Offline quick start](#try-it-offline) · [Engineering case study and reproducible evaluation](docs/portfolio/README.md) · [Current roadmap and validation gates](docs/Product_Roadmap.md)
 
 Published packages appear on the Releases page. A CI artifact or draft release is a prepared build, not a public release. Source installation remains available below.
 
@@ -40,6 +40,8 @@ Published packages appear on the Releases page. A CI artifact or draft release i
 4. Open **Setup capabilities** (also in the **Project** menu) when you want AI planning, code editing or isolated checks. Visual planning needs no account, API key or command runtime. Checks are retryable; nothing installs dependencies automatically.
 
 ![The implemented offline walkthrough showing a labelled illustrative diff and evidence](docs/images/planbranch-offline-example.png)
+
+For a short presentation, follow the [two-minute demonstration](docs/portfolio/DEMO.md). For inspectable evidence, use the [offline evaluation harness](docs/portfolio/EVALUATION.md): it exercises disposable repositories and fixed fixtures without a model connection. These checks demonstrate workflow behaviour; the comparison with direct AI coding and human review has **not yet been conducted**.
 
 ## Windows portable package
 

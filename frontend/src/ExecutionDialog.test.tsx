@@ -1,5 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -214,7 +215,10 @@ beforeEach(() => {
   vi.mocked(post).mockImplementation(((path: string, body: unknown) =>
     write(path, body)) as typeof post);
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 async function open(history = false) {
   const rendered = render(
     <ExecutionDialog
@@ -243,6 +247,89 @@ async function settle() {
 }
 
 describe("execution review and explicit actions", () => {
+  it("installs slow detail polling results without overlapping or granting review authority", async () => {
+    const completed = copy(run);
+    run.state = "running";
+    run.artifact = null;
+    state.runs = [run];
+    vi.useFakeTimers();
+    await act(async () => {
+      render(<ExecutionDialog taskId="task" onClose={vi.fn()} initialHistory />);
+    });
+    state.runs = [completed];
+    const initialRead = read;
+    let detailRequests = 0;
+    read = async (path) => {
+      if (path !== `${base}/runs/run`) return initialRead(path);
+      detailRequests++;
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      return { run: copy(completed) };
+    };
+    for (const milliseconds of [2000, 2000, 1000]) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(milliseconds);
+      });
+    }
+    expect(
+      (screen.getByRole("button", { name: "Accept changes" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+    expect(detailRequests).toBe(1);
+    for (const label of ["Complete task", "Apply to checkout"])
+      expect((screen.getByRole("button", { name: label }) as HTMLButtonElement).disabled).toBe(true);
+    expect(post).not.toHaveBeenCalled();
+  });
+  it("ignores a slow poll after the user selects another historical run", async () => {
+    run.state = "running";
+    const historical = { ...result(), id: "older", summary: "Selected historical result" };
+    state.runs = [run, historical];
+    const initialRead = read;
+    read = async (path) => path === `${base}/runs/older` ? { run: copy(historical) } : initialRead(path);
+    vi.useFakeTimers();
+    await act(async () => {
+      render(<ExecutionDialog taskId="task" onClose={vi.fn()} initialHistory />);
+    });
+    const initialHistoryRead = read;
+    read = async (path) => {
+      if (path !== `${base}/runs/run`) return initialHistoryRead(path);
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      return { run: result() };
+    };
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Execution history"), { target: { value: "older" } });
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect((screen.getByLabelText("Execution history") as HTMLSelectElement).value).toBe("older");
+    expect(screen.getByText("Selected historical result")).toBeTruthy();
+    expect(post).not.toHaveBeenCalled();
+  });
+  it("does not let a slow poll overwrite an explicit cancellation response", async () => {
+    run.state = "running";
+    state.runs = [run];
+    vi.useFakeTimers();
+    await act(async () => {
+      render(<ExecutionDialog taskId="task" onClose={vi.fn()} initialHistory />);
+    });
+    const initialRead = read;
+    read = async (path) => {
+      if (path !== `${base}/runs/run`) return initialRead(path);
+      const stale = copy(run);
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      return { run: stale };
+    };
+    write = async () => {
+      run.state = "cancelled";
+      return { run: copy(run) };
+    };
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Cancel run" }));
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(screen.getByText("cancelled", { selector: "span" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Cancel run" })).toBeNull();
+    expect(post).toHaveBeenCalledExactlyOnceWith(`${base}/runs/run/cancel`, { mutationId: expect.any(String) });
+  });
   it("opens the exact historical notification run instead of the latest run", async () => {
     const historical = {
       ...copy(run),
