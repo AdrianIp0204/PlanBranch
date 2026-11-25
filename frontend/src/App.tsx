@@ -8,6 +8,7 @@ import {
 import { readPreferences } from "./preferences";
 import {
   readWorkspaceMemory,
+  initialWorkspacePlace,
   rememberedPlace,
   rememberWorkspace,
 } from "./workspaceMemory";
@@ -123,13 +124,22 @@ export default function App() {
         const p = await api<{ projects: ProjectSummary[] }>("/projects");
         if (!alive) return;
         setProjects(p.projects);
-        if (p.projects.length && readPreferences().startup === "resume") {
-          const saved = readWorkspaceMemory().projectId;
-          const id = p.projects.some((p) => p.id === saved)
-            ? saved
-            : p.projects[0].id;
+        const link = new URLSearchParams(window.location.search);
+        const requested = link.get("project");
+        if (requested !== null && !p.projects.some(project => project.id === requested)) {
+          throw new Error("The linked project is unavailable in this local workspace.");
+        }
+        if (requested !== null || (p.projects.length && readPreferences().startup === "resume")) {
+          const saved = requested ?? readWorkspaceMemory().projectId;
+          const id = p.projects.find(project => project.id === saved)?.id ?? p.projects[0].id;
           const e = await api<Envelope>(`/projects/${id}`);
-          if (alive) setEnvelope(e);
+          if (!alive) return;
+          const requestedDiagram = link.get("diagram");
+          if (requested !== null && requestedDiagram !== null &&
+              !e.content.diagrams.some(diagram => diagram.id === requestedDiagram)) {
+            setError("The linked diagram is unavailable. The project's first diagram is open.");
+          }
+          setEnvelope(e);
         }
       } catch (e) {
         if (alive) setError((e as Error).message);
@@ -450,22 +460,28 @@ function Workbench({
     saveError,
   } = useProject();
   const content = session.content;
-  const [active, setActive] = useState(
-    () => rememberedPlace(session.id, content).diagramId,
+  const [initialPlace] = useState(
+    () => initialWorkspacePlace(session.id, content, new URLSearchParams(window.location.search)),
   );
+  const [active, setActive] = useState(initialPlace.diagramId);
   const [briefOpen, setBriefOpen] = useState(false);
   const [quickJump, setQuickJump] = useState(false);
   const afterQuickJump = useRef<(() => void) | null>(null);
   const performing = useRef(false);
   useQuickJumpShortcut(() => setQuickJump(true));
   const [connectionOpen, setConnectionOpen] = useState(false);
-  const [workspaceView, setWorkspaceView] = useState<"diagram" | "build">(
-    () => rememberedPlace(session.id, content).view,
-  );
-  const [selectedBuildTask, setSelectedBuildTask] = useState<string | null>(
-    () => rememberedPlace(session.id, content).taskId,
-  );
+  const [workspaceView, setWorkspaceView] = useState(initialPlace.view);
+  const [selectedBuildTask, setSelectedBuildTask] = useState(initialPlace.taskId);
   useEffect(() => {
+    const url = new URL(window.location.href);
+    const linkedProject = url.searchParams.get("project");
+    const linkedDiagram = url.searchParams.get("diagram");
+    const leftDiagram = linkedDiagram !== null && (linkedDiagram !== active || workspaceView !== "diagram");
+    if (linkedProject !== null && (linkedProject !== session.id || leftDiagram)) {
+      url.searchParams.delete("project");
+      url.searchParams.delete("diagram");
+      window.history.replaceState(window.history.state, "", url);
+    }
     rememberWorkspace(session.id, {
       diagramId: active,
       view: workspaceView,
@@ -795,8 +811,21 @@ function Workbench({
     setScanDialog(true);
     void refreshEvidence(true);
   };
-  const diagram =
-    content.diagrams.find((d) => d.id === active) ?? content.diagrams[0];
+  const diagramIndex = Math.max(0, content.diagrams.findIndex((d) => d.id === active));
+  const diagram = content.diagrams[diagramIndex];
+  const previousDiagram = content.diagrams[diagramIndex - 1];
+  const nextDiagram = content.diagrams[diagramIndex + 1];
+  const visitDiagram = (id: string) => {
+    commit();
+    setWorkspaceView("diagram");
+    setActive(id);
+    setSelected(null);
+    setFocusPane("canvas");
+    if (narrowNavigationOpen) {
+      setNarrowNavigationOpen(false);
+      focusAfterLayout("canvas-title");
+    }
+  };
   useLayoutEffect(() => {
     const main = mainRef.current;
     if (!main) return;
@@ -1221,6 +1250,19 @@ function Workbench({
           : saved
             ? "Saved"
             : "Unsaved changes";
+  async function copyDiagramLink() {
+    if (!diagram) return;
+    if (!(await flush())) throw Error("Save the diagram before copying its local link.");
+    const url = new URL("/", window.location.origin);
+    url.searchParams.set("project", session.id);
+    url.searchParams.set("diagram", diagram.id);
+    try {
+      await navigator.clipboard.writeText(url.href);
+      setNotice("Diagram link copied. It opens in this local PlanBranch workspace.");
+    } catch {
+      setNotice(`Copy this local diagram link manually. ${url.href}`);
+    }
+  }
   const exportFile = async (kind: "json" | "markdown" | "png") => {
     setBusy(true);
     await perform(async () => {
@@ -1436,6 +1478,9 @@ function Workbench({
               {scanRunning ? "Scanning…" : "Scan Python"}
             </button>
             <span className="menu-section-label">Export</span>
+            <button disabled={!diagram || Boolean(proposalPreview)} onClick={() => void perform(copyDiagramLink, false)}>
+              Copy diagram link
+            </button>
             <button disabled={busy} onClick={() => void exportFile("json")}>
               Project JSON
             </button>
@@ -1698,20 +1743,14 @@ function Workbench({
             </button>
           </div>
           <nav className="diagram-list" aria-label="Diagrams">
-            {content.diagrams.map((d, i) => (
+            {content.diagrams.map((d) => (
               <button
                 key={d.id}
                 className={d.id === diagram?.id ? "active" : ""}
-                onClick={() => {
-                  commit();
-                  setWorkspaceView("diagram");
-                  setActive(d.id);
-                  setSelected(null);
-                }}
+                aria-current={workspaceView === "diagram" && d.id === diagram?.id ? "page" : undefined}
+                title={d.name}
+                onClick={() => visitDiagram(d.id)}
               >
-                <span className="diagram-number">
-                  {String(i + 1).padStart(2, "0")}
-                </span>
                 <span>{d.name}</span>
               </button>
             ))}
@@ -1891,7 +1930,7 @@ function Workbench({
             }}
           >
             <div className="canvas-toolbar">
-              <div>
+              <div className="diagram-title-row">
                 <h1 id="canvas-title" tabIndex={-1}>
                   <span>{diagram?.name ?? "No diagram"}</span>
                   <button
@@ -1905,6 +1944,28 @@ function Workbench({
                     ✎
                   </button>
                 </h1>
+                {content.diagrams.length > 1 && (
+                  <nav className="diagram-pager" aria-label="Diagram navigation">
+                    <button
+                      className="icon-button"
+                      aria-label="Previous diagram"
+                      title={previousDiagram ? `Previous: ${previousDiagram.name}` : "First diagram"}
+                      disabled={!previousDiagram}
+                      onClick={() => visitDiagram(previousDiagram.id)}
+                    >
+                      ‹
+                    </button>
+                    <button
+                      className="icon-button"
+                      aria-label="Next diagram"
+                      title={nextDiagram ? `Next: ${nextDiagram.name}` : "Last diagram"}
+                      disabled={!nextDiagram}
+                      onClick={() => visitDiagram(nextDiagram.id)}
+                    >
+                      ›
+                    </button>
+                  </nav>
+                )}
               </div>
               <div className="toolbar-actions">
                 <button
@@ -2126,6 +2187,7 @@ function Workbench({
                     selected={selected}
                     symbols={symbols}
                     onSelect={select}
+                    onReveal={reveal}
                     onDiscuss={() => openPlanning(true)}
                     onBuildTask={(id) => {
                       setSelectedBuildTask(id);

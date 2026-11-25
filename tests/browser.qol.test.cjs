@@ -300,6 +300,55 @@ test("startup resumes the chosen project, diagram and Build task and permits the
 });
 
 
+test("a copied diagram link opens the saved diagram across startup preferences", {timeout: 90000, skip: baselineOnly}, async t => {
+  const h = await setupBrowser(t, {name: "qol-diagram-link"});
+  const p = h.page;
+  const other = await h.api("/projects", "POST", {name: "Other project"});
+  const diagramId = crypto.randomUUID();
+  const linked = await h.saveContent(h.initial.id, content => {
+    content.diagrams.push({id: diagramId, name: "Scene two", nodes: [], edges: []});
+  });
+  await p.reload();
+  const diagrams = p.getByRole("navigation", {name: "Diagrams", exact: true});
+  await diagrams.getByRole("button").filter({hasText: "Scene two"}).click();
+  await p.evaluate(() => Object.defineProperty(navigator, "clipboard", {
+    configurable: true, value: {writeText: async text => { window.copiedDiagramLink = text; }}
+  }));
+  await p.getByLabel("Project actions", {exact:true}).click();
+  await p.getByRole("button", {name:"Copy diagram link", exact:true}).click();
+  await p.getByText("Diagram link copied.", {exact:false}).waitFor();
+  const copied = await p.evaluate(() => window.copiedDiagramLink);
+  const url = new URL(copied);
+  assert.equal(url.origin, h.base);
+  assert.equal(url.searchParams.get("project"), linked.id);
+  assert.equal(url.searchParams.get("diagram"), diagramId);
+
+  await p.evaluate(({otherId, linkedId, firstDiagram}) => {
+    localStorage.setItem("planbranch.preferences.v1", JSON.stringify({startup:"projects"}));
+    localStorage.setItem("planbranch.workspace.v1", JSON.stringify({projectId: otherId, projects: {
+      [linkedId]: {diagramId:firstDiagram, view:"build", taskId:null}
+    }}));
+  }, {otherId:other.id, linkedId:linked.id, firstDiagram:linked.content.diagrams[0].id});
+  await p.goto(copied);
+  const heading = p.locator("#canvas-title > span");
+  await heading.filter({hasText:"Scene two"}).waitFor();
+  await diagrams.getByRole("button").filter({hasText: linked.content.diagrams[0].name}).click();
+  await until(() => !new URL(p.url()).searchParams.has("diagram"));
+  await p.reload();
+  await p.getByRole("heading", {name:"Open a project"}).waitFor();
+
+  url.searchParams.set("diagram", "removed-diagram");
+  await p.goto(url.href);
+  await p.getByText("The linked diagram is unavailable.", {exact:false}).waitFor();
+  await p.getByRole("dialog").getByRole("button", {name:"Close", exact:true}).click();
+  await heading.filter({hasText:linked.content.diagrams[0].name}).waitFor();
+  url.searchParams.set("project", "removed-project");
+  await p.goto(url.href);
+  await p.getByText("The linked project is unavailable in this local workspace.").waitFor();
+  assert.equal(await p.getByTestId("diagram-canvas").count(), 0);
+  assert.equal((await h.api("/projects")).projects.length, 2);
+});
+
 test("grid preference also follows into Tidy and proposed-plan previews", { timeout: 90000 }, async (t) => {
   const h = await setupBrowser(t, { name: "qol-preview-grid", planningFixture: true });
   const p = h.page;

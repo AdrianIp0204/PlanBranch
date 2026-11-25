@@ -7,6 +7,7 @@ import {
   screen,
 } from "@testing-library/react";
 import { ProjectProvider, useProject } from "./store";
+import { useState } from "react";
 import Inspector from "./Inspector";
 import { api } from "./api";
 import { copy, createNode, type Envelope, type Content } from "./types";
@@ -65,12 +66,16 @@ function Harness() {
 }
 function InspectorHarness() {
   const { session } = useProject();
+  const [selected, setSelected] = useState<string | null>(
+    session.content.diagrams[0].nodes[0].id,
+  );
   return (
     <Inspector
       diagram={session.content.diagrams[0]}
-      selected={session.content.diagrams[0].nodes[0].id}
+      selected={selected}
       symbols={[]}
-      onSelect={() => {}}
+      onSelect={setSelected}
+      onReveal={setSelected}
       onVariable={() => {}}
     />
   );
@@ -95,6 +100,33 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe("editor autosave and controls", () => {
+  it("follows outgoing connections by ID without changing the project", () => {
+    const project = envelope();
+    const diagram = project.content.diagrams[0];
+    const start = diagram.nodes[0];
+    start.title = "Entry";
+    const note = { ...createNode("note", { x: 0, y: 100 }), title: "Witness" };
+    const ending = { ...createNode("end", { x: 100, y: 100 }), title: "Witness" };
+    diagram.nodes.push(note, ending);
+    diagram.edges.push(
+      { id: "ask", source: start.id, target: note.id, label: "Ask" },
+      { id: "leave", source: start.id, target: ending.id, label: "Leave" },
+      { id: "return", source: note.id, target: start.id, label: "" },
+    );
+    project.history[0].content = copy(project.content);
+    render(
+      <ProjectProvider envelope={project}>
+        <InspectorHarness />
+        <Harness />
+      </ProjectProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Ask → Witness" }));
+    fireEvent.click(screen.getByRole("button", { name: "Entry" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leave → Witness" }));
+    expect(screen.queryByRole("navigation", { name: "Outgoing connections" })).toBeNull();
+    expect(screen.getByTestId("history-count").textContent).toBe("1");
+    expect(api).not.toHaveBeenCalled();
+  });
   it("groups fast input until idle and saves one durable checkpoint", async () => {
     render(
       <ProjectProvider envelope={envelope()}>

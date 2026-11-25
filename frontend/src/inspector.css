@@ -1,3 +1,17 @@
+.inspector-connections {
+  display: grid;
+  gap: 4px;
+  margin: 12px 0;
+}
+
+.inspector-connections > button {
+  display: block;
+  min-width: 0;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .inspector .inspector-section {
   padding-top: 0;
   margin-top: 0;

@@ -158,6 +158,24 @@
   font-weight: 600;
   line-height: 1.4;
 }
+.diagram-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.diagram-title-row h1 {
+  min-width: 0;
+  max-width: 100%;
+}
+.diagram-pager {
+  display: flex;
+  gap: 2px;
+}
+.diagram-pager .icon-button {
+  font-size: 1.3rem;
+  line-height: 1;
+}
 .workspace .toolbar-actions {
   gap: 5px;
 }

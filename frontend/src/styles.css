@@ -373,11 +373,6 @@ pre {
   color: var(--accent);
   font-weight: 500;
 }
-.diagram-number {
-  font-size: var(--font-small);
-  font-family: Consolas, monospace;
-  color: var(--muted);
-}
 .palette {
   margin-top: 29px;
   border-top: 1px solid var(--line);
@@ -1628,7 +1623,6 @@ input[type="checkbox"] {
 .section-heading,
 .sidebar-heading,
 .eyebrow,
-.diagram-number,
 .local-label,
 .breadcrumb > span:last-child,
 .save-state,
@@ -1737,8 +1731,7 @@ small {
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.project-icon,
-.diagram-number {
+.project-icon {
   flex: none;
 }
 .diagram-heading {

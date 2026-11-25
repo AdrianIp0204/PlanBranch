@@ -21,6 +21,7 @@ export default function Inspector({
   selected,
   symbols,
   onSelect,
+  onReveal,
   onVariable,
   onDiscuss,
   onBuildTask,
@@ -29,6 +30,7 @@ export default function Inspector({
   selected: string | null;
   symbols: DetectedSymbol[];
   onSelect: (id: string | null) => void;
+  onReveal?: (nodeId: string) => void;
   onVariable: (id: string | null) => void;
   onDiscuss?: () => void;
   onBuildTask?: (id: string) => void;
@@ -166,6 +168,8 @@ export default function Inspector({
     );
   const n = node!;
   const links = content.nodeLinks.filter((l) => l.nodeId === n.id);
+  const outgoing = diagram.edges.filter((connection) => connection.source === n.id);
+  const nodeTitles = new Map(diagram.nodes.map((target) => [target.id, target.title]));
   const textField = (
     label: string,
     key: keyof TaskNode,
@@ -259,6 +263,22 @@ export default function Inspector({
       {n.status === "blocked" &&
         textField("What is blocking this?", "blocker", true)}
       {textField("Description", "description", true)}
+      {onReveal && outgoing.length > 0 && (
+        <nav className="inspector-connections" aria-label="Outgoing connections">
+          <div className="section-heading">Follow a connection</div>
+          {outgoing.map((connection) => (
+            <button
+              key={connection.id}
+              type="button"
+              className="quiet"
+              onClick={() => onReveal(connection.target)}
+            >
+              {connection.label.trim() && `${connection.label.trim()} → `}
+              {nodeTitles.get(connection.target) || "Untitled node"}
+            </button>
+          ))}
+        </nav>
+      )}
       <label className="pin-control">
         <input
           type="checkbox"

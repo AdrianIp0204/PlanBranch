@@ -62,6 +62,8 @@ Provider, Git and Docker setup are separate from startup. **Setup capabilities**
 
 ## Workspace
 
+In a project with several diagrams, use **Previous diagram** and **Next diagram** beside the title to read them in sidebar order. Select a node and choose a destination under **Follow a connection** to trace a branch on the canvas. **Project → Copy diagram link** copies a bookmark for that diagram in this local workspace. Renaming the diagram keeps the bookmark valid.
+
 Create a project or explicitly load the removable example. A project contains multiple named diagrams. Use **Add node** above the canvas to add start/end, process, decision, input/output, and note nodes. Drag nodes and connect their handles, or use the Connect controls. Branches, merges, and cycles are valid. Select a connection to label it; double-click a node to inspect it.
 
 The inspector holds description, notes, pseudocode, target file/scope, a checklist, status, blocker details, and decision reasoning. Notes are plain text, rendered without HTML execution. Completion checkboxes update status; checklist items do not. Diagram totals exclude note nodes; Build task completion is separate.
