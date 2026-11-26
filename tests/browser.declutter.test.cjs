@@ -27,10 +27,27 @@ async function keyboardProjectMenu(p) {
   await trigger.press("Enter");
   assert.equal(await projectMenu(p).evaluate(el => el.open), true);
   const actions = projectMenu(p).getByRole("button");
-  assert.equal(await actions.count(), 12, "All project actions remain available");
-  for (const name of ["Project brief", "Checkpoints and alternatives", "Save", "Scan Python", "Project JSON", "Full diagram PNG", "Implementation brief", "Setup capabilities", "Guided offline example", /Import JSON$/, /Load example$/, "Back up database"])
-    assert.equal(await projectMenu(p).getByRole("button", { name, exact: true }).count(), 1);
-  for (let index = 0; index < await actions.count(); index++) {
+  const expectedActions = [
+    "Checkpoints and alternatives",
+    "Project brief",
+    "Save",
+    "Scan Python",
+    "Copy diagram link",
+    "Project JSON",
+    "Full diagram PNG",
+    "Implementation brief",
+    "Setup capabilities",
+    "Guided offline example",
+    /Import JSON$/,
+    /Load example$/,
+    "Back up database",
+  ];
+  assert.equal(await actions.count(), expectedActions.length, "All project actions remain available");
+  for (const name of expectedActions) {
+    const action = projectMenu(p).getByRole("button", { name, exact: true });
+    assert.equal(await action.count(), 1, `Expected one project action matching ${name}`);
+  }
+  for (let index = 0; index < expectedActions.length; index++) {
     await p.keyboard.press("Tab");
     const action = actions.nth(index);
     await focused(action);
