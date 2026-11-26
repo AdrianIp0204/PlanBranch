@@ -29,6 +29,42 @@ async function graphState(p) {
   }));
 }
 
+test('Diagram navigation preserves authored names and returns narrow screens to the chosen canvas', { timeout: 60000 }, async t => {
+  const h = await setupBrowser(t, { name: 'diagram-navigation', seed: { name: 'Scene list' }, viewport: { width: 1440, height: 900 } });
+  const p = h.page;
+  const pager = p.getByRole('navigation', { name: 'Diagram navigation', exact: true });
+  assert.equal(await pager.count(), 0, 'A single diagram needs no paging controls');
+  const names = ['00 · Overview', '01 · Review', 'Unnumbered ending'];
+  await h.saveContent(h.initial.id, content => {
+    content.diagrams[0].name = names[0];
+    for (const name of names.slice(1)) {
+      content.diagrams.push({ id: crypto.randomUUID(), name, nodes: [], edges: [] });
+    }
+  });
+  await p.reload();
+  const list = p.getByRole('navigation', { name: 'Diagrams', exact: true });
+  const previous = pager.getByRole('button', { name: 'Previous diagram', exact: true });
+  const next = pager.getByRole('button', { name: 'Next diagram', exact: true });
+  await next.waitFor();
+  assert.deepEqual(await list.getByRole('button').allInnerTexts(), names);
+  assert.ok(await previous.isDisabled());
+  await next.click();
+  assert.equal(await list.getByRole('button', { name: names[1], exact: true }).getAttribute('aria-current'), 'page');
+  await next.click();
+  assert.ok(await next.isDisabled());
+  await previous.click();
+  await p.reload();
+  await p.getByRole('heading', { name: /01 · Review/ }).waitFor();
+
+  await p.setViewportSize({ width: 720, height: 800 });
+  await list.waitFor({ state: 'hidden' });
+  await p.getByRole('button', { name: 'Toggle navigation', exact: true }).click();
+  await list.getByRole('button', { name: names[2], exact: true }).click();
+  await list.waitFor({ state: 'hidden' });
+  await until(async () => p.locator('#canvas-title').evaluate(el => document.activeElement === el));
+  assert.equal(await p.locator('#canvas-title > span').innerText(), names[2]);
+});
+
 test('Quick jump finds diagram items, Build tasks, and separate planned and detected variables', { timeout: 150000 }, async t => {
   const h = await setupBrowser(t, { name: 'navigation-search', planningFixture: true, viewport: { width: 1440, height: 900 } });
   const p = h.page;

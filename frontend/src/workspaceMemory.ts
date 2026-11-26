@@ -24,6 +24,12 @@ export function rememberedPlace(projectId: string, content: Content): WorkspaceP
     taskId: content.buildTasks?.some(t => t.id === place?.taskId) ? place.taskId : null,
   };
 }
+export function initialWorkspacePlace(projectId: string, content: Content, link: URLSearchParams): WorkspacePlace {
+  if (link.get("project") !== projectId || !link.has("diagram")) return rememberedPlace(projectId, content);
+  const diagram = content.diagrams.find(item => item.id === link.get("diagram")) ?? content.diagrams[0];
+  return { diagramId: diagram?.id ?? "", view: "diagram", taskId: null };
+}
+
 export function rememberWorkspace(projectId: string, place: WorkspacePlace) {
   try {
     const saved = readWorkspaceMemory();
